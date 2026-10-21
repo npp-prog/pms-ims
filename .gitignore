@@ -1,0 +1,7 @@
+node_modules/
+.firebaserc
+*-debug.log
+firebase-debug.*.log
+.firebase/
+*service-account*.json
+.DS_Store

@@ -1,0 +1,17 @@
+{
+  "name": "pms-ims",
+  "private": true,
+  "type": "module",
+  "description": "Property and Inventory Management (PMS + IMS merged) — Municipal Government of Candoni",
+  "scripts": {
+    "test": "npm run test:logic && npm run test:rules",
+    "test:logic": "node --test tests/logic.test.mjs",
+    "test:rules": "firebase emulators:exec --only firestore --project demo-pmsims \"node --test tests/rules.test.mjs\"",
+    "serve": "npx --yes http-server public -p 5173 -c-1"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.12.2",
+    "firebase-tools": "^13.29.0"
+  }
+}

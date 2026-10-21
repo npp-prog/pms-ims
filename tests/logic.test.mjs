@@ -1,0 +1,123 @@
+// Business-rule tests (no Firebase needed):  npm run test:logic
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  round2, lineAmount, linesTotal, suggestCategory, sxClass, counterKey, formatNumber, remainingQty, statusAfterIssue,
+  postingSummary, validateAir, validateInspection, checkIssue, stockCards, rsmi
+} from "../public/js/core/logic.js";
+import { accountCategory, isDistributionAccount, SUPERADMIN_EMAILS } from "../public/js/core/catalog.js";
+import { readFileSync } from "node:fs";
+
+test("money is rounded to the centavo", () => {
+  assert.equal(round2(0.1 + 0.2), 0.3);
+  assert.equal(round2(1.005), 1.01);
+  assert.equal(lineAmount({ qty: 3, unitCost: 33.333 }), 100);
+  assert.equal(linesTotal([{ qty: 2, unitCost: 10.25 }, { qty: 1, unitCost: 0.1 }]), 20.6);
+});
+
+test("classification follows the ₱50,000 / ₱5,000 thresholds", () => {
+  assert.equal(suggestCategory("equipment", 50000), "ppe");
+  assert.equal(suggestCategory("equipment", 49999.99), "sx");
+  assert.equal(suggestCategory("supplies", 90000), "cons");
+  assert.equal(sxClass(5000), "low");
+  assert.equal(sxClass(5000.01), "high");
+  assert.equal(suggestCategory("equipment", 60000, { capitalization: 75000, sxHighValue: 5000 }), "sx");
+});
+
+test("document numbers follow the PMS / IMS formats", () => {
+  const air = counterKey("GF", "air", "2026-10-21");
+  assert.deepEqual(air, { key: "GF_AIR_2026-10", ym: "2026-10", prefix: "AIR" });
+  assert.equal(formatNumber("air", air.ym, air.prefix, 7), "2026-10-0007");
+  const ics = counterKey("SEF", "ics", "2026-05-02", "low");
+  assert.equal(ics.key, "SEF_SPLV_2026-05");
+  assert.equal(formatNumber("ics", ics.ym, ics.prefix, 27), "SPLV-2026-05-0027");
+  assert.equal(formatNumber("ics", "2026-05", counterKey("GF", "ics", "2026-05-02", "high").prefix, 1), "SPHV-2026-05-0001");
+  assert.throws(() => counterKey("GF", "par", ""));
+});
+
+test("AIR validation", () => {
+  const ok = { fund: "GF", date: "2026-10-01", supplier: "ABC", office: "MHO", lines: [{ description: "Bond paper", unit: "ream", qty: 10, unitCost: 250 }] };
+  assert.deepEqual(validateAir(ok), []);
+  assert.match(validateAir({ ...ok, lines: [] })[0], /at least one item/);
+  assert.match(validateAir({ ...ok, lines: [{ description: "x", unit: "pc", qty: 0, unitCost: 1 }] })[0], /quantity/);
+  assert.match(validateAir({ ...ok, lines: [{ description: "x", unit: "pc", qty: 1, unitCost: "" }] })[0], /unit cost/);
+  const insp = { inspection: { dateInspected: "2026-10-02", inspectedOk: true }, acceptance: { dateReceived: "2026-10-02", status: "complete" },
+    lines: [{ category: "cons", accountCode: "10404010", stockNo: "OS-1" }] };
+  assert.deepEqual(validateInspection(insp), []);
+  assert.match(validateInspection({ ...insp, lines: [{ category: "cons", accountCode: "10404010" }] })[0], /stock number/);
+  assert.match(validateInspection({ ...insp, acceptance: { dateReceived: "2026-10-02", status: "partial" } })[0], /partially/);
+});
+
+const air = {
+  id: "A1", fund: "GF", airNo: "2026-10-0001", date: "2026-10-01", status: "approved", office: "MHO",
+  acceptance: { dateReceived: "2026-10-02" },
+  lines: [
+    { id: "L1", description: "Laptop", unit: "unit", qty: 2, unitCost: 65000, amount: 130000, category: "ppe", accountCode: "10705030", issuedQty: 0 },
+    { id: "L2", description: "Chair", unit: "pc", qty: 4, unitCost: 3500, amount: 14000, category: "sx", accountCode: "10406010", issuedQty: 0 },
+    { id: "L3", description: "Monitor", unit: "unit", qty: 1, unitCost: 8000, amount: 8000, category: "sx", accountCode: "10405030", issuedQty: 0 },
+    { id: "L4", description: "Bond paper", unit: "ream", qty: 10, unitCost: 250, amount: 2500, category: "cons", accountCode: "10404010", stockNo: "OS-1", issuedQty: 0 }
+  ]
+};
+
+test("issuance is checked against what is left on the AIR", () => {
+  assert.deepEqual(checkIssue(air, "par", [{ lineId: "L1", qty: 1 }]).errors, []);
+  assert.match(checkIssue(air, "par", [{ lineId: "L1", qty: 3 }]).errors[0], /only 2/);
+  assert.match(checkIssue(air, "par", [{ lineId: "L2", qty: 1 }]).errors[0], /not PAR/);
+  assert.match(checkIssue(air, "ics", [{ lineId: "L2", qty: 1.5 }]).errors[0], /whole units/);
+  assert.deepEqual(checkIssue(air, "ris", [{ lineId: "L4", qty: 2.5 }]).errors, []);
+  assert.match(checkIssue({ ...air, status: "submitted" }, "ris", [{ lineId: "L4", qty: 1 }]).errors[0], /approved/);
+  assert.match(checkIssue(air, "ris", []).errors[0], /at least one/);
+});
+
+test("AIR is fully issued only when every line is covered", () => {
+  assert.equal(statusAfterIssue(air.lines), "approved");
+  assert.equal(remainingQty({ qty: 10, issuedQty: 2.5 }), 7.5);
+  assert.equal(statusAfterIssue(air.lines.map(l => ({ ...l, issuedQty: l.qty }))), "issued");
+});
+
+test("posting summary covers the supply receipt and every live document", () => {
+  const issued = { ...air, lines: air.lines.map(l => ({ ...l, issuedQty: l.qty })), status: "issued" };
+  const docs = [
+    { airId: "A1", docType: "par", status: "issued", posting: { posted: true } },
+    { airId: "A1", docType: "ics", status: "issued", posting: { posted: false } },
+    { airId: "A1", docType: "ris", status: "cancelled", posting: { posted: false } }
+  ];
+  assert.deepEqual(postingSummary(issued, docs), { total: 3, posted: 1, state: "partial", unissued: false });
+  const all = postingSummary({ ...issued, posting: { posted: true } }, docs.map(d => ({ ...d, posting: { posted: true } })));
+  assert.equal(all.state, "posted");
+  assert.equal(postingSummary({ ...air, lines: [air.lines[0]] }, []).state, "none");
+  // everything issued so far is posted, but PPE is still waiting to be issued -> partial
+  assert.equal(postingSummary({ ...air, lines: [air.lines[0]] }, [{ airId: "A1", docType: "par", status: "issued", posting: { posted: true } }]).state, "partial");
+});
+
+test("stock cards and RSMI use the exact cost of each AIR line", () => {
+  const air2 = { ...air, id: "A2", airNo: "2026-10-0002", date: "2026-10-05", acceptance: { dateReceived: "2026-10-05" }, lines: [{ ...air.lines[3], id: "L9", qty: 4, unitCost: 260 }] };
+  const docs = [
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0001", date: "2026-10-03", recipient: { office: "MHO" }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 6, unitCost: 250, amount: 1500, accountCode: "10404010" }] },
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0002", date: "2026-10-06", recipient: { office: "MTO" }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 4, unitCost: 260, amount: 1040, accountCode: "10404010" }] },
+    { fund: "GF", docType: "ris", status: "cancelled", number: "2026-10-0003", date: "2026-10-06", lines: [{ stockNo: "OS-1", qty: 99, unitCost: 1 }] }
+  ];
+  const [card] = stockCards([air, air2, { ...air, id: "X", status: "submitted" }], docs, "GF");
+  assert.equal(card.stockNo, "OS-1");
+  assert.equal(card.balQty, 4);
+  assert.equal(card.balValue, round2(2500 + 1040 - 1500 - 1040));
+  assert.deepEqual(card.moves.map(m => m.ref), ["AIR 2026-10-0001", "RIS 2026-10-0001", "AIR 2026-10-0002", "RIS 2026-10-0002"]);
+  const r = rsmi(docs, "GF", "2026-10-01", "2026-10-31");
+  assert.equal(r.lines.length, 2);
+  assert.equal(r.total, 2540);
+  assert.equal(r.recap.length, 2);
+  assert.equal(rsmi(docs, "GF", "2026-10-04", "2026-10-31").total, 1040);
+});
+
+test("catalog helpers", () => {
+  assert.equal(accountCategory("10705030"), "ppe");
+  assert.equal(accountCategory("10405030"), "sx");
+  assert.equal(accountCategory("10404010"), "cons");
+  assert.ok(isDistributionAccount("10402020"));
+  assert.ok(!isDistributionAccount("10404010"));
+});
+
+test("the Super Administrator email matches firestore.rules", () => {
+  const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
+  for (const e of SUPERADMIN_EMAILS) assert.ok(rules.includes(`'${e}'`), `${e} missing from firestore.rules`);
+});

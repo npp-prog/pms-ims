@@ -1,0 +1,171 @@
+// Business rules of the AIR → PAR / ICS / RIS → Accounting posting flow.
+// Pure functions only (no Firebase), so the same code runs in the browser and in the tests.
+import { DEFAULT_THRESHOLDS, DOC_TYPES } from "./catalog.js";
+
+export const round2 = n => Math.round((Number(n) || 0) * 100 + Number.EPSILON * 100) / 100;
+export const lineAmount = l => round2((Number(l.qty) || 0) * (Number(l.unitCost) || 0));
+export const linesTotal = lines => round2((lines || []).reduce((t, l) => t + lineAmount(l), 0));
+
+/** Proposed category for an AIR line. End-users only say whether a line is equipment/furniture
+ *  or supplies; the unit cost then decides PPE vs Semi-Expendable. The GSO can override. */
+export function suggestCategory(kind, unitCost, thresholds = DEFAULT_THRESHOLDS) {
+  if (kind === "supplies") return "cons";
+  return (Number(unitCost) || 0) >= thresholds.capitalization ? "ppe" : "sx";
+}
+/** Semi-Expendable value class, by unit cost: "high" (SPHV) above the threshold, else "low" (SPLV). */
+export function sxClass(unitCost, thresholds = DEFAULT_THRESHOLDS) {
+  return (Number(unitCost) || 0) > thresholds.sxHighValue ? "high" : "low";
+}
+
+/** Counter key and the formatted number for a new document.
+ *  AIR, PAR and RIS: YYYY-MM-NNNN (per fund and month, as in PMS/IMS).
+ *  ICS: SPHV-YYYY-MM-NNNN or SPLV-YYYY-MM-NNNN (separate sequences, as in PMS). */
+export function counterKey(fund, type, date, cls = "") {
+  const ym = String(date || "").slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) throw new Error("A valid date is required for numbering.");
+  const prefix = type === "ics" ? (cls === "low" ? "SPLV" : "SPHV") : type.toUpperCase();
+  return { key: `${fund}_${prefix}_${ym}`, ym, prefix };
+}
+export function formatNumber(type, ym, prefix, seq) {
+  const n = `${ym}-${String(seq).padStart(4, "0")}`;
+  return type === "ics" ? `${prefix}-${n}` : n;
+}
+
+export const remainingQty = l => round2((Number(l.qty) || 0) - (Number(l.issuedQty) || 0));
+
+/** Workflow status of an AIR, as stored. "approved" AIRs are then described by issuance progress. */
+export const AIR_STATUS = {
+  draft: "Draft", submitted: "For GSO Inspection", returned: "Returned to End-User",
+  approved: "For Issuance", issued: "Fully Issued"
+};
+/** After approval: "issued" once every line has been fully covered by a PAR, ICS or RIS. */
+export function statusAfterIssue(lines) {
+  return (lines || []).every(l => remainingQty(l) <= 0) ? "issued" : "approved";
+}
+
+/** Accounting status of one AIR and the documents issued from it.
+ *  Items to post: the AIR receipt itself when it carries supplies (they enter the Supplies Ledger
+ *  Card when received), plus every PAR / ICS / RIS issued from it that is not cancelled. */
+export function postingSummary(air, docs) {
+  const live = (docs || []).filter(d => d.airId === air.id && d.status !== "cancelled");
+  const items = [];
+  if ((air.lines || []).some(l => l.category === "cons")) items.push({ kind: "air", posted: !!air.posting?.posted });
+  live.forEach(d => items.push({ kind: d.docType, posted: !!d.posting?.posted }));
+  const posted = items.filter(i => i.posted).length;
+  const unissued = (air.lines || []).some(l => remainingQty(l) > 0 && l.category !== "cons");
+  let state = "none";
+  if (!items.length) state = "none";
+  else if (posted === items.length) state = unissued ? "partial" : "posted";
+  else if (posted) state = "partial";
+  else state = "unposted";
+  return { total: items.length, posted, state, unissued };
+}
+export const POSTING_STATE = { none: "Nothing to post yet", unposted: "Not posted", partial: "Partially posted", posted: "Fully posted" };
+
+/** Validates an AIR before it is submitted to the GSO. Returns a list of problems (empty = ok). */
+export function validateAir(a) {
+  const errs = [];
+  if (!a.fund) errs.push("Choose the fund.");
+  if (!a.date) errs.push("Enter the AIR date.");
+  if (!String(a.supplier || "").trim()) errs.push("Enter the supplier.");
+  if (!String(a.office || "").trim()) errs.push("Enter the requisitioning office.");
+  const lines = a.lines || [];
+  if (!lines.length) errs.push("Add at least one item.");
+  lines.forEach((l, i) => {
+    const n = `Item ${i + 1}`;
+    if (!String(l.description || "").trim()) errs.push(`${n}: enter the description.`);
+    if (!String(l.unit || "").trim()) errs.push(`${n}: enter the unit.`);
+    if (!(Number(l.qty) > 0)) errs.push(`${n}: quantity must be more than zero.`);
+    if (!(Number(l.unitCost) >= 0) || l.unitCost === "" || l.unitCost == null) errs.push(`${n}: enter the unit cost.`);
+  });
+  return errs;
+}
+
+/** Validates the GSO's inspection before approval. */
+export function validateInspection(a) {
+  const errs = [];
+  if (!a.inspection?.dateInspected) errs.push("Enter the date inspected.");
+  if (!a.inspection?.inspectedOk) errs.push("Confirm the items were inspected, verified and found in order.");
+  if (!a.acceptance?.dateReceived) errs.push("Enter the date received.");
+  if (a.acceptance?.status === "partial" && !String(a.acceptance?.partialNote || "").trim()) errs.push("Specify what was partially received.");
+  (a.lines || []).forEach((l, i) => {
+    if (!["ppe", "sx", "cons"].includes(l.category)) errs.push(`Item ${i + 1}: choose PPE, Semi-Expendable or Supplies.`);
+    if (!l.accountCode) errs.push(`Item ${i + 1}: choose the account code.`);
+    if (l.category === "cons" && !String(l.stockNo || "").trim()) errs.push(`Item ${i + 1}: enter the stock number.`);
+  });
+  return errs;
+}
+
+/** Checks an issuance request against the AIR's remaining quantities.
+ *  picks: [{ lineId, qty }]. Returns { errors, lines } where lines are the AIR lines with qty set. */
+export function checkIssue(air, docType, picks) {
+  const errors = [];
+  if (!["approved"].includes(air.status)) errors.push("Only an approved AIR with items left to issue can be issued from.");
+  const want = DOC_TYPES[docType]?.category;
+  if (!want) errors.push("Unknown document type.");
+  const chosen = (picks || []).filter(p => Number(p.qty) > 0);
+  if (!chosen.length) errors.push("Choose at least one item and quantity to issue.");
+  const out = [];
+  for (const p of chosen) {
+    const l = (air.lines || []).find(x => x.id === p.lineId);
+    if (!l) { errors.push("An item is no longer on this AIR."); continue; }
+    if (l.category !== want) errors.push(`${l.description}: is not ${DOC_TYPES[docType].short} property.`);
+    const qty = round2(p.qty);
+    if (qty > remainingQty(l) + 1e-9) errors.push(`${l.description}: only ${remainingQty(l)} ${l.unit} left to issue.`);
+    if ((docType === "par" || docType === "ics") && !Number.isInteger(qty)) errors.push(`${l.description}: issue whole units of property.`);
+    out.push({ ...l, issueQty: qty });
+  }
+  return { errors, lines: out };
+}
+
+/** Supplies stock cards for one fund: receipts are approved AIR supply lines (on the date received),
+ *  issues are RIS lines. Cost is carried per AIR line (specific identification), so the balance in
+ *  pesos is exact. */
+export function stockCards(airs, docs, fund) {
+  const cards = new Map();
+  const card = l => {
+    const key = String(l.stockNo || "").trim().toUpperCase();
+    if (!cards.has(key)) cards.set(key, { stockNo: key, description: l.description, unit: l.unit, accountCode: l.accountCode, moves: [] });
+    return cards.get(key);
+  };
+  for (const a of airs || []) {
+    if (a.fund !== fund || !["approved", "issued"].includes(a.status)) continue;
+    for (const l of a.lines || []) {
+      if (l.category !== "cons") continue;
+      card(l).moves.push({ date: a.acceptance?.dateReceived || a.date, ref: `AIR ${a.airNo}`, type: "receipt", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: a.office });
+    }
+  }
+  for (const d of docs || []) {
+    if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
+    for (const l of d.lines || []) card(l).moves.push({ date: d.date, ref: `RIS ${d.number}`, type: "issue", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: d.recipient?.office || "" });
+  }
+  for (const c of cards.values()) {
+    c.moves.sort((x, y) => String(x.date).localeCompare(String(y.date)) || (x.type === "receipt" ? -1 : 1));
+    let q = 0, v = 0;
+    for (const m of c.moves) {
+      const amt = round2(m.qty * m.unitCost);
+      if (m.type === "receipt") { q = round2(q + m.qty); v = round2(v + amt); } else { q = round2(q - m.qty); v = round2(v - amt); }
+      Object.assign(m, { amount: amt, balQty: q, balValue: v });
+    }
+    c.balQty = q; c.balValue = v;
+  }
+  return [...cards.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo));
+}
+
+/** RSMI lines (Appendix 40) for RIS issued within [from, to], with the recap by stock number. */
+export function rsmi(docs, fund, from, to) {
+  const lines = [];
+  for (const d of docs || []) {
+    if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
+    if ((from && d.date < from) || (to && d.date > to)) continue;
+    for (const l of d.lines || []) lines.push({ risNo: d.number, date: d.date, office: d.recipient?.office || "", stockNo: l.stockNo, description: l.description, unit: l.unit, qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, amount: lineAmount(l), accountCode: l.accountCode });
+  }
+  lines.sort((a, b) => a.date.localeCompare(b.date) || a.risNo.localeCompare(b.risNo));
+  const recap = new Map();
+  for (const l of lines) {
+    const k = `${l.stockNo}|${l.unitCost}`;
+    const r = recap.get(k) || { stockNo: l.stockNo, unitCost: l.unitCost, qty: 0, amount: 0, accountCode: l.accountCode };
+    r.qty = round2(r.qty + l.qty); r.amount = round2(r.amount + l.amount); recap.set(k, r);
+  }
+  return { lines, recap: [...recap.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo)), total: round2(lines.reduce((t, l) => t + l.amount, 0)) };
+}

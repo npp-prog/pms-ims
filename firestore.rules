@@ -1,0 +1,149 @@
+rules_version = '2';
+
+// PMS-IMS — Firestore security rules.
+//
+// Roles live on users/{uid}.role and only count while users/{uid}.status == "active":
+//   enduser     encodes AIRs (own records only); reads the PAR/ICS/RIS issued from them
+//   gso         inspects and approves/returns AIRs; issues PAR, ICS, RIS; cancels unposted documents
+//   accounting  marks AIR supply receipts and PAR/ICS/RIS as posted in the registry
+//   admin       everything above + users (except administrators) and settings
+//   superadmin  everything, including administrators
+// The hardcoded Super Administrator email below can claim its role once (verified email only);
+// it must match SUPERADMIN_EMAILS in public/js/core/catalog.js.
+//
+// Deploy: firebase deploy --only firestore:rules   (or paste into Firestore → Rules → Publish)
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function bootstrapEmail() {
+      return signedIn() && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in ['npp@mgocandoniaccounting.org'];
+    }
+    function userPath() { return /databases/$(database)/documents/users/$(request.auth.uid); }
+    function active() { return signedIn() && exists(userPath()) && get(userPath()).data.status == 'active'; }
+    function hasRole(roles) { return active() && get(userPath()).data.role in roles; }
+    function isAdmin() { return hasRole(['admin', 'superadmin']); }
+    function isSuper() { return hasRole(['superadmin']); }
+    function viewer() { return hasRole(['gso', 'accounting', 'admin', 'superadmin']); }
+    function encoder() { return hasRole(['enduser', 'admin', 'superadmin']); }
+    function issuer() { return hasRole(['gso', 'admin', 'superadmin']); }
+    function poster() { return hasRole(['accounting', 'admin', 'superadmin']); }
+    function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
+    function validFund(f) { return f in ['GF', 'SEF', 'TF']; }
+
+    // ---------------- users ----------------
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.uid == uid && request.resource.data.email == request.auth.token.email
+        && ((request.resource.data.role == 'enduser' && request.resource.data.status == 'pending')
+            || (bootstrapEmail() && request.resource.data.role == 'superadmin' && request.resource.data.status == 'active'));
+
+      allow update: if
+        // a pending user corrects their own registration (role and status stay as they are)
+        (signedIn() && request.auth.uid == uid && resource.data.status == 'pending'
+          && request.resource.data.uid == uid && request.resource.data.email == resource.data.email
+          && request.resource.data.role == 'enduser' && request.resource.data.status == 'pending')
+        // the designated Super Administrator claims the role
+        || (request.auth.uid == uid && bootstrapEmail() && request.resource.data.uid == uid
+          && request.resource.data.role == 'superadmin' && request.resource.data.status == 'active')
+        // everyone edits their own profile details
+        || (signedIn() && request.auth.uid == uid && onlyChanged(['displayName', 'office', 'position', 'contact', 'photoURL', 'updatedAt']))
+        // administrators set other people's role and status
+        || (isAdmin() && request.auth.uid != uid
+          && onlyChanged(['role', 'status', 'note', 'reviewedBy', 'reviewedAt', 'updatedAt'])
+          && request.resource.data.role in ['superadmin', 'admin', 'accounting', 'gso', 'enduser']
+          && request.resource.data.status in ['pending', 'active', 'disabled', 'declined']
+          && (isSuper() || (!(request.resource.data.role in ['admin', 'superadmin']) && !(resource.data.role in ['admin', 'superadmin']))));
+
+      allow delete: if false;
+    }
+
+    // ---------------- settings and numbering ----------------
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // One counter per fund, document type and month: seq only ever goes up by one.
+    match /counters/{key} {
+      allow read: if active();
+      allow create: if active() && request.resource.data.seq == 1;
+      allow update: if active() && request.resource.data.seq == resource.data.seq + 1;
+      allow delete: if false;
+    }
+
+    // ---------------- Acceptance and Inspection Reports ----------------
+    match /airs/{id} {
+      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
+
+      allow create: if encoder()
+        && request.resource.data.endUserUid == request.auth.uid
+        && validFund(request.resource.data.fund)
+        && request.resource.data.lines is list
+        && request.resource.data.status in ['draft', 'submitted']
+        && (request.resource.data.status == 'draft' || request.resource.data.airNo.size() > 0)
+        && !request.resource.data.keys().hasAny(['inspection', 'acceptance', 'posting', 'approvedBy', 'approvedAt']);
+
+      allow update: if
+        // End-User edits a draft or a returned AIR, or (re)submits it
+        (encoder() && resource.data.endUserUid == request.auth.uid
+          && resource.data.status in ['draft', 'returned']
+          && request.resource.data.status in ['draft', 'submitted']
+          && (request.resource.data.status == 'draft' || request.resource.data.airNo.size() > 0)
+          && (resource.data.airNo == '' || (request.resource.data.airNo == resource.data.airNo && request.resource.data.fund == resource.data.fund))
+          && validFund(request.resource.data.fund)
+          && onlyChanged(['fund', 'date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total', 'airNo', 'status', 'history', 'updatedAt', 'submittedAt']))
+        // GSO inspects: approves or returns a submitted AIR
+        || (issuer() && resource.data.status == 'submitted'
+          && request.resource.data.status in ['approved', 'returned']
+          && onlyChanged(['lines', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
+        // GSO issues or cancels documents: issued quantities and the resulting status
+        || (issuer() && resource.data.status in ['approved', 'issued']
+          && request.resource.data.status in ['approved', 'issued']
+          && onlyChanged(['lines', 'status', 'history', 'updatedAt']))
+        // Accounting posts / unposts the receipt of supplies
+        || (poster() && resource.data.status in ['approved', 'issued']
+          && onlyChanged(['posting', 'history', 'updatedAt']));
+
+      allow delete: if (encoder() && resource.data.endUserUid == request.auth.uid && resource.data.status == 'draft')
+        || (isAdmin() && resource.data.status in ['draft', 'returned', 'submitted']);
+    }
+
+    // ---------------- PAR / ICS / RIS ----------------
+    match /issuances/{id} {
+      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
+
+      // Created only together with (or after) an approved AIR — getAfter sees the same transaction.
+      allow create: if issuer()
+        && request.resource.data.docType in ['par', 'ics', 'ris']
+        && validFund(request.resource.data.fund)
+        && request.resource.data.number is string && request.resource.data.number.size() > 0
+        && request.resource.data.status == 'issued'
+        && request.resource.data.posting.posted == false
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid;
+
+      allow update: if
+        // GSO cancels a document Accounting has not posted
+        (issuer() && resource.data.status == 'issued' && resource.data.posting.posted == false
+          && request.resource.data.status == 'cancelled'
+          && onlyChanged(['status', 'cancel', 'updatedAt']))
+        // Accounting posts / unposts
+        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt']));
+
+      allow delete: if false;
+    }
+
+    // ---------------- audit trail (append-only) ----------------
+    match /auditLogs/{id} {
+      allow read: if isAdmin();
+      allow create: if active() && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}

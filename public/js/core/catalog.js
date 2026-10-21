@@ -32,43 +32,75 @@ export const DOC_TYPES = {
   ris: { label: "Requisition and Issue Slip", short: "RIS", category: "cons", registry: "Supplies Ledger Card / RSMI" }
 };
 
-// [group, code, name] — PPE accounts (from PMS ACCOUNT_CATALOG, finished-asset accounts only;
-// Construction in Progress is not delivered through an AIR).
+// PPE accounts — the full PMS catalog: [group, code, name, depreciable, depreciation expense code, default useful life (years)].
+// Default lives are the ones used most in the MGO Candoni PMS register (Dec 2025 baseline); every asset keeps its own,
+// editable useful life. The accumulated depreciation account is always the cost account + 1 (e.g. 10705020 → 10705021).
 export const PPE_ACCOUNTS = [
-  ["Land & Land Improvements", "10702010", "Land Improvements, Aquaculture Structures"],
-  ["Land & Land Improvements", "10702990", "Other Land Improvements"],
-  ["Infrastructure Assets", "10703010", "Road Networks"],
-  ["Infrastructure Assets", "10703020", "Flood Control Systems"],
-  ["Infrastructure Assets", "10703040", "Water Supply Systems"],
-  ["Infrastructure Assets", "10703050", "Power Supply Systems"],
-  ["Infrastructure Assets", "10703060", "Communication Networks"],
-  ["Infrastructure Assets", "10703990", "Other Infrastructure Assets"],
-  ["Buildings & Structures", "10704010", "Buildings"],
-  ["Buildings & Structures", "10704020", "School Buildings"],
-  ["Buildings & Structures", "10704030", "Hospitals and Health Centers"],
-  ["Buildings & Structures", "10704990", "Other Structures"],
-  ["Machinery & Equipment", "10705010", "Machinery"],
-  ["Machinery & Equipment", "10705020", "Office Equipment"],
-  ["Machinery & Equipment", "10705030", "Information and Communication Technology Equipment"],
-  ["Machinery & Equipment", "10705040", "Agricultural and Forestry Equipment"],
-  ["Machinery & Equipment", "10705050", "Marine and Fishery Equipment"],
-  ["Machinery & Equipment", "10705070", "Communication Equipment"],
-  ["Machinery & Equipment", "10705080", "Construction and Heavy Equipment"],
-  ["Machinery & Equipment", "10705090", "Disaster Response and Rescue Equipment"],
-  ["Machinery & Equipment", "10705100", "Military, Police and Security Equipment"],
-  ["Machinery & Equipment", "10705110", "Medical Equipment"],
-  ["Machinery & Equipment", "10705120", "Printing Equipment"],
-  ["Machinery & Equipment", "10705130", "Sports Equipment"],
-  ["Machinery & Equipment", "10705140", "Technical and Scientific Equipment"],
-  ["Machinery & Equipment", "10705990", "Other Machinery and Equipment"],
-  ["Transportation Equipment", "10706010", "Motor Vehicles"],
-  ["Transportation Equipment", "10706040", "Watercrafts"],
-  ["Transportation Equipment", "10706990", "Other Transportation Equipment"],
-  ["Furniture, Fixtures & Books", "10707010", "Furniture and Fixtures"],
-  ["Furniture, Fixtures & Books", "10707020", "Books"],
-  ["Other PPE", "10799990", "Other Property, Plant and Equipment"],
-  ["Intangible Assets", "10901020", "Computer Software"]
+  ["Land & Land Improvements", "10701010", "Land", false, "", 0],
+  ["Land & Land Improvements", "10702010", "Land Improvements, Aquaculture Structures", true, "50501020", 10],
+  ["Land & Land Improvements", "10702990", "Other Land Improvements", true, "50501020", 10],
+  ["Infrastructure Assets", "10703010", "Road Networks", true, "50501030", 20],
+  ["Infrastructure Assets", "10703020", "Flood Control Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703030", "Sewer Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703040", "Water Supply Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703050", "Power Supply Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703060", "Communication Networks", true, "50501030", 20],
+  ["Infrastructure Assets", "10703070", "Seaport Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703080", "Airport Systems", true, "50501030", 20],
+  ["Infrastructure Assets", "10703090", "Parks, Plazas and Monuments", true, "50501030", 20],
+  ["Infrastructure Assets", "10703990", "Other Infrastructure Assets", true, "50501030", 20],
+  ["Buildings & Structures", "10704010", "Buildings", true, "50501040", 30],
+  ["Buildings & Structures", "10704020", "School Buildings", true, "50501040", 30],
+  ["Buildings & Structures", "10704030", "Hospitals and Health Centers", true, "50501040", 30],
+  ["Buildings & Structures", "10704040", "Markets", true, "50501040", 30],
+  ["Buildings & Structures", "10704050", "Slaughterhouses", true, "50501040", 30],
+  ["Buildings & Structures", "10704060", "Hostels and Dormitories", true, "50501040", 30],
+  ["Buildings & Structures", "10704990", "Other Structures", true, "50501040", 20],
+  ["Machinery & Equipment", "10705010", "Machinery", true, "50501050", 10],
+  ["Machinery & Equipment", "10705020", "Office Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705030", "Information and Communication Technology Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705040", "Agricultural and Forestry Equipment", true, "50501050", 10],
+  ["Machinery & Equipment", "10705050", "Marine and Fishery Equipment", true, "50501050", 10],
+  ["Machinery & Equipment", "10705060", "Airport Equipment", true, "50501050", 10],
+  ["Machinery & Equipment", "10705070", "Communication Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705080", "Construction and Heavy Equipment", true, "50501050", 10],
+  ["Machinery & Equipment", "10705090", "Disaster Response and Rescue Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705100", "Military, Police and Security Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705110", "Medical Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705120", "Printing Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705130", "Sports Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705140", "Technical and Scientific Equipment", true, "50501050", 5],
+  ["Machinery & Equipment", "10705990", "Other Machinery and Equipment", true, "50501050", 5],
+  ["Transportation Equipment", "10706010", "Motor Vehicles", true, "50501060", 7],
+  ["Transportation Equipment", "10706020", "Trains", true, "50501060", 7],
+  ["Transportation Equipment", "10706030", "Aircrafts and Aircrafts Ground Equipment", true, "50501060", 7],
+  ["Transportation Equipment", "10706040", "Watercrafts", true, "50501060", 7],
+  ["Transportation Equipment", "10706990", "Other Transportation Equipment", true, "50501060", 7],
+  ["Furniture, Fixtures & Books", "10707010", "Furniture and Fixtures", true, "50501070", 5],
+  ["Furniture, Fixtures & Books", "10707020", "Books", true, "50501070", 5],
+  ["Construction in Progress", "10710010", "Construction in Progress - Land Improvements", false, "", 0],
+  ["Construction in Progress", "10710020", "Construction in Progress - Infrastructure Assets", false, "", 0],
+  ["Construction in Progress", "10710030", "Construction in Progress - Buildings and Other Structures", false, "", 0],
+  ["Other PPE", "10799010", "Work/Zoo Animals", true, "50501990", 10],
+  ["Other PPE", "10799990", "Other Property, Plant and Equipment", true, "50501990", 10],
+  ["Biological Assets", "10801020", "Plants and Trees", false, "", 0],
+  ["Intangible Assets", "10901010", "Patents/Copyrights", true, "50502010", 5],
+  ["Intangible Assets", "10901020", "Computer Software", true, "50502010", 5],
+  ["Intangible Assets", "10901990", "Other Intangible Assets", true, "50502010", 5],
 ];
+export const DEP_EXPENSE_NAMES = {
+  "50501020": "Depreciation - Land Improvements",
+  "50501030": "Depreciation - Infrastructure Assets",
+  "50501040": "Depreciation - Buildings and Other Structures",
+  "50501050": "Depreciation - Machinery and Equipment",
+  "50501060": "Depreciation - Transportation Equipment",
+  "50501070": "Depreciation - Furniture, Fixtures and Books",
+  "50501990": "Depreciation - Other Property, Plant and Equipment",
+  "50502010": "Amortization - Intangible Assets"
+};
+/** Infrastructure accounts carry a zero residual value (PMS rule); every other PPE account 5% of cost. */
+export const ZERO_RESIDUAL_ACCOUNTS = ["10703010", "10703020", "10703030", "10703040", "10703050", "10703060", "10703070", "10703080", "10703090", "10703990"];
+
 
 // Semi-Expendable accounts (PMS SX_ACCOUNT_CATALOG, with the 2026-09 relabel applied).
 export const SX_ACCOUNTS = [
@@ -120,6 +152,21 @@ export const INV_ACCOUNTS = [
 export const ACCOUNTS_BY_CATEGORY = { ppe: PPE_ACCOUNTS, sx: SX_ACCOUNTS, cons: INV_ACCOUNTS };
 const ALL = [...PPE_ACCOUNTS, ...SX_ACCOUNTS, ...INV_ACCOUNTS];
 export const accountName = code => (ALL.find(a => a[1] === String(code)) || [])[2] || "";
+/** PPE account details: { group, code, name, depreciable, expCode, expName, adCode, life }. */
+export function ppeAccount(code) {
+  const r = PPE_ACCOUNTS.find(a => a[1] === String(code));
+  if (!r) return null;
+  return { group: r[0], code: r[1], name: r[2], depreciable: r[3], expCode: r[4], expName: DEP_EXPENSE_NAMES[r[4]] || "", adCode: String(Number(r[1]) + 1), life: r[5] };
+}
+export const isSxAccount = code => SX_ACCOUNTS.some(a => a[1] === String(code));
+/** Looks an account up by its code or, failing that, by its exact name (PMS exports carry the name only). */
+export function accountByCodeOrName(code, name) {
+  const c = String(code || "").replace(/\.0+$/, "").trim();
+  if (c && ALL.some(a => a[1] === c)) return c;
+  const n = String(name || "").trim().toLowerCase();
+  const hit = n && ALL.find(a => a[2].toLowerCase() === n);
+  return hit ? hit[1] : "";
+}
 export const accountCategory = code => {
   const c = String(code || "");
   if (PPE_ACCOUNTS.some(a => a[1] === c)) return "ppe";

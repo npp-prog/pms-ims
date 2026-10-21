@@ -121,7 +121,7 @@ export function checkIssue(air, docType, picks) {
 /** Supplies stock cards for one fund: receipts are approved AIR supply lines (on the date received),
  *  issues are RIS lines. Cost is carried per AIR line (specific identification), so the balance in
  *  pesos is exact. */
-export function stockCards(airs, docs, fund) {
+export function stockCards(airs, docs, fund, asOf = "") {
   const cards = new Map();
   const card = l => {
     const key = String(l.stockNo || "").trim().toUpperCase();
@@ -140,6 +140,7 @@ export function stockCards(airs, docs, fund) {
     for (const l of d.lines || []) card(l).moves.push({ date: d.date, ref: `RIS ${d.number}`, type: "issue", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: d.recipient?.office || "" });
   }
   for (const c of cards.values()) {
+    if (asOf) c.moves = c.moves.filter(m => String(m.date) <= asOf);
     c.moves.sort((x, y) => String(x.date).localeCompare(String(y.date)) || (x.type === "receipt" ? -1 : 1));
     let q = 0, v = 0;
     for (const m of c.moves) {

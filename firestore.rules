@@ -35,7 +35,8 @@ service cloud.firestore {
 
     // ---------------- users ----------------
     match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+      // GSO and Accounting see the directory too (names for "received by" pickers)
+      allow read: if signedIn() && (request.auth.uid == uid || viewer());
 
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.uid == uid && request.resource.data.email == request.auth.token.email
@@ -86,7 +87,10 @@ service cloud.firestore {
         && request.resource.data.lines is list
         && request.resource.data.status in ['draft', 'submitted']
         && (request.resource.data.status == 'draft' || request.resource.data.airNo.size() > 0)
-        && !request.resource.data.keys().hasAny(['inspection', 'acceptance', 'posting', 'approvedBy', 'approvedAt']);
+        && !request.resource.data.keys().hasAny(['inspection', 'acceptance', 'posting', 'approvedBy', 'approvedAt'])
+        // or: supplies on hand imported from IMS as an approved, already-posted beginning-balance AIR
+        || (isAdmin() && request.resource.data.imported == true && request.resource.data.status == 'approved'
+          && validFund(request.resource.data.fund) && request.resource.data.lines is list);
 
       allow update: if
         // End-User edits a draft or a returned AIR, or (re)submits it
@@ -137,6 +141,54 @@ service cloud.firestore {
         || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt']));
 
       allow delete: if false;
+    }
+
+    // ---------------- property register ----------------
+    // One record per PAR / ICS line (created in the issuance transaction), per import row, or per split.
+    match /assets/{id} {
+      allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid);
+      allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import'))
+        && validFund(request.resource.data.fund)
+        && request.resource.data.itemType in ['ppe', 'sx']
+        && request.resource.data.cost is number && request.resource.data.cost >= 0
+        && request.resource.data.status in ['active', 'returned', 'disposed'];
+      allow update: if request.resource.data.status in ['active', 'returned', 'disposed', 'cancelled'] && (
+        // GSO: custody, movements, splits and record corrections — never the fund, account, source or acquisition data
+        (issuer() && onlyChanged(['holder', 'custodianUid', 'location', 'status', 'condition', 'disposal', 'history', 'updatedAt', 'qty', 'cost',
+          'propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'estimatedLife', 'description', 'specs']))
+        // Accounting: depreciation parameters
+        || (poster() && onlyChanged(['propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'condition', 'history', 'updatedAt']))
+        || isAdmin());
+      allow delete: if false;
+    }
+
+    // PTR / ITR (transfers), PRS / RRSP (returns) and disposals.
+    match /movements/{id} {
+      allow read: if viewer();
+      allow create: if issuer()
+        && request.resource.data.docType in ['ptr', 'itr', 'prs', 'rrsp', 'dsp']
+        && validFund(request.resource.data.fund)
+        && request.resource.data.status == 'done' && request.resource.data.posting.posted == false;
+      allow update: if
+        (issuer() && resource.data.needsPosting == true && resource.data.status == 'done' && resource.data.posting.posted == false
+          && request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))
+        || (poster() && resource.data.needsPosting == true && resource.data.status == 'done' && onlyChanged(['posting', 'updatedAt']));
+      allow delete: if false;
+    }
+
+    // Posted depreciation, one document per fund and month ("GF_2026-01"). Only the latest is unposted (app rule).
+    match /depreciation/{id} {
+      allow read: if viewer();
+      allow create: if poster() && id == request.resource.data.fund + '_' + request.resource.data.period
+        && validFund(request.resource.data.fund) && request.resource.data.period.matches('^[0-9]{4}-[0-9]{2}$');
+      allow delete: if poster();
+      allow update: if false;
+    }
+
+    // Trial Balance per fund and month, for reconciliation.
+    match /tbSnapshots/{id} {
+      allow read: if viewer();
+      allow write: if poster() && id == request.resource.data.fund + '_' + request.resource.data.period && validFund(request.resource.data.fund);
     }
 
     // ---------------- audit trail (append-only) ----------------

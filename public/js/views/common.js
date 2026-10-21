@@ -11,6 +11,9 @@ export function postingItems() {
   for (const d of fundDocs()) if (d.status !== "cancelled")
     items.push({ kind: "doc", docType: d.docType, id: d.id, label: d.docType.toUpperCase(), number: d.number, date: d.date, airId: d.airId, airNo: d.airNo,
       office: d.recipient?.office || d.office, recipient: d.recipient?.name, amount: d.total, posting: d.posting || { posted: false } });
+  for (const m of S.d.movements) if (m.fund === S.fund && m.needsPosting && m.status !== "cancelled")
+    items.push({ kind: "movement", docType: m.docType, id: m.id, label: m.docType === "dsp" ? "Disposal" : `${m.docType.toUpperCase()} (donation)`, number: m.number, date: m.date,
+      airId: "", airNo: "", office: m.from?.office || "", recipient: m.from?.name, amount: m.carryingTotal ?? m.total, posting: m.posting || { posted: false } });
   return items;
 }
 

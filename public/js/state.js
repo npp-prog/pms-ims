@@ -4,8 +4,9 @@ import { DEFAULT_THRESHOLDS } from "./core/catalog.js";
 
 export const S = {
   user: null, account: undefined, settings: null,
-  fund: readFund(), d: { airs: [], docs: [], users: [], audit: [] }, ready: new Set()
+  fund: readFund(), d: emptyData(), ready: new Set()
 };
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], assets: [], movements: [], depr: [], tb: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -56,12 +57,17 @@ export function startRole() {
   if (role() === "enduser") {
     live("r:airs", query(collection(db, "airs"), where("endUserUid", "==", uid)), v => { S.d.airs = v; });
     live("r:docs", query(collection(db, "issuances"), where("endUserUid", "==", uid)), v => { S.d.docs = v; });
+    live("r:assets", query(collection(db, "assets"), where("custodianUid", "==", uid)), v => { S.d.assets = v; });
   } else {
     live("r:airs", collection(db, "airs"), v => { S.d.airs = v; });
     live("r:docs", collection(db, "issuances"), v => { S.d.docs = v; });
+    live("r:assets", collection(db, "assets"), v => { S.d.assets = v; });
+    live("r:movements", collection(db, "movements"), v => { S.d.movements = v; });
+    live("r:depr", collection(db, "depreciation"), v => { S.d.depr = v; });
+    live("r:tb", collection(db, "tbSnapshots"), v => { S.d.tb = v; });
+    live("r:users", collection(db, "users"), v => { S.d.users = v; });
   }
   if (isAdmin()) {
-    live("r:users", collection(db, "users"), v => { S.d.users = v; });
     live("r:audit", query(collection(db, "auditLogs"), orderBy("at", "desc"), limit(300)), v => { S.d.audit = v; });
   }
 }
@@ -103,3 +109,8 @@ export const fundDocs = () => S.d.docs.filter(d => d.fund === S.fund);
 export const airById = id => S.d.airs.find(a => a.id === id) || null;
 export const docById = id => S.d.docs.find(d => d.id === id) || null;
 export const docsOfAir = id => S.d.docs.filter(d => d.airId === id);
+export const fundAssets = () => S.d.assets.filter(a => a.fund === S.fund);
+export const assetById = id => S.d.assets.find(a => a.id === id) || null;
+export const fundRuns = () => S.d.depr.filter(r => r.fund === S.fund);
+/** Active users for the "received by" pickers. */
+export const activeUsers = () => S.d.users.filter(u => u.status === "active").sort((a, b) => String(a.displayName).localeCompare(String(b.displayName)));

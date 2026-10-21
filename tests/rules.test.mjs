@@ -169,3 +169,75 @@ test("drafts deleted by their owner; settings and audit trail", async () => {
   await assertFails(getDocs(collection(ctx("gso"), "auditLogs")));
   await assertSucceeds(getDocs(collection(ctx("ad"), "auditLogs")));
 });
+
+const asset = (o = {}) => ({ fund: "GF", itemType: "ppe", accountCode: "10705030", cost: 60000, qty: 1, status: "active", custodianUid: "eu", holder: { name: "eu" }, source: { kind: "par" }, history: [], ...o });
+
+test("user directory: GSO and Accounting can read it, End-Users can't", async () => {
+  await assertSucceeds(getDocs(collection(ctx("gso"), "users")));
+  await assertSucceeds(getDocs(collection(ctx("acc"), "users")));
+  await assertFails(getDocs(collection(ctx("eu"), "users")));
+  await assertFails(updateDoc(doc(ctx("gso"), "users/eu"), { role: "gso" }));
+});
+
+test("property records: who creates, who changes what, who reads", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "assets/P1"), asset());
+    await setDoc(doc(d, "assets/P2"), asset({ custodianUid: "eu2" }));
+  });
+  await assertSucceeds(setDoc(doc(ctx("gso"), "assets/N1"), asset()));
+  await assertFails(setDoc(doc(ctx("acc"), "assets/N2"), asset()));
+  await assertFails(setDoc(doc(ctx("eu"), "assets/N3"), asset()));
+  await assertFails(setDoc(doc(ctx("gso"), "assets/N4"), asset({ cost: -1 })));
+  await assertSucceeds(setDoc(doc(ctx("ad"), "assets/N5"), asset({ source: { kind: "import" } })));
+  // reading
+  await assertSucceeds(getDocs(query(collection(ctx("eu"), "assets"), where("custodianUid", "==", "eu"))));
+  await assertFails(getDoc(doc(ctx("eu"), "assets/P2")));
+  await assertSucceeds(getDocs(collection(ctx("acc"), "assets")));
+  // changing
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "assets/P1"), { holder: { name: "Jose" }, custodianUid: "", status: "active" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/P1"), { accountCode: "10705020" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/P1"), { fund: "SEF" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/P1"), { status: "stolen" }));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/P1"), { usefulLifeYears: 7, residualValue: 3000 }));
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { holder: { name: "x" } }));
+  await assertFails(updateDoc(doc(ctx("eu"), "assets/P1"), { condition: "Unserviceable" }));
+  await assertFails(deleteDoc(doc(ctx("sa"), "assets/P1")));
+});
+
+test("transfers, returns, disposals", async () => {
+  const mv = (o = {}) => ({ docType: "dsp", fund: "GF", status: "done", needsPosting: true, posting: { posted: false }, lines: [], ...o });
+  await assertSucceeds(setDoc(doc(ctx("gso"), "movements/M1"), mv()));
+  await assertSucceeds(setDoc(doc(ctx("gso"), "movements/M2"), mv({ docType: "ptr", needsPosting: false })));
+  await assertFails(setDoc(doc(ctx("acc"), "movements/M3"), mv()));
+  await assertFails(setDoc(doc(ctx("gso"), "movements/M4"), mv({ docType: "xyz" })));
+  await assertFails(setDoc(doc(ctx("gso"), "movements/M5"), mv({ posting: { posted: true } })));
+  await assertFails(updateDoc(doc(ctx("acc"), "movements/M2"), { posting: { posted: true } }), "transfers aren't posted");
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "movements/M1"), { posting: { posted: true, ref: "JEV-9" } }));
+  await assertFails(updateDoc(doc(ctx("gso"), "movements/M1"), { status: "cancelled", cancel: {} }), "posted: can't cancel");
+  await assertFails(getDocs(collection(ctx("eu"), "movements")));
+});
+
+test("depreciation and Trial Balance belong to Accounting", async () => {
+  const run = { fund: "GF", period: "2026-01", amounts: { P1: 950 }, total: 950 };
+  await assertFails(setDoc(doc(ctx("gso"), "depreciation/GF_2026-01"), run));
+  await assertFails(setDoc(doc(ctx("acc"), "depreciation/SEF_2026-01"), run), "id must match fund and period");
+  await assertFails(setDoc(doc(ctx("acc"), "depreciation/GF_2026-1"), { ...run, period: "2026-1" }));
+  await assertSucceeds(setDoc(doc(ctx("acc"), "depreciation/GF_2026-01"), run));
+  await assertFails(updateDoc(doc(ctx("acc"), "depreciation/GF_2026-01"), { total: 1 }));
+  await assertSucceeds(getDocs(collection(ctx("gso"), "depreciation")));
+  await assertFails(deleteDoc(doc(ctx("gso"), "depreciation/GF_2026-01")));
+  await assertSucceeds(deleteDoc(doc(ctx("acc"), "depreciation/GF_2026-01")));
+  const tb = { fund: "GF", period: "2025-12", accounts: { "10705020": { debit: 1, credit: 0 } } };
+  await assertSucceeds(setDoc(doc(ctx("acc"), "tbSnapshots/GF_2025-12"), tb));
+  await assertFails(setDoc(doc(ctx("gso"), "tbSnapshots/GF_2025-12"), tb));
+  await assertSucceeds(getDoc(doc(ctx("gso"), "tbSnapshots/GF_2025-12")));
+  await assertFails(getDoc(doc(ctx("eu"), "tbSnapshots/GF_2025-12")));
+});
+
+test("only administrators import the IMS beginning balance", async () => {
+  const bb = baseAir({ airNo: "BB-2026-01-01", status: "approved", imported: true, endUserUid: "ad", posting: { posted: true } });
+  await assertSucceeds(setDoc(doc(ctx("ad"), "airs/BB1"), bb));
+  await assertFails(setDoc(doc(ctx("gso"), "airs/BB2"), { ...bb, endUserUid: "gso" }));
+  await assertFails(setDoc(doc(ctx("eu"), "airs/BB3"), { ...bb, endUserUid: "eu" }));
+});

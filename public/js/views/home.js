@@ -1,10 +1,11 @@
 // Dashboard — same layout as the TOSCAN Portal home: greeting, "Needs your attention" inbox,
 // "At a glance" figures and recent activity, with the content chosen by role.
-import { S, role, can, isAdmin, fundAirs, fundDocs } from "../state.js";
-import { esc, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
+import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets, fundRuns } from "../state.js";
+import { esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
 import { fundName, ROLE_NAMES } from "../core/catalog.js";
 import { counts, postingItems } from "./common.js";
 import { stockCards } from "../core/logic.js";
+import { lastPosted, addMonths, periodOf, accumAsOf, isDepreciable } from "../core/assets.js";
 
 const I = {
   doc: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg>`,
@@ -34,6 +35,7 @@ export function dashboard(main) {
     c.drafts && row(I.doc, "", "Draft AIRs", "Not yet submitted to the GSO", c.drafts, "#/airs"),
     c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: AIR ${oldestInspect.airNo} from ${oldestInspect.office}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
+    deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),
     c.post && row(I.book, "green", "Documents for posting", "PAR / ICS / RIS and supply receipts not yet posted in the registry", c.post, "#/posting")
   ].filter(Boolean);
 
@@ -45,8 +47,8 @@ export function dashboard(main) {
   ] : [
     [`AIRs encoded, ${year}`, airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, "#/airs"],
     [`Value received, ${year}`, money(airs.filter(a => ["approved", "issued"].includes(a.status) && yearOf(a.date) === year).reduce((t, a) => t + (a.total || 0), 0)), "#/airs"],
-    ["PPE issued (PAR)", money(docs.filter(d => d.docType === "par").reduce((t, d) => t + d.total, 0)), "#/registry/ppe"],
-    ["Semi-expendable issued (ICS)", money(docs.filter(d => d.docType === "ics").reduce((t, d) => t + d.total, 0)), "#/registry/sx"],
+    ["PPE on hand — carrying amount", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), fundRuns()), 0)), "#/registry/ppe"],
+    ["Semi-expendable on hand — cost", money(onHand("sx").reduce((t, a) => t + a.cost, 0)), "#/registry/sx"],
     ["Supplies on hand", money(stockCards(S.d.airs, S.d.docs, S.fund).reduce((t, x) => t + x.balValue, 0)), "#/registry/stock"],
     ["Posted in the registry", `${posting.filter(p => p.posting.posted).length} of ${posting.length}`, "#/posted"]
   ];
@@ -75,6 +77,15 @@ export function dashboard(main) {
     </div>`;
 }
 dashboard.deps = ["*"];
+
+const onHand = type => fundAssets().filter(a => a.itemType === type && ["active", "returned"].includes(a.status));
+/** For Accounting: the month that should be posted next, if it is already over. */
+function deprDue() {
+  if (!can("post") || !fundAssets().some(isDepreciable)) return "";
+  const prev = addMonths(periodOf(manilaToday()), -1), last = lastPosted(S.d.depr, S.fund);
+  if (!last) return `No depreciation posted yet in this fund — start with ${prev}`;
+  return last < prev ? `${addMonths(last, 1)} is not yet posted` : "";
+}
 
 function flowSteps(r) {
   const st = [["End-User", "Encodes the AIR"], ["GSO", "Inspects & approves"], ["GSO", "Issues PAR / ICS / RIS"], ["Accounting", "Posts in the registry"]];

@@ -144,3 +144,88 @@ export function tableReportHtml(title, subtitle, headers, rows, totals) {
     <table class="pt"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join("")}</tr></thead>
     <tbody>${rows.map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}${totals ? `<tr>${totals.map(v => `<td><b>${esc(v)}</b></td>`).join("")}</tr>` : ""}</tbody></table></div>`;
 }
+
+/* ---------------- property movements ---------------- */
+const TTYPE = [["donation", "Donation"], ["relocate", "Relocate"], ["reassignment", "Reassignment"], ["others", "Others (Specify)"]];
+const tick = on => on ? "&#9745;" : "&#9744;";
+
+export function movementHtml(m) {
+  if (m.docType === "ptr" || m.docType === "itr") return transferHtml(m);
+  if (m.docType === "dsp") return disposalHtml(m);
+  return returnHtml(m);
+}
+
+function transferHtml(m) {
+  const sx = m.docType === "itr";
+  const rows = m.lines.map(l => sx
+    ? `<tr><td class="c">${fmtDate(l.dateAcquired)}</td><td class="c">${esc(l.propertyNo)}</td><td class="c">${esc(l.parIcsNo)}</td><td>${esc(l.description)}${l.qty > 1 ? ` (${qty(l.qty)} ${esc(l.unit)})` : ""}</td><td class="r">${num(l.amount)}</td><td class="c">${esc(l.condition)}</td></tr>`
+    : `<tr><td class="c">${fmtDate(l.dateAcquired)}</td><td class="c">${esc(l.propertyNo)}</td><td>${esc(l.description)}</td><td class="r">${num(l.amount)}</td><td class="c">${esc(l.condition)}</td></tr>`).join("");
+  const cols = sx ? 6 : 5;
+  return `<div class="pf">${head(sx ? "Annex A.5" : "", sx ? "INVENTORY TRANSFER REPORT" : "PROPERTY TRANSFER REPORT")}
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(m.fund))}</b></td></tr>
+      <tr><td>From Accountable Officer/Agency/Fund Cluster: <b>${esc(m.from?.name)}${m.from?.office ? ` — ${esc(m.from.office)}` : ""}</b></td><td>${sx ? "ITR" : "PTR"} No.: <b class="pf-num">${esc(m.number)}</b></td></tr>
+      <tr><td>To Accountable Officer/Agency/Fund Cluster: <b>${esc(m.to?.name)}${m.to?.office ? ` — ${esc(m.to.office)}` : ""}</b></td><td>Date: <b>${fmtDate(m.date)}</b></td></tr></table>
+    <div style="font-size:11px;margin:6px 0"><b>Transfer Type:</b> (check only one) &nbsp; ${TTYPE.map(([k, l]) => `${tick(m.transferType === k)} ${l}${k === "others" && m.transferType === "others" ? `: ${esc(m.typeOther)}` : ""}`).join(" &nbsp;&nbsp; ")}</div>
+    <table class="pt"><thead><tr><th style="width:12%">Date Acquired</th><th style="width:15%">${sx ? "Item No." : "Property No."}</th>${sx ? `<th style="width:14%">ICS No./Date</th>` : ""}<th>Description</th><th style="width:13%">Amount</th><th style="width:14%">Condition of ${sx ? "Inventory" : "PPE"}</th></tr></thead>
+      <tbody>${rows}<tr class="nothing"><td colspan="${cols}">*** NOTHING FOLLOWS ***</td></tr>${blanks(12 - m.lines.length, cols)}</tbody></table>
+    <div class="pf-ref">Reason for Transfer: ${esc(m.reason)}</div>
+    <div class="sig2">${sig("Approved by:", m.approvedBy?.name, "Signature over Printed Name", m.approvedBy?.position)}
+      ${sig("Released/Issued by:", m.issuedBy?.name, "Signature over Printed Name", m.issuedBy?.position)}
+      ${sig("Received by:", m.to?.name, "Signature over Printed Name", m.to?.position)}</div></div>`;
+}
+
+function returnHtml(m) {
+  const sx = m.docType === "rrsp";
+  const rows = m.lines.map(l => `<tr><td>${esc(l.description)}</td><td class="r">${qty(l.qty)}</td><td class="c">${esc(sx ? l.parIcsNo : l.propertyNo)}</td><td class="c">${esc(sx ? l.propertyNo : l.parIcsNo)}</td><td>${esc(m.from?.name)}</td><td class="r">${num(l.amount)}</td><td class="c">${esc(l.condition)}</td></tr>`).join("");
+  return `<div class="pf">${head(sx ? "Annex A.4" : "", sx ? "RECEIPT OF RETURNED SEMI-EXPENDABLE PROPERTY" : "PROPERTY RETURN SLIP")}
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>${sx ? "RRSP" : "PRS"} No.: <b class="pf-num">${esc(m.number)}</b></td></tr>
+      <tr><td>Fund Cluster: <b>${esc(fundName(m.fund))}</b></td><td>Date: <b>${fmtDate(m.date)}</b></td></tr></table>
+    <div style="font-size:11px;margin:6px 0">This is to acknowledge receipt of the returned ${sx ? "Semi-expendable Property" : "Property, Plant and Equipment"}.</div>
+    <table class="pt"><thead><tr><th>Item Description</th><th style="width:7%">Quantity</th><th style="width:13%">${sx ? "ICS No." : "Property No."}</th><th style="width:13%">${sx ? "Item No." : "PAR No."}</th><th style="width:16%">End-user</th><th style="width:11%">Amount</th><th style="width:11%">Remarks / Condition</th></tr></thead>
+      <tbody>${rows}<tr class="nothing"><td colspan="7">*** NOTHING FOLLOWS ***</td></tr>${blanks(12 - m.lines.length, 7)}</tbody></table>
+    <div class="pf-ref">Reason for return: ${esc(m.reason)}</div>
+    <div class="sig2">${sig("Returned by:", m.from?.name, "End User", m.from?.position)}
+      ${sig("Received by:", m.to?.name, "Head, Property and/or Supply Division/Unit", m.to?.position)}</div></div>`;
+}
+
+function disposalHtml(m) {
+  const rows = m.lines.map(l => `<tr><td class="c">${fmtDate(l.dateAcquired)}</td><td class="c">${esc(l.propertyNo)}</td><td>${esc(l.description)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.amount)}</td><td class="r">${num(l.amount - l.carrying)}</td><td class="r">${num(l.carrying)}</td><td>${esc(l.accountCode)}</td></tr>`).join("");
+  return `<div class="pf">${head("", "REPORT OF PROPERTY DISPOSED / DERECOGNIZED")}
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>No.: <b class="pf-num">${esc(m.number)}</b></td></tr>
+      <tr><td>Fund Cluster: <b>${esc(fundName(m.fund))}</b></td><td>Date: <b>${fmtDate(m.date)}</b></td></tr>
+      <tr><td>Mode: <b>${esc(m.mode || (m.transferType === "donation" ? "Donated out" : ""))}</b></td><td>Reference (IIRUP / other): <b>${esc(m.ref)}</b></td></tr>
+      <tr><td>Last accountable officer: <b>${esc(m.from?.name)}</b></td><td></td></tr></table>
+    <table class="pt"><thead><tr><th>Date Acquired</th><th>Property No.</th><th>Description</th><th>Qty</th><th>Cost</th><th>Accumulated Depreciation</th><th>Carrying Amount</th><th>Account</th></tr></thead>
+      <tbody>${rows}<tr><td colspan="4" class="r"><b>TOTAL</b></td><td class="r"><b>${num(m.total)}</b></td><td class="r"><b>${num(m.total - m.carryingTotal)}</b></td><td class="r"><b>${num(m.carryingTotal)}</b></td><td></td></tr></tbody></table>
+    <div class="pf-ref">Remarks: ${esc(m.reason)}</div>
+    <div class="sig2">${sig("Prepared by:", m.issuedBy?.name || settings().signatories.propertyCustodian, "Supply and/or Property Custodian", m.issuedBy?.position || settings().signatories.propertyCustodianPosition)}
+      ${sig("Approved by:", m.approvedBy?.name, "Signature over Printed Name", m.approvedBy?.position)}</div></div>`;
+}
+
+/** Property Card (PPE) or Semi-Expendable Property Card, from the record's history; PPE adds its depreciation. */
+export function propertyCardHtml(a, deprRows) {
+  const ppe = a.itemType === "ppe";
+  const hist = (a.history || []).map(h => `<tr><td>${fmtDate(h.at)}</td><td>${esc(h.action)}${h.note ? ` — ${esc(h.note)}` : ""}</td><td>${esc(h.by)}</td></tr>`).join("");
+  const dep = ppe && deprRows?.length ? `<div style="margin-top:8px;font-size:11px"><b>Depreciation</b></div>
+    <table class="pt"><thead><tr><th>Period</th><th>JEV No.</th><th>Depreciation</th><th>Accumulated</th><th>Carrying Amount</th></tr></thead>
+    <tbody>${deprRows.map(r => `<tr><td>${esc(r.period)}</td><td>${esc(r.jevNo)}</td><td class="r">${num(r.amount)}</td><td class="r">${num(r.accum)}</td><td class="r">${num(r.carrying)}</td></tr>`).join("")}</tbody></table>` : "";
+  return `<div class="pf">${head(ppe ? "" : "Annex A.1", ppe ? "PROPERTY CARD" : "SEMI-EXPENDABLE PROPERTY CARD")}
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(a.fund))}</b></td></tr>
+      <tr><td>${ppe ? "Property, Plant and Equipment" : "Semi-expendable Property"}: <b>${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</b></td><td>${ppe ? "Property Number" : "Item No."}: <b>${esc(a.propertyNo)}</b></td></tr>
+      <tr><td>Description: <b>${esc(a.description)}</b>${a.specs ? ` — ${esc(a.specs)}` : ""}</td><td>Date acquired: <b>${fmtDate(a.dateAcquired)}</b></td></tr>
+      <tr><td>Quantity / cost: <b>${qty(a.qty)} ${esc(a.unit)} · ${num(a.cost)}</b></td><td>${ppe ? `Useful life: <b>${esc(a.usefulLifeYears)} yrs</b> · Residual: <b>${num(a.residualValue)}</b>` : `Estimated useful life: <b>${esc(a.estimatedLife)}</b>`}</td></tr>
+      <tr><td>Accountable officer: <b>${esc(a.holder?.name)}</b> ${esc(a.holder?.office ? "— " + a.holder.office : "")}</td><td>Status: <b>${esc(a.status)}</b></td></tr></table>
+    <table class="pt"><thead><tr><th style="width:16%">Date</th><th>Reference / Transaction</th><th style="width:20%">By</th></tr></thead><tbody>${hist}</tbody></table>${dep}</div>`;
+}
+
+/** JEV summary for a depreciation period. */
+export function depreciationJevHtml(fund, period, preview, jevNo) {
+  const rows = preview.byAccount.flatMap(r => [`<tr><td>${esc(r.expCode)}</td><td>${esc(r.expName)}</td><td class="r">${num(r.amount)}</td><td></td></tr>`,
+    `<tr><td>${esc(r.adCode)}</td><td style="padding-left:24px">Accumulated Depreciation — ${esc(r.name)}</td><td></td><td class="r">${num(r.amount)}</td></tr>`]).join("");
+  return `<div class="pf">${head("", "JOURNAL ENTRY VOUCHER — DEPRECIATION")}
+    <table class="pmeta-t"><tr><td>Fund Cluster: <b>${esc(fundName(fund))}</b></td><td>JEV No.: <b>${esc(jevNo || "")}</b></td></tr><tr><td>For the month of: <b>${esc(period)}</b></td><td></td></tr></table>
+    <table class="pt"><thead><tr><th>UACS Code</th><th>Accounts and Explanation</th><th>Debit</th><th>Credit</th></tr></thead>
+      <tbody>${rows}<tr><td></td><td class="r"><b>TOTAL</b></td><td class="r"><b>${num(preview.total)}</b></td><td class="r"><b>${num(preview.total)}</b></td></tr></tbody></table>
+    <div class="pf-ref">To record depreciation of property, plant and equipment for ${esc(period)} (straight-line; ${preview.rows.length} items).</div>
+    <div class="sig2">${sig("Prepared by:", "", "Signature over Printed Name", "")}${sig("Certified correct:", settings().signatories.accountant, "Signature over Printed Name", settings().signatories.accountantPosition)}</div></div>`;
+}

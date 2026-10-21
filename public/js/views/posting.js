@@ -6,12 +6,14 @@ import { postingSummary, POSTING_STATE } from "../core/logic.js";
 import { setPosting } from "../data.js";
 import { postingItems } from "./common.js";
 
-const REGISTRY = { air: "Supplies Ledger Card (receipt)", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry };
+const REGISTRY = { air: "Supplies Ledger Card (receipt)", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
+  dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
 const itemLabel = i => i.kind === "air" ? `AIR ${i.number} — supply receipt` : `${i.label} ${i.number}`;
+const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
 function postModal(items) {
   const m = openModal(`<h2>Post ${items.length === 1 ? esc(itemLabel(items[0])) : `${items.length} documents`}</h2>
-    <p class="muted small">Indicates that ${items.length === 1 ? "this document is" : "these documents are"} recorded in the registry (${esc([...new Set(items.map(i => REGISTRY[i.kind === "air" ? "air" : i.docType]))].join("; "))}).</p>
+    <p class="muted small">Indicates that ${items.length === 1 ? "this document is" : "these documents are"} recorded in the registry (${esc([...new Set(items.map(i => regOf(i)))].join("; "))}).</p>
     <form class="grid g2" id="pf">
       <div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
       <div><label class="req">JEV / reference no.</label><input name="ref" placeholder="e.g. JEV 2026-10-0123"></div>
@@ -43,12 +45,12 @@ export function queue(main) {
   const t = renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: i => `${i.number} ${i.airNo} ${i.office} ${i.recipient || ""}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIR receipt"], ["par", "PAR"], ["ics", "ICS"], ["ris", "RIS"]], test: (i, v) => (i.kind === "air" ? "air" : i.docType) === v }],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIR receipt"], ["par", "PAR"], ["ics", "ICS"], ["ris", "RIS"], ["movement", "Disposal / donation"]], test: (i, v) => v === "movement" ? i.kind === "movement" : (i.kind === "air" ? "air" : i.docType) === v }],
     columns: [
       { label: "", render: i => `<input type="checkbox" data-nodirty data-sel="${esc(i.kind + ":" + i.id)}" ${sel.has(i.kind + ":" + i.id) ? "checked" : ""}>` },
       { label: "Date", render: i => fmtDate(i.date), sort: i => i.date || "" },
-      { label: "Document", render: i => `<b>${esc(itemLabel(i))}</b><div class="xs muted">${esc(REGISTRY[i.kind === "air" ? "air" : i.docType])}</div>`, sort: i => i.number },
-      { label: "AIR No.", render: i => `<a href="#/airs/${i.airId}">${esc(i.airNo)}</a>`, sort: i => i.airNo },
+      { label: "Document", render: i => `<b>${esc(itemLabel(i))}</b><div class="xs muted">${esc(regOf(i))}</div>`, sort: i => i.number },
+      { label: "AIR No.", render: i => i.airId ? `<a href="#/airs/${i.airId}">${esc(i.airNo)}</a>` : `<a href="#/movements/${i.id}">open</a>`, sort: i => i.airNo },
       { label: "Office / recipient", render: i => `${esc(i.office)}${i.recipient ? `<div class="xs muted">${esc(i.recipient)}</div>` : ""}` },
       { label: "Amount", render: i => money(i.amount), sort: i => i.amount, cls: "right", headCls: "right" },
       { label: "", render: i => `<button class="btn sm primary" data-post="${esc(i.kind + ":" + i.id)}">Post</button>` }
@@ -64,7 +66,7 @@ export function queue(main) {
   $("#bulk", main).onclick = () => postModal([...sel].map(find).filter(Boolean));
   void t;
 }
-queue.deps = ["r:airs", "r:docs", "fund"];
+queue.deps = ["r:airs", "r:docs", "r:movements", "fund"];
 
 /* ---------------- Posting Status (per AIR) ---------------- */
 export function status(main) {
@@ -98,7 +100,7 @@ function docsCell(a) {
 function airModal(a) {
   const items = itemsOf(a);
   const m = openModal(`<h2>AIR ${esc(a.airNo)} — posting</h2><p class="muted small">${esc(a.office)} · ${esc(a.supplier)} · ${money(a.total)}</p>
-    ${items.map((i, n) => `<div class="post-row ${i.posting.posted ? "posted" : ""}"><div><b>${esc(itemLabel(i))}</b> · ${money(i.amount)}<div class="xs muted">${esc(REGISTRY[i.kind === "air" ? "air" : i.docType])}</div>
+    ${items.map((i, n) => `<div class="post-row ${i.posting.posted ? "posted" : ""}"><div><b>${esc(itemLabel(i))}</b> · ${money(i.amount)}<div class="xs muted">${esc(regOf(i))}</div>
       ${i.posting.posted ? `<div class="xs">Posted ${fmtDate(i.posting.date)} · ${esc(i.posting.ref)} · ${esc(i.posting.by?.name)}</div>` : ""}</div>
       <div>${can("post") ? (i.posting.posted ? `<button class="btn sm danger" data-un="${n}">Unpost</button>` : `<button class="btn sm primary" data-po="${n}">Post</button>`) : ""}</div></div>`).join("") || `<p class="muted">Nothing to post yet.</p>`}
     <div class="modal-actions"><a class="btn" href="#/airs/${a.id}">Open AIR</a><button class="btn" data-x>Close</button></div>`);

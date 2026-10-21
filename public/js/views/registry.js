@@ -1,58 +1,9 @@
-// Registries built from the issued documents: PPE (PAR), Semi-Expendable (ICS) and Supplies stock cards (AIR receipts − RIS).
-import { S, fundDocs } from "../state.js";
+// Supplies stock cards: AIR receipts (and imported beginning balances) less RIS issues. Property registers are in property.js.
+import { S } from "../state.js";
 import { $, esc, money, num, qty, fmtDate, renderTable, openModal, downloadCSV } from "../ui.js";
 import { fundName, accountName } from "../core/catalog.js";
 import { stockCards } from "../core/logic.js";
-import { printForm, stockCardHtml, tableReportHtml } from "../print.js";
-
-function propertyRows(docType) {
-  return fundDocs().filter(d => d.docType === docType && d.status !== "cancelled").flatMap(d => d.lines.map((l, i) => ({
-    key: `${d.id}-${i}`, docId: d.id, number: d.number, date: d.date, airNo: d.airNo, cls: d.sxClass, posted: !!d.posting?.posted, postRef: d.posting?.ref || "",
-    officer: d.recipient?.name || "", office: d.recipient?.office || "", ...l
-  })));
-}
-
-function propertyRegistry(main, docType) {
-  const ppe = docType === "par";
-  const rows = propertyRows(docType);
-  const title = ppe ? "Property, Plant & Equipment Registry" : "Semi-Expendable Property Registry";
-  main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every item issued on a ${ppe ? "PAR" : "ICS"} in the ${esc(fundName(S.fund))}, with the accountable officer and whether Accounting has posted it.</p></div>
-    <div class="btn-row"><button class="btn" id="csv">Download CSV</button><button class="btn" id="pr">Print</button></div></div><div class="card" id="t"></div>`;
-  const t = renderTable($("#t", main), {
-    id: "reg-" + docType, rows, pageSize: 50, defaultSort: 0, defaultDir: -1,
-    searchText: r => `${r.number} ${r.propertyNo} ${r.description} ${r.specs} ${r.officer} ${r.office} ${r.accountCode} ${r.airNo}`,
-    searchPlaceholder: "Property no., item, officer, office",
-    filters: [
-      { key: "a", label: "Account", options: [...new Set(rows.map(r => r.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (r, v) => r.accountCode === v },
-      { key: "p", label: "Accounting", options: [["y", "Posted"], ["n", "Not posted"]], test: (r, v) => r.posted === (v === "y") },
-      ...(ppe ? [] : [{ key: "c", label: "Class", options: [["low", "Low-Value (SPLV)"], ["high", "High-Value (SPHV)"]], test: (r, v) => r.cls === v }])
-    ],
-    columns: [
-      { label: "Date", render: r => fmtDate(r.date), sort: r => r.date },
-      { label: ppe ? "PAR No." : "ICS No.", render: r => `<a href="#/issuances/${r.docId}">${esc(r.number)}</a>`, sort: r => r.number },
-      { label: ppe ? "Property No." : "Item No.", render: r => esc(r.propertyNo || "—"), sort: r => r.propertyNo || "" },
-      { label: "Description", render: r => `<b>${esc(r.description)}</b><div class="xs muted">${esc(r.accountCode)} ${esc(accountName(r.accountCode))}</div>`, sort: r => r.description },
-      { label: "Qty", render: r => `${qty(r.qty)} ${esc(r.unit)}`, cls: "right" },
-      { label: "Amount", render: r => money(r.amount), sort: r => r.amount, cls: "right", headCls: "right" },
-      { label: "Accountable officer", render: r => `${esc(r.officer)}<div class="xs muted">${esc(r.office)}</div>`, sort: r => r.officer },
-      { label: "Accounting", render: r => r.posted ? `<span class="badge b-ok">Posted</span><div class="xs muted">${esc(r.postRef)}</div>` : `<span class="badge b-warn">Not posted</span>` }
-    ],
-    empty: `Nothing issued on a ${ppe ? "PAR" : "ICS"} in this fund yet.`,
-    footer: list => `<tr><td colspan="5" class="right">Total</td><td class="right">${money(list.reduce((s, r) => s + r.amount, 0))}</td><td colspan="2"></td></tr>`
-  });
-  const headers = ["Date", ppe ? "PAR No." : "ICS No.", ppe ? "Property No." : "Item No.", "Description", "Account", "Qty", "Unit", "Unit Cost", "Amount", "Accountable Officer", "Office", "AIR No.", "Posted"];
-  const data = () => t.rows().map(r => [r.date, r.number, r.propertyNo, r.description, r.accountCode, r.qty, r.unit, r.unitCost, r.amount, r.officer, r.office, r.airNo, r.posted ? r.postRef || "Yes" : "No"]);
-  $("#csv", main).onclick = () => downloadCSV(`${ppe ? "PPE" : "SemiExpendable"}-Registry-${S.fund}`, headers, data());
-  $("#pr", main).onclick = () => printForm(tableReportHtml(title.toUpperCase(), fundName(S.fund),
-    ["Date", ppe ? "PAR No." : "ICS No.", "Property/Item No.", "Description", "Account", "Qty", "Amount", "Accountable Officer", "Posted"],
-    t.rows().map(r => [fmtDate(r.date), r.number, r.propertyNo, r.description, r.accountCode, `${qty(r.qty)} ${r.unit}`, num(r.amount), r.officer, r.posted ? r.postRef || "Yes" : "No"]),
-    ["", "", "", "TOTAL", "", "", num(t.rows().reduce((s, r) => s + r.amount, 0)), "", ""]), "landscape");
-}
-
-export function ppe(main) { propertyRegistry(main, "par"); }
-ppe.deps = ["r:docs", "fund"];
-export function sx(main) { propertyRegistry(main, "ics"); }
-sx.deps = ["r:docs", "fund"];
+import { printForm, stockCardHtml } from "../print.js";
 
 export function stock(main) {
   const cards = stockCards(S.d.airs, S.d.docs, S.fund);

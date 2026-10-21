@@ -176,3 +176,33 @@ export function downloadCSV(name, headers, rows) {
   a.download = name.endsWith(".csv") ? name : name + ".csv"; a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 3000);
 }
+
+/* ---------- spreadsheets (SheetJS, loaded only when needed) ---------- */
+let xlsxLoading = null;
+export function loadXLSX() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  xlsxLoading ||= new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload = () => res(window.XLSX); s.onerror = () => { xlsxLoading = null; rej(new Error("Could not load the spreadsheet reader. Check your internet connection.")); };
+    document.head.appendChild(s);
+  });
+  return xlsxLoading;
+}
+/** First sheet of an Excel/CSV file as objects keyed by header (dates as YYYY-MM-DD), or JSON arrays as they are. */
+export async function readRows(file) {
+  if (/\.json$/i.test(file.name)) { const d = JSON.parse(await file.text()); return Array.isArray(d) ? d : Object.values(d.assets || d.items || d); }
+  const X = await loadXLSX();
+  const isCsv = /\.csv$/i.test(file.name);
+  const wb = isCsv ? X.read(await file.text(), { type: "string", raw: true }) : X.read(await file.arrayBuffer(), { type: "array", cellDates: true });
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return X.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: "", raw: true })
+    .map(r => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, v instanceof Date ? ymd(v) : typeof v === "number" ? String(v) : v])));
+}
+/** First sheet as tab-separated text (for the Trial Balance box). */
+export async function sheetAsText(file) {
+  if (/\.csv$/i.test(file.name) || /\.txt$/i.test(file.name)) return file.text();
+  const X = await loadXLSX();
+  const wb = X.read(await file.arrayBuffer(), { type: "array" });
+  return X.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: "\t" });
+}

@@ -1,11 +1,12 @@
 // GSO issuance: PAR (PPE), ICS (Semi-Expendable) and RIS (supplies) issued from approved AIRs.
-import { S, can, role, settings, fundAirs, fundDocs, airById, docById } from "../state.js";
+import { S, can, role, settings, fundAirs, fundDocs, airById, docById, activeUsers } from "../state.js";
 import {
   $, $$, esc, toast, busy, money, num, qty, fmtDate, fmtDateTime, manilaToday, renderTable, confirmBox,
   docStatusBadge, downloadCSV
 } from "../ui.js";
 import { fundName, DOC_TYPES, CATEGORIES, accountName, FUNDS, isDistributionAccount } from "../core/catalog.js";
 import { remainingQty, sxClass } from "../core/logic.js";
+import { defaultLife } from "../core/assets.js";
 import { issueDocs, cancelDoc } from "../data.js";
 import { printForm, docHtml } from "../print.js";
 
@@ -55,16 +56,17 @@ function issuePanel(main, airId) {
       t === "ics" ? `Semi-Expendable items are numbered SPLV (unit cost ₱${num(th.sxHighValue)} and below) or SPHV (above). Mixed items are split into one ICS per class automatically.` :
       "Supplies issued for consumption by an office, or for distribution (accounts 10402xxx). Partial quantities stay in the Stock Card for a later RIS."}</p>
     <div class="table-wrap"><table class="lines"><thead><tr><th></th><th>Item</th><th class="right">Unit cost</th><th class="right">Left</th><th class="right">Issue qty</th>
-      ${prop ? `<th>${t === "par" ? "Property No." : "Inventory Item No."}</th><th>Useful life</th>` : `<th class="right">Requested</th>`}</tr></thead>
+      ${prop ? `<th>${t === "par" ? "Property No." : "Inventory Item No."}</th><th>${t === "par" ? "Useful life (years)" : "Est. useful life"}</th>` : `<th class="right">Requested</th>`}</tr></thead>
       <tbody>${lines.map(l => `<tr data-id="${esc(l.id)}"><td><input type="checkbox" data-pick checked></td>
         <td><b>${esc(l.description)}</b><div class="xs muted">${esc(l.unit)} · ${esc(l.accountCode)} ${esc(accountName(l.accountCode))}${l.stockNo ? ` · Stock No. ${esc(l.stockNo)}` : ""}${t === "ris" ? ` · ${isDistributionAccount(l.accountCode) ? "Distribution" : "Consumption"}` : ""}${t === "ics" ? ` · ${sxClass(l.unitCost, th) === "low" ? "SPLV" : "SPHV"}` : ""}</div></td>
         <td class="right">${num(l.unitCost)}</td><td class="right">${qty(remainingQty(l))}</td>
         <td><input type="number" class="w-xs" data-q min="0" max="${remainingQty(l)}" step="${prop ? 1 : "any"}" value="${remainingQty(l)}"></td>
-        ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || "")}"></td><td><input class="w-sm" data-ul value="${esc(l.usefulLife || "")}"></td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
+        ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || "")}"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
     <div class="grid g3" style="margin-top:1rem">
       <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
-      <div><label class="req">${t === "ris" ? "Requested / received by" : "Received by (End-User)"}</label><input name="rname" value="${esc(a.endUserName || "")}"></div>
-      <div><label>Position / designation</label><input name="rpos" value=""></div>
+      <div><label class="req">${t === "ris" ? "Requested / received by" : "Received by (End-User)"}</label><input name="rname" list="ulist" autocomplete="off" value="${esc(a.endUserName || "")}"></div>
+      <datalist id="ulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
+      <div><label>Position / designation</label><input name="rpos" value="${esc(activeUsers().find(u => u.id === a.endUserUid)?.position || "")}"></div>
       <div><label>Office</label><input name="roffice" value="${esc(a.office || "")}"></div>
       ${t === "ris" ? `<div><label>Responsibility Center Code</label><input name="rcc"></div><div class="span1"><label>Purpose</label><input name="purpose" value="${esc(a.purpose || "")}"></div>
         <div><label>Approved by</label><input name="aname" value="${esc(s.signatories.approver)}"></div><div><label>Designation</label><input name="apos" value="${esc(s.signatories.approverPosition)}"></div><div></div>` : "<div></div>"}
@@ -73,6 +75,7 @@ function issuePanel(main, airId) {
     </div>
     <div class="form-msg err" id="msg"></div>
     <div class="modal-actions"><span class="small muted" id="sum"></span><button class="btn primary" type="submit">Issue ${DOC_TYPES[t].short}</button></div>`;
+  f.rname.addEventListener("change", () => { const u = activeUsers().find(x => x.displayName === f.rname.value); if (u) { f.rpos.value = u.position || ""; f.roffice.value = u.office || f.roffice.value; } });
   const sum = () => { let tot = 0; $$("tbody tr", f).forEach(tr => { if ($("[data-pick]", tr).checked) { const l = lines.find(x => x.id === tr.dataset.id); tot += (Number($("[data-q]", tr).value) || 0) * l.unitCost; } }); $("#sum", f).textContent = `Total ${money(tot)}`; };
   f.addEventListener("input", sum); sum();
   f.onsubmit = e => {
@@ -86,7 +89,8 @@ function issuePanel(main, airId) {
     });
     const header = {
       date: fd.date, purpose: fd.purpose || "", lineInfo,
-      recipient: { uid: a.endUserUid, name: fd.rname.trim(), position: fd.rpos.trim(), office: fd.roffice.trim(), rcc: (fd.rcc || "").trim() },
+      // property shows in "My Property" of the registered user who receives it (none if not a system user)
+      recipient: { uid: activeUsers().find(u => u.displayName === fd.rname.trim())?.id || (fd.rname.trim() === a.endUserName ? a.endUserUid : ""), name: fd.rname.trim(), position: fd.rpos.trim(), office: fd.roffice.trim(), rcc: (fd.rcc || "").trim() },
       issuedBy: { name: fd.iname.trim(), position: fd.ipos.trim() },
       approvedBy: t === "ris" ? { name: (fd.aname || "").trim(), position: (fd.apos || "").trim() } : {}
     };

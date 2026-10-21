@@ -1,6 +1,6 @@
 // App entry: sign-in lifecycle, account/role, shell (TOSCAN layout), navigation and routing.
 import { auth, onAuthStateChanged, signOut, getRedirectResult, authError, CONFIGURED } from "./fb.js";
-import { S, startAccount, startRole, stop, onChange, can, isAdmin, role, setFund } from "./state.js";
+import { S, startAccount, startRole, stop, onChange, can, isAdmin, role, setFund, emptyData } from "./state.js";
 import { $, esc, toast, avatar, closeModals, opts } from "./ui.js";
 import { FUNDS, ROLE_NAMES } from "./core/catalog.js";
 import * as Auth from "./views/auth.js";
@@ -11,6 +11,9 @@ import * as Posting from "./views/posting.js";
 import * as Registry from "./views/registry.js";
 import * as Reports from "./views/reports.js";
 import * as Admin from "./views/admin.js";
+import * as Property from "./views/property.js";
+import * as Accounting from "./views/accounting.js";
+import * as Import from "./views/import.js";
 import { counts } from "./views/common.js";
 
 const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>` };
@@ -21,7 +24,7 @@ else {
   getRedirectResult(auth).catch(e => setTimeout(() => toast(authError(e), "err"), 400));
   onAuthStateChanged(auth, user => {
     stop(); closeModals();
-    Object.assign(S, { user, account: undefined, settings: null, d: { airs: [], docs: [], users: [], audit: [] } });
+    Object.assign(S, { user, account: undefined, settings: null, d: emptyData() });
     S.ready.clear(); screen = ""; activeRole = null;
     if (!user) { screen = "login"; Auth.renderLogin($("#app")); return; }
     $("#app").innerHTML = `<div class="center-screen"><div class="loading">Loading your account…</div></div>`;
@@ -55,14 +58,14 @@ function navGroups() {
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
     g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "My AIRs", c.returned]] });
-    g.push({ label: "Issued to Me", items: [["issuances", "PAR / ICS / RIS"]] });
+    g.push({ label: "Issued to Me", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "My Property"]] });
   } else {
     g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
-    g.push({ label: "Accounting", items: [can("post") && ["posting", "For Posting", c.post], ["posted", "Posting Status"]] });
-    g.push({ label: "Registries", items: [["registry/ppe", "Property (PPE)"], ["registry/sx", "Semi-Expendable"], ["registry/stock", "Supplies Stock Cards"], ["reports", "Reports"]] });
+    g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["movements", "Transfers, Returns & Disposals"], ["registry/stock", "Supplies Stock Cards"]] });
+    g.push({ label: "Accounting", items: [can("post") && ["posting", "For Posting", c.post], ["posted", "Posting Status"], ["depreciation", "Depreciation"], ["reconciliation", "TB Reconciliation"], ["reports", "Reports"]] });
   }
-  if (isAdmin()) g.push({ label: "Administration", items: [["users", "Users & Roles", c.pending], ["settings", "Settings"], ["audit", "Audit Trail"]] });
+  if (isAdmin()) g.push({ label: "Administration", items: [["users", "Users & Roles", c.pending], ["import", "Data Import"], ["settings", "Settings"], ["audit", "Audit Trail"]] });
   g.push({ items: [["profile", "My Profile"]] });
   return g.map(x => ({ ...x, items: x.items.filter(Boolean) })).filter(x => x.items.length);
 }
@@ -73,7 +76,11 @@ const ROUTES = {
   inspect: () => can("inspectAir") && Air.inspectQueue,
   issue: () => can("issue") && Issue.queue, issuances: () => Issue.list, issuance: () => Issue.detail,
   posting: () => can("post") && Posting.queue, posted: () => can("viewAll") && Posting.status,
-  "registry/ppe": () => can("viewAll") && Registry.ppe, "registry/sx": () => can("viewAll") && Registry.sx, "registry/stock": () => can("viewAll") && Registry.stock,
+  "registry/ppe": () => can("viewAll") && Property.ppe, "registry/sx": () => can("viewAll") && Property.sx, "registry/stock": () => can("viewAll") && Registry.stock,
+  asset: () => can("viewAll") && Property.detail, movements: () => can("viewAll") && Property.movements, movement: () => can("viewAll") && Property.movement,
+  myproperty: () => Property.mine,
+  depreciation: () => can("viewAll") && Accounting.depreciation, reconciliation: () => can("viewAll") && Accounting.reconciliation,
+  import: () => isAdmin() && Import.importPage,
   reports: () => can("viewAll") && Reports.reports,
   users: () => isAdmin() && Admin.users, settings: () => isAdmin() && Admin.settingsPage, audit: () => isAdmin() && Admin.audit,
   profile: () => Admin.profile
@@ -86,10 +93,12 @@ function parseHash() {
   else if (name === "airs" && parts[1] && parts[2] === "edit") { name = "airEdit"; params = [parts[1]]; }
   else if (name === "airs" && parts[1]) name = "air";
   else if (name === "issuances" && parts[1]) name = "issuance";
+  else if (name === "assets" && parts[1]) name = "asset";
+  else if (name === "movements" && parts[1]) name = "movement";
   else if (name === "registry") { name = `registry/${parts[1] || "ppe"}`; params = parts.slice(2); }
   return { name, params };
 }
-const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances" };
+const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe" };
 
 function renderShell() {
   screen = "shell";

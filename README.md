@@ -7,7 +7,7 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 - **Backend:** Firebase (Authentication + Cloud Firestore). The free Spark plan is enough: no Cloud
   Functions, no Storage.
 - **Hosting:** Netlify, with no build step. It serves the `public/` folder as it is.
-- **Look:** the same design as the TOSCAN Portal: black and gold top bar and sidebar, a dashboard
+- **Look:** the TOSCAN Portal layout in **green and gold**: a top bar and sidebar, a dashboard
   with "Needs your attention" and "At a glance" panels, and the Inter typeface.
 - **Sign-in:** Google, or email and password.
 
@@ -22,11 +22,51 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 | 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** (Appendix 51) for PPE<br>• **ICS** (Annex A.3) for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** (Appendix 48) for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
 | 4 | **Accounting** | Marks each item as **posted in the registry**, with the posting date and JEV / reference number. One item per document: the **AIR supply receipt** (into the Supplies Ledger Card) and every **PAR, ICS and RIS**. Several can be posted at once under one JEV. | *Not posted* → *Partially posted* → *Fully posted* |
 
+After issuance, PAR and ICS items live in the **property register**, where their life continues:
+
+| Event | Who | Document | Effect |
+| --- | --- | --- | --- |
+| Transfer to another officer | GSO | **PTR** (PPE) / **ITR** (Annex A.5, semi-expendable) | Accountable officer and location change. A *Donation* also takes the item out of the books (Accounting posts it). |
+| Return to the GSO | GSO | **PRS** (PPE) / **RRSP** (Annex A.4, semi-expendable) | The item goes into GSO custody with its condition. It can be re-issued later by transfer, or disposed of. |
+| Disposal | GSO, then Accounting | Disposal report (mode, IIRUP / reference, carrying amount) | The item leaves the register; Accounting posts the derecognition. |
+| Monthly depreciation | Accounting | JEV summary | Straight-line, as in PMS (see below), posted month by month. |
+| Trial Balance check | Accounting | Reconciliation | Register vs Trial Balance, per account, at any month end. |
+
+Semi-expendable items can be moved in part (for example 1 of 4 chairs); the record splits in two.
+PPE always moves as a whole record.
+
 **Classification rule** (the thresholds can be changed in Settings):
 - Equipment or furniture with a unit cost of **₱50,000 or more** is **PPE** and gets a **PAR**.
 - Equipment or furniture **below ₱50,000** is **Semi-Expendable** and gets an **ICS**.
 - **Supplies** go to inventory and are issued with a **RIS**. Accounts `10402xxx` are
   *Distribution* (for example, welfare goods); other accounts are *Consumption*.
+
+### Depreciation (same method as PMS)
+
+- **Straight-line, monthly:** (cost − residual value) ÷ (useful life × 12).
+- **Residual value:** 5% of cost, or zero for Infrastructure accounts.
+- **Start:** the month **after** acquisition. For imported PMS records, the month after the
+  imported balance.
+- **Stop:** at the residual value, or in the month of disposal.
+- **Default useful lives:** the ones used most in your PMS register (Infrastructure 20, Buildings 30,
+  Office/ICT equipment 5, Motor vehicles 7, and so on). Every record keeps its own life, which
+  Accounting can correct.
+- **Not depreciated:** Land, Construction in Progress and Biological Assets.
+- **Posting:** periods are posted **in order**. Each posting saves the JEV number and the amount
+  for every item, and only the latest month can be unposted. The accumulated-depreciation account
+  is the cost account + 1, for example `10705020` → `10705021`, as in PMS.
+
+### Trial Balance reconciliation
+
+Paste the Trial Balance from Excel or upload the file (account code, name, debit, credit). For the
+chosen month end the app compares, account by account:
+- **PPE:** cost (debit) and accumulated depreciation (credit of the cost account + 1).
+- **Semi-expendable property:** cost.
+- **Inventory:** supplies on hand, valued from the Stock Cards.
+
+Differences under ₱1 count as rounding. Tested with your **December 2025 Trial Balance** and the PMS
+baseline register: 27 of 29 accounts tie out exactly. The two that don't (Land, and Plants and
+Trees) differ in the source data itself.
 
 ### What changed from the current PMS and IMS flow
 
@@ -42,17 +82,20 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
   posting. Its quantities return to the AIR for re-issue, and its number stays used.
 - **Exact supply costing.** Each RIS line draws from a specific AIR line, so the Stock Card and
   Supplies Ledger Card balances in pesos are exact.
-- **Kept as they were:** the GF / SEF / TF fund switcher, the account catalogs (PPE,
-  Semi-Expendable, Inventory), the PAR / ICS / RIS numbering, the printed form layouts, the Stock
-  Card (Appendix 53), the Supplies Ledger Card (Appendix 9) and the RSMI (Appendix 40).
+- **One property register for both systems.** PAR / ICS issuance, transfers, returns, disposals
+  and depreciation all act on the same records, and every record keeps its full history on its
+  Property Card.
+- **Kept as they were:** the GF / SEF / TF fund switcher, the full PMS account catalog, the
+  depreciation method, the PAR / ICS / PTR / ITR / RIS numbering, the printed form layouts, the
+  Stock Card (Appendix 53), the Supplies Ledger Card (Appendix 9) and the RSMI (Appendix 40).
 
 ### Roles
 
 | Role | Can do |
 | --- | --- |
-| **End-User** | Encode, submit and correct **their own** AIRs. See the PAR, ICS and RIS issued from them. |
-| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Registries and reports. |
-| **Accounting** | See all AIRs and documents. Post and unpost. Registries and reports. |
+| **End-User** | Encode, submit and correct **their own** AIRs. See the PAR, ICS and RIS issued from them, and **My Property** (items under their name). |
+| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Registries and reports. |
+| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Correct useful lives and residual values. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
 | **Super Admin** | Everything, including assigning and removing **Admins**. |
 
@@ -63,9 +106,11 @@ document as posted.
 ### Screens
 
 Dashboard · New AIR / My AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
-For Posting · Posting Status · Property (PPE) registry · Semi-Expendable registry · Supplies Stock
-Cards (Stock Card + Supplies Ledger Card) · Reports (RSMI, Summary by Account for Trial Balance
-reconciliation, AIR Monitoring) · Users & Roles · Settings · Audit Trail · My Profile.
+PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
+Transfers, Returns & Disposals · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
+For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
+Account, AIR Monitoring) · My Property · Users & Roles · Data Import · Settings · Audit Trail ·
+My Profile.
 Every list can be downloaded as a CSV, and every form prints on A4.
 
 ---
@@ -129,6 +174,31 @@ npx firebase deploy --only firestore:rules,firestore:indexes
    only as Super Admin) and set the status to **Active**. Their access starts at once, with no
    redeploy.
 
+### 6. Bring over your PMS and IMS records (one time)
+
+Go to **Administration → Data Import**. Every file shows a preview first: what will come in, rows
+with problems, and duplicates that will be skipped.
+
+**Property from PMS:**
+1. In PMS, open the **Asset Register**. For each fund, switch to it and click **Export CSV**. The
+   PMS `data/seed_assets.json` file also works.
+2. **Stop posting in PMS.** Note the **last month posted** there. The "Accum. Depr." column in the
+   export is the balance as of that month.
+3. Here, choose that month under *Accumulated depreciation as of*, choose the fund (if the file has
+   no Fund column) and upload the file.
+4. PPE and semi-expendable items are told apart by their account code. Retired items come in as
+   disposed history.
+5. Depreciation continues here from the following month.
+
+**Supplies from IMS:**
+1. In IMS, open the **Inventory Registry** and click **Download CSV**.
+2. Upload it here with the date the balances are as of.
+3. Each fund's supplies on hand become one already-posted **beginning-balance AIR**
+   (`BB-<date>`). The GSO issues from it with a normal RIS, and the Stock Cards start from these
+   balances.
+
+Then check the result in **TB Reconciliation** against the Trial Balance of that month.
+
 ---
 
 ## Data model (Firestore)
@@ -138,6 +208,10 @@ npx firebase deploy --only firestore:rules,firestore:indexes
 | `users/{uid}` | person | `role`, `status` (pending / active / disabled / declined), office, position |
 | `airs/{id}` | AIR | header, `lines[]` (category, account, stock no., **issuedQty**), `inspection`, `acceptance`, `status`, `posting` (supply receipt), `history[]` |
 | `issuances/{id}` | PAR / ICS / RIS | `docType`, `number`, `airId`, `lines[]` (each linked to its AIR line), `recipient`, `status` (issued / cancelled), `posting` |
+| `assets/{id}` | property record (PAR / ICS line, import row, or split part) | PPE or semi-expendable, cost, residual, useful life, holder, status (active / returned / disposed / cancelled), `depBaseline` (imported accumulated depreciation), `history[]` |
+| `movements/{id}` | PTR / ITR / PRS / RRSP / disposal | lines with the items moved; disposals and donations carry `posting` |
+| `depreciation/{fund_YYYY-MM}` | posted month | JEV no., amount per item, summary by account |
+| `tbSnapshots/{fund_YYYY-MM}` | Trial Balance | account → debit / credit |
 | `counters/{fund_TYPE_YYYY-MM}` | numbering sequence | increases by exactly one, inside a transaction |
 | `settings/app` | — | entity, offices, thresholds, signatories |
 | `auditLogs/{id}` | action | append-only; readable by admins |
@@ -158,7 +232,8 @@ public/                 ← what Netlify serves
   js/data.js            ← every write (transactions)
   js/print.js           ← AIR, PAR, ICS, RIS, Stock Card, SLC, RSMI layouts
   js/core/catalog.js    ← funds, roles, thresholds, account catalogs (PPE, SX, Inventory)
-  js/core/logic.js      ← business rules (pure; shared with the tests)
+  js/core/logic.js      ← AIR / issuance / posting rules (pure; shared with the tests)
+  js/core/assets.js     ← depreciation, movements, reconciliation, import parsing (pure)
   js/views/*.js         ← screens
 firestore.rules         ← server-side access control
 tests/                  ← logic tests + security-rules tests
@@ -169,7 +244,8 @@ netlify.toml, firebase.json, firestore.indexes.json
 
 ```sh
 npm install
-npm run test:logic     # business rules: thresholds, numbering, issuance limits, stock cards, RSMI
+npm run test:logic     # business rules: thresholds, numbering, issuance, stock cards, RSMI,
+                       # depreciation, movements, TB parsing/reconciliation, PMS/IMS import
 npm run test:rules     # security rules on the Firestore emulator (needs Java 11+)
 ```
 
@@ -179,12 +255,3 @@ npx firebase emulators:start --only auth,firestore --project demo-pmsims
 npm run serve          # then open http://localhost:5173/?emulator
 ```
 The `?emulator` switch works only on `localhost`.
-
-## Not included yet
-
-- **Importing existing PMS and IMS data** (the asset register, supplies balances). The two old
-  apps keep working on their own Firebase projects. A one-time import can be added once this flow
-  is confirmed.
-- **Transfers (PTR / ITR), returns (RRSP / RRPPE), depreciation and Trial Balance
-  reconciliation.** These stay in PMS for now. The *Summary by Account* report gives the received,
-  issued and posted totals per account to reconcile against.

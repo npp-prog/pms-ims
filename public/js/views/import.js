@@ -1,5 +1,5 @@
 // Administration → Data Import: brings over the existing PMS property register and IMS supplies on hand.
-import { S } from "../state.js";
+import { S, settings } from "../state.js";
 import { $, $$, esc, busy, toast, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
 import { FUNDS, fundName, accountName } from "../core/catalog.js";
 import { normalizeAssets, normalizeStock, normalizeCip, isPeriod, cipTotal } from "../core/assets.js";
@@ -48,7 +48,7 @@ function reparse(main) {
   if (!st.raw) return draw(main);
   if (st.tab === "assets" && !isPeriod(st.baseline)) { toast("Choose the month of the accumulated depreciation.", "err"); return; }
   if (st.tab === "cip" && !st.asOf) { toast("Enter the date for brought-forward totals first.", "err"); return; }
-  st.parsed = st.tab === "assets" ? normalizeAssets(st.raw, { fund: st.fund, baselinePeriod: st.baseline })
+  st.parsed = st.tab === "assets" ? normalizeAssets(st.raw, { fund: st.fund, baselinePeriod: st.baseline, offices: settings().offices })
     : st.tab === "cip" ? normalizeCip(st.raw, { fund: st.fund, asOf: st.asOf }) : normalizeStock(st.raw, { fund: st.fund });
   draw(main);
 }
@@ -89,9 +89,9 @@ function draw(main) {
         <div class="stat"><span class="n">${dup.length}</span><span class="l">already here (skipped)</span></div></div>
       ${cipFresh.length ? `<div class="notice info">${cipFresh.length} item${cipFresh.length === 1 ? " is" : "s are"} on a Construction in Progress account (${money(cipFresh.reduce((t, p) => t + cipTotal(p), 0))}). ${cipFresh.length === 1 ? "It" : "They"} will be created as <b>CIP projects</b> with the cost brought forward, not as PPE.</div>` : ""}
       ${problems(errors)}
-      <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Property No.</th><th>Description</th><th>Account</th><th>Acquired</th><th class="right">Cost</th><th class="right">Accum. depr.</th><th class="right">Life</th><th>Officer</th><th>Status</th></tr></thead>
+      <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Property No.</th><th>Description</th><th>Account</th><th>Acquired</th><th class="right">Cost</th><th class="right">Accum. depr.</th><th class="right">Life</th><th>Officer / office</th><th>Status</th></tr></thead>
         <tbody>${fresh.slice(0, 100).map(i => `<tr><td>${esc(i.fund)}</td><td>${i.itemType === "ppe" ? "PPE" : "SX"}</td><td>${esc(i.propertyNo)}</td><td>${esc(i.description)}</td><td class="small">${esc(i.accountCode)} ${esc(accountName(i.accountCode))}</td>
-          <td>${esc(i.dateAcquired)}</td><td class="right">${num(i.cost)}</td><td class="right">${i.depBaseline ? num(i.depBaseline.amount) : "—"}</td><td class="right">${i.usefulLifeYears || "—"}</td><td>${esc(i.holder.name)}</td><td>${esc(i.status)}</td></tr>`).join("")}</tbody></table></div>
+          <td>${esc(i.dateAcquired)}</td><td class="right">${num(i.cost)}</td><td class="right">${i.depBaseline ? num(i.depBaseline.amount) : "—"}</td><td class="right">${i.usefulLifeYears || "—"}</td><td>${esc(i.holder.name)}<div class="xs muted">${esc(i.holder.office || "office not recognised")}</div></td><td>${esc(i.status)}</td></tr>`).join("")}</tbody></table></div>
       ${fresh.length > 100 ? `<p class="small muted">Showing the first 100 of ${fresh.length}.</p>` : ""}
       <div class="btn-row end" style="margin-top:1rem"><span class="small muted" id="prog"></span><button class="btn primary" id="go" ${fresh.length || cipFresh.length ? "" : "disabled"}>Import ${fresh.length} records${cipFresh.length ? ` and ${cipFresh.length} CIP projects` : ""}</button></div>`;
     $("#go", out).onclick = e => busy(e.target, async () => {

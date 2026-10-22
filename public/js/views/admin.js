@@ -43,6 +43,8 @@ function editUser(u) {
   const m = openModal(`<h2>${esc(u.displayName || u.email)}</h2><p class="muted small">${esc(u.email)} · ${esc(u.office)} · ${esc(u.position)}${u.contact ? ` · ${esc(u.contact)}` : ""}</p>
     <form class="grid" id="uf">
       <div><label>Role</label><select name="role">${opts(roles.map(r => [r, ROLE_NAMES[r]]), roles.includes(u.role) ? u.role : "enduser")}</select><div class="xs muted" id="rh"></div></div>
+      <div><label>Office</label><select name="office">${opts(settings().offices.includes(u.office) ? settings().offices : [...(u.office ? [[u.office, `${u.office} (not in the list)`]] : []), ...settings().offices], u.office, "Choose office")}</select>
+        <div class="xs muted">End-Users see all property held by this office.</div></div>
       <div><label>Status</label><select name="status">${opts([["active", "Active — can use the system"], ["pending", "Pending approval"], ["disabled", "Disabled"], ["declined", "Declined"]], u.status === "pending" ? "active" : u.status)}</select></div>
       <div><label>Note to the user (shown if declined)</label><input name="note" value="${esc(u.note || "")}"></div>
       <div class="modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { size: "narrow" });
@@ -113,7 +115,7 @@ export function profile(main) {
   main.innerHTML = `<div class="page-head"><div><h1>My Profile</h1><p>${esc(a.email)} · ${esc(ROLE_NAMES[a.role] || "")}</p></div></div>
     <form id="pf" class="card grid g2">
       <div><label class="req">Full name</label><input name="displayName" value="${esc(a.displayName)}"></div>
-      <div><label class="req">Office / department</label><input name="office" list="ofl" value="${esc(a.office)}"><datalist id="ofl">${settings().offices.map(o => `<option value="${esc(o)}">`).join("")}</datalist></div>
+      <div><label>Office / department</label><input value="${esc(a.office)}" disabled><div class="xs muted">Set by an administrator — ask one if your office changed.</div></div>
       <div><label>Position / designation</label><input name="position" value="${esc(a.position)}"></div>
       <div><label>Contact number</label><input name="contact" value="${esc(a.contact || "")}"></div>
       <div class="spanall btn-row end"><button class="btn primary" type="submit">Save profile</button></div></form>
@@ -125,7 +127,7 @@ export function profile(main) {
   $("#pf", main).onsubmit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.target).entries());
-    if (!v.displayName.trim() || !v.office.trim()) return toast("Enter your name and office.", "err");
+    if (!v.displayName.trim()) return toast("Enter your name.", "err");
     busy(e.submitter, async () => { await updateProfile(v); window.dispatchEvent(new Event("app:clean")); }, "Profile saved.").catch(() => {});
   };
   $("#cp", main) && ($("#cp", main).onsubmit = e => {

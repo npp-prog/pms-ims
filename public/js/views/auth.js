@@ -3,7 +3,7 @@ import {
   auth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signInWithEmailAndPassword, createUserWithEmailAndPassword,
   sendPasswordResetEmail, sendEmailVerification, signOut, authError
 } from "../fb.js";
-import { $, esc, toast, busy, fmtDate, opts } from "../ui.js";
+import { $, esc, toast, busy, fmtDate, officeSelect } from "../ui.js";
 import { register, claimSuperadmin, isBootstrapEmail } from "../data.js";
 import { settings } from "../state.js";
 
@@ -110,9 +110,7 @@ function renderRegister(root, acc) {
     ${boot && !acc ? `<div class="notice info">This email is the system's designated <b>Super Administrator</b>. ${u.emailVerified ? "Fill in your details and claim access." : "Verify your email address first (check your inbox), then reload this page."}</div>` : ""}
     <form id="rf" class="grid g2" novalidate>
       <div class="spanall"><label class="req">Full name</label><input type="text" name="displayName" value="${esc(acc?.displayName || u.displayName || "")}" required placeholder="e.g. Juan A. Dela Cruz"></div>
-      <div><label class="req">Office / Department</label>${offices.length
-        ? `<select name="office" required>${opts(offices, acc?.office, "Choose your office")}</select>`
-        : `<input type="text" name="office" value="${esc(acc?.office || "")}" required placeholder="e.g. Municipal Health Office">`}</div>
+      <div><label class="req">Office / Department</label>${officeSelect("office", acc?.office || "", offices, { required: true, blank: "Choose your office" })}</div>
       <div><label class="req">Position / Designation</label><input type="text" name="position" value="${esc(acc?.position || "")}" required></div>
       <div><label>Contact number</label><input type="tel" name="contact" value="${esc(acc?.contact || "")}"></div>
       <div class="spanall form-msg err" id="rmsg" role="alert"></div>

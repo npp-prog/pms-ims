@@ -50,7 +50,9 @@ function onAccount() {
     screen = "auth"; Auth.renderAccountState($("#app"), acc);
     return;
   }
-  if (activeRole !== acc.role) { activeRole = acc.role; startRole(); screen = ""; }
+  // restart the listeners when the role or the office changes (End-Users see their office's property)
+  const key = `${acc.role}|${acc.office || ""}`;
+  if (activeRole !== key) { activeRole = key; startRole(); screen = ""; }
   if (screen !== "shell") renderShell(); else updateChrome();
 }
 
@@ -60,7 +62,7 @@ function navGroups() {
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
     g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "My AIRs", c.returned]] });
-    g.push({ label: "Issued to Me", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "My Property"], ["repairs", "History of Repair", c.repairsReturned]] });
+    g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
     g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });

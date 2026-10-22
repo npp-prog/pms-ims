@@ -55,7 +55,8 @@ test("registration: only as a pending end-user; the designated email may claim S
 test("users: pending users can't promote themselves; admins manage roles within their limits", async () => {
   await assertFails(updateDoc(doc(ctx("pend"), "users/pend"), { status: "active" }));
   await assertFails(updateDoc(doc(ctx("eu"), "users/eu"), { role: "gso" }));
-  await assertSucceeds(updateDoc(doc(ctx("eu"), "users/eu"), { office: "MTO", updatedAt: 1 }));
+  await assertSucceeds(updateDoc(doc(ctx("eu"), "users/eu"), { contact: "0917", updatedAt: 1 }));
+  await assertFails(updateDoc(doc(ctx("eu"), "users/eu"), { office: "MTO", updatedAt: 1 }), "office is set by an administrator");
   await assertFails(getDoc(doc(ctx("eu"), "users/gso")));
   await assertSucceeds(getDocs(collection(ctx("ad"), "users")));
   await assertSucceeds(updateDoc(doc(ctx("ad"), "users/pend"), { role: "gso", status: "active" }));
@@ -295,4 +296,31 @@ test("History of Repair: End-Users record repairs of their own property; the GSO
   await assertFails(deleteDoc(doc(e, "repairs/R1")));
   await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "returned", gsoRemarks: "Attach JO" }));
   await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "submitted", totalCost: 99 }), "corrected and resent");
+});
+
+test("End-Users see the property and PAR/ICS/RIS of their own office, not other offices'", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await updateDoc(doc(d, "users/eu"), { office: "Municipal Health Office" });
+    await updateDoc(doc(d, "users/eu2"), { office: "Municipal Agriculture Office" });
+    await setDoc(doc(d, "assets/MHO1"), asset({ custodianUid: "someone", holder: { name: "Dr. Cruz", office: "Municipal Health Office" } }));
+    await setDoc(doc(d, "assets/AGRI1"), asset({ custodianUid: "someone", holder: { name: "Juan", office: "Municipal Agriculture Office" } }));
+    await setDoc(doc(d, "assets/NOOFF"), asset({ custodianUid: "", holder: { name: "", office: "" } }));
+    await setDoc(doc(d, "issuances/OFF1"), baseDoc({ endUserUid: "x", recipient: { name: "Dr. Cruz", office: "Municipal Health Office" } }));
+  });
+  const e = ctx("eu");
+  await assertSucceeds(getDocs(query(collection(e, "assets"), where("holder.office", "==", "Municipal Health Office"))));
+  await assertSucceeds(getDoc(doc(e, "assets/MHO1")));
+  await assertFails(getDoc(doc(e, "assets/AGRI1")));
+  await assertFails(getDocs(query(collection(e, "assets"), where("holder.office", "==", "Municipal Agriculture Office"))));
+  await assertFails(getDoc(doc(e, "assets/NOOFF")), "an item with no office is not everyone's");
+  await assertSucceeds(getDocs(query(collection(e, "issuances"), where("recipient.office", "==", "Municipal Health Office"))));
+  await assertFails(getDoc(doc(ctx("eu2"), "issuances/OFF1")));
+  await assertFails(getDocs(query(collection(ctx("pend"), "assets"), where("holder.office", "==", ""))));
+  // the office decides what they see, so only an administrator changes it
+  await assertFails(updateDoc(doc(e, "users/eu"), { office: "Municipal Agriculture Office" }));
+  await assertSucceeds(updateDoc(doc(e, "users/eu"), { position: "Nurse III" }));
+  await assertSucceeds(updateDoc(doc(ctx("ad"), "users/eu"), { office: "Municipal Agriculture Office" }));
+  await assertSucceeds(getDoc(doc(e, "assets/AGRI1")), "after the administrator moved her");
+  await assertFails(getDoc(doc(e, "assets/MHO1")));
 });

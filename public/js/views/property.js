@@ -1,7 +1,7 @@
 // Property register: PPE and semi-expendable records, their movements (PTR / ITR, PRS / RRSP, disposals)
 // and each record's property card with its depreciation.
 import { S, can, settings, fundAssets, fundRuns, assetById, activeUsers } from "../state.js";
-import { $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
+import { officeSelect, $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, accountName, FUNDS } from "../core/catalog.js";
 import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType } from "../core/assets.js";
 import { round2 } from "../core/logic.js";
@@ -67,21 +67,29 @@ sx.deps = ["r:assets", "fund"];
 
 /* ---------------- End-User: my property ---------------- */
 export function mine(main) {
+  const office = S.account?.office || "";
   const rows = S.d.assets.filter(a => ["active", "returned"].includes(a.status));
-  main.innerHTML = `<div class="page-head"><div><h1>My Property</h1><p>PPE and semi-expendable property under your accountability. To return or transfer an item, coordinate with the GSO.</p></div></div><div class="card" id="t"></div>`;
+  const isMine = a => a.custodianUid === S.user.uid;
+  main.innerHTML = `<div class="page-head"><div><h1>Office Property</h1><p>PPE and semi-expendable property held by ${office ? `the <b>${esc(office)}</b>` : "your office"}, including what is under your own name. You can record repairs of items under your name; to return or transfer an item, coordinate with the GSO.</p></div></div>
+    ${office ? "" : `<div class="notice warn">Your account has no office yet, so only property under your own name is shown. Ask an administrator to set your office.</div>`}
+    <div class="card" id="t"></div>`;
   renderTable($("#t", main), {
     id: "mine", rows, pageSize: 50,
-    searchText: a => `${a.propertyNo} ${a.description}`,
-    filters: [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v }],
+    searchText: a => `${a.propertyNo} ${a.description} ${a.holder?.name}`,
+    searchPlaceholder: "Property no., item, accountable officer",
+    filters: [{ key: "w", label: "Accountable officer", options: [["me", "Only mine"], ["others", "Others in my office"]], test: (a, v) => v === "me" ? isMine(a) : !isMine(a) },
+      { key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v }],
     columns: [
-      { label: "Property / Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>` },
-      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(a.source?.kind?.toUpperCase() || "")} ${esc(a.source?.number || "")}</div>` },
+      { label: "Property / Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>`, sort: a => a.propertyNo || "" },
+      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(a.source?.kind === "import" ? "Imported" : `${a.source?.kind?.toUpperCase() || ""} ${a.source?.number || ""}`)}</div>`, sort: a => a.description },
+      { label: "Accountable officer", render: a => isMine(a) ? `<b>You</b>` : esc(a.holder?.name || "—"), sort: a => isMine(a) ? "" : a.holder?.name || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
-      { label: "Cost", render: a => money(a.cost), cls: "right", headCls: "right" },
-      { label: "Acquired", render: a => fmtDate(a.dateAcquired) },
-      { label: "", render: a => `<div class="btn-row" style="flex-wrap:nowrap"><a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record repair</a><button class="btn sm" data-hor="${esc(a.id)}">Repair history</button><button class="btn sm" data-card="${esc(a.id)}">Print card</button></div>` }
+      { label: "Cost", render: a => money(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
+      { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
+      { label: "", render: a => `<div class="btn-row" style="min-width:150px">${isMine(a) ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record repair</a><button class="btn sm" data-hor="${esc(a.id)}">Repair history</button>` : ""}<button class="btn sm" data-card="${esc(a.id)}">Print card</button></div>` }
     ],
-    empty: "No property is recorded under your name."
+    empty: "No property is recorded for your office yet.",
+    footer: l => `<tr><td colspan="4" class="right">Total</td><td class="right">${money(l.reduce((t, a) => t + a.cost, 0))}</td><td colspan="2"></td></tr>`
   });
   $("#t", main).addEventListener("click", e => {
     const b = e.target.closest("[data-card]"); if (b) printForm(propertyCardHtml(rows.find(a => a.id === b.dataset.card), []));
@@ -150,7 +158,8 @@ function editModal(a) {
   const m = openModal(`<h2>Correct record</h2><p class="muted small">Cost, account, fund and date acquired can't be changed here; they come from the PAR/ICS or the import.</p>
     <form class="grid g2" id="ef">
       <div><label>${ppe ? "Property No." : "Item No."}</label><input name="propertyNo" value="${esc(a.propertyNo || "")}"></div>
-      ${gso ? `<div><label>Location</label><input name="location" value="${esc(a.location || "")}"></div>
+      ${gso ? `<div><label>Office</label>${officeSelect("office", a.holder?.office || "", settings().offices, { blank: "No office" })}<div class="xs muted">The office's End-Users can see this item.</div></div>
+      <div><label>Location</label><input name="location" value="${esc(a.location || "")}"></div>
       <div class="spanall"><label>Description</label><input name="description" value="${esc(a.description)}"></div>` : ""}
       <div><label>Condition</label><select name="condition">${opts(["Serviceable", "Needs repair", "Unserviceable"], a.condition)}</select></div>
       ${ppe ? `<div><label>Useful life (years)</label><input type="number" min="0" step="1" name="usefulLifeYears" value="${esc(a.usefulLifeYears || 0)}"></div>
@@ -187,10 +196,10 @@ function movementModal(kind, assets) {
       ${kind === "transfer" ? `<div><label>Transfer type</label><select name="transferType">${opts(TRANSFER_TYPES, "reassignment")}</select></div>
         <div><label class="req">To (accountable officer)</label><input name="toName" list="ulist" autocomplete="off"></div>
         <div><label>Position</label><input name="toPos"></div>
-        <div><label>Office</label><input name="toOffice" list="olist"></div>
+        <div><label>Office</label>${officeSelect("toOffice", "", s.offices)}</div>
         <div><label>Others — specify</label><input name="typeOther"></div>
         <datalist id="ulist">${users.map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
-        <datalist id="olist">${s.offices.map(o => `<option value="${esc(o)}">`).join("")}</datalist>` : ""}
+` : ""}
       ${kind === "dispose" ? `<div><label class="req">Mode of disposal</label><select name="mode">${opts(DISPOSAL_MODES, "", "Choose")}</select></div>
         <div class="spanall"><label>Reference (IIRUP no., sales invoice, police report…)</label><input name="ref"></div>` : ""}
       <div class="spanall"><label>${kind === "transfer" ? "Reason for transfer" : kind === "return" ? "Reason for return" : "Remarks"}</label><input name="reason"></div>

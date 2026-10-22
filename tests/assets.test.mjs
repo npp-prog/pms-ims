@@ -189,3 +189,16 @@ test("PMS assets on a CIP account are imported as CIP projects, not PPE", () => 
   assert.equal(r.cip.length, 1);
   assert.deepEqual([r.cip[0].accountCode, cipTotal(r.cip[0]), r.cip[0].billings[0].date, r.cip[0].billings[0].ref], ["10710030", 6826756.78, "2025-12-31", "Balance brought forward"]);
 });
+
+import { officeFromText, DEFAULT_OFFICES } from "../public/js/core/catalog.js";
+test("standard offices: PMS locations are mapped, addresses are not", () => {
+  assert.equal(officeFromText("MAYORS OFFICE - MTP"), "Office of the Municipal Mayor");
+  assert.equal(officeFromText("LOCAL DISASTER RISK REDUCTION AND MANAGEMENT OFFICE"), "Municipal Disaster Risk Reduction and Management Office");
+  assert.equal(officeFromText("SB OFFICE"), "Sangguniang Bayan");
+  assert.equal(officeFromText("municipal health office"), "Municipal Health Office");
+  assert.equal(officeFromText("Brgy. East, Candoni, Negros Occidental"), "");
+  assert.equal(officeFromText("MSWDO", ["Office of the Municipal Mayor"]), "", "only offices in the current list");
+  assert.ok(DEFAULT_OFFICES.includes("General Services Office"));
+  const [a] = normalizeAssets([{ account_code: 10705020, description: "Printer", cost: 9000, location: "MAYOR'S OFFICE", accountable_officer: "Ana" }], { fund: "GF", baselinePeriod: "2025-12" }).items;
+  assert.deepEqual([a.holder.office, a.location], ["Office of the Municipal Mayor", "MAYOR'S OFFICE"]);
+});

@@ -1,6 +1,6 @@
 // History of Repair: End-Users record each job order on property under their name; the GSO verifies it.
-import { S, can, role, fundAssets, assetById } from "../state.js";
-import { $, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, renderTable, confirmBox, downloadCSV } from "../ui.js";
+import { S, can, role, settings, fundAssets, assetById } from "../state.js";
+import { officeSelect, $, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, renderTable, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, FUNDS } from "../core/catalog.js";
 import { REPAIR_STATUS, repairTotal } from "../core/assets.js";
 import { saveRepair, deleteRepair, reviewRepair } from "../data.js";
@@ -65,7 +65,7 @@ export function form(main, [id, assetId]) {
         <div><label>Plate no.</label><input name="plateNo" value="${v("plateNo")}"></div>
         <div><label>End user</label><input name="endUser" value="${v("endUser")}"></div>
         <div><label>Designation</label><input name="designation" value="${v("designation")}"></div>
-        <div class="spanall"><label>Office</label><input name="office" value="${v("office")}"></div>
+        <div class="spanall"><label>Office</label>${officeSelect("office", r?.office || "", settings().offices)}</div>
       </div>
       <h3 style="margin-top:1.2rem">Job order</h3>
       <div class="grid g3">

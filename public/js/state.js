@@ -1,6 +1,6 @@
 // Live application state: Firestore listeners chosen by role.
 import { db, doc, collection, query, where, orderBy, limit, onSnapshot } from "./fb.js";
-import { DEFAULT_THRESHOLDS } from "./core/catalog.js";
+import { DEFAULT_THRESHOLDS, DEFAULT_OFFICES } from "./core/catalog.js";
 
 export const S = {
   user: null, account: undefined, settings: null,
@@ -56,8 +56,16 @@ export function startRole() {
   const uid = S.user.uid;
   if (role() === "enduser") {
     live("r:airs", query(collection(db, "airs"), where("endUserUid", "==", uid)), v => { S.d.airs = v; });
-    live("r:docs", query(collection(db, "issuances"), where("endUserUid", "==", uid)), v => { S.d.docs = v; });
-    live("r:assets", query(collection(db, "assets"), where("custodianUid", "==", uid)), v => { S.d.assets = v; });
+    // their own records, plus everything held by / issued to their office
+    const office = S.account?.office || "";
+    const parts = { docs: [[], []], assets: [[], []] };
+    const merge = (key, i, v) => { parts[key][i] = v; const seen = new Map(); parts[key].flat().forEach(x => seen.set(x.id, x)); S.d[key] = [...seen.values()]; };
+    live("r:docs", query(collection(db, "issuances"), where("endUserUid", "==", uid)), v => merge("docs", 0, v));
+    live("r:assets", query(collection(db, "assets"), where("custodianUid", "==", uid)), v => merge("assets", 0, v));
+    if (office) {
+      live("r:officeDocs", query(collection(db, "issuances"), where("recipient.office", "==", office)), v => merge("docs", 1, v));
+      live("r:officeAssets", query(collection(db, "assets"), where("holder.office", "==", office)), v => merge("assets", 1, v));
+    }
     live("r:repairs", query(collection(db, "repairs"), where("endUserUid", "==", uid)), v => { S.d.repairs = v; });
   } else {
     live("r:airs", collection(db, "airs"), v => { S.d.airs = v; });
@@ -98,7 +106,7 @@ export function settings() {
   return {
     entityName: s.entityName || "Municipal Government of Candoni",
     address: s.address || "Municipal Building, Rizal St., Candoni, Negros Occidental, 6110",
-    offices: s.offices || [],
+    offices: s.offices?.length ? s.offices : DEFAULT_OFFICES,
     thresholds: { ...DEFAULT_THRESHOLDS, ...(s.thresholds || {}) },
     signatories: {
       propertyCustodian: "", propertyCustodianPosition: "Supply and/or Property Custodian",

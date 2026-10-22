@@ -64,7 +64,7 @@ PPE always moves as a whole record.
 
 ### History of Repair
 
-- **Who records:** End-Users, from **My Property** or **History of Repair**, for items under their
+- **Who records:** End-Users, from **Office Property** or **History of Repair**, for items under their
   name. The GSO can record for anyone.
 - **What a record holds:** one job order (make and model, serial, engine and plate numbers, job
   order, invoice/PO, supplier, nature of repair, spare parts / materials / labor with costs) and the
@@ -72,6 +72,24 @@ PPE always moves as a whole record.
 - **Verification:** the GSO verifies (adding "Verified by") or returns the record with remarks. A
   verified repair is locked and appears in the item's history.
 - **Print:** the History of Repair prints every job order for the item, with a grand total.
+
+### Offices
+
+- **Built-in list:** the system ships with the standard offices of the Municipal Government of
+  Candoni (Office of the Municipal Mayor, Sangguniang Bayan, Municipal Health Office, General
+  Services Office, and so on).
+- **Where it's used:** it is a dropdown at registration, on the AIR, on PAR / ICS / RIS, on
+  transfers and on repairs. Administrators can change the list in **Settings**.
+- **Who sets a person's office:** the user picks it at registration. After approval, only an
+  administrator can change it (Users & Roles), because the office decides which property an
+  End-User can see.
+- **Office Property:** End-Users see every item whose accountable office is theirs. The security
+  rules enforce this, not just the menus.
+- **Renaming an office** in Settings doesn't rename it on existing records. Move those with a
+  transfer, or "Correct record" on the item.
+- **Import:** the PMS import reads the office from the Location column ("MAYOR'S OFFICE",
+  "SB OFFICE", "MSWDO" and so on). Items whose location is an address (mostly roads, buildings and
+  land) get no office; the GSO can assign one with "Correct record".
 
 ### Depreciation (same method as PMS)
 
@@ -126,7 +144,7 @@ Trees) differ in the source data itself.
 
 | Role | Can do |
 | --- | --- |
-| **End-User** | Encode, submit and correct **their own** AIRs. See the PAR, ICS and RIS issued from them, **My Property** (items under their name) and record **repairs** of those items. |
+| **End-User** | Encode, submit and correct **their own** AIRs. See **Office Property** (every item held by their office, their own marked "You") and the PAR / ICS / RIS of their office. Record **repairs** of items under their own name. |
 | **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Registries and reports. |
 | **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Correct useful lives and residual values. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
@@ -138,11 +156,11 @@ document as posted.
 
 ### Screens
 
-Dashboard · New AIR / My AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
+Dashboard · Office Property · New AIR / My AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
 PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
 Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
-Account, AIR Monitoring) · My Property · Users & Roles · Data Import · Settings · Audit Trail ·
+Account, AIR Monitoring) · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.
 Every list can be downloaded as a CSV, and every form prints on A4.
 

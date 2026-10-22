@@ -1,7 +1,7 @@
 // Acceptance and Inspection Report: encoded by the End-User, inspected and approved (or returned) by the GSO.
 import { S, can, role, settings, fundAirs, airById, docsOfAir } from "../state.js";
 import {
-  $, esc, uid, toast, busy, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, accountOpts, datalist,
+  officeSelect, $, esc, uid, toast, busy, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, accountOpts, datalist,
   renderTable, confirmBox, openModal, airBadge, catBadge, docStatusBadge, postBadge, downloadCSV
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
@@ -76,7 +76,7 @@ export function form(main, [id]) {
       <div class="grid g4">
         <div><label class="req">Fund</label><select name="fund" ${a?.airNo ? "disabled title=\"The AIR number already belongs to this fund\"" : ""}>${opts(FUNDS.map(f => [f.code, f.name]), a?.fund || S.fund)}</select></div>
         <div><label class="req">AIR date</label><input type="date" name="date" value="${esc(a?.date || manilaToday())}"></div>
-        <div class="span2"><label class="req">Requisitioning office / department</label><input name="office" list="offices" value="${esc(a?.office ?? S.account?.office ?? "")}"></div>
+        <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", a?.office ?? S.account?.office ?? "", settings().offices)}</div>
         <div class="span2"><label class="req">Supplier</label><input name="supplier" value="${esc(a?.supplier || "")}"></div>
         <div><label>PO No.</label><input name="poNo" value="${esc(a?.poNo || "")}"></div>
         <div><label>PO date</label><input type="date" name="poDate" value="${esc(a?.poDate || "")}"></div>
@@ -85,7 +85,6 @@ export function form(main, [id]) {
         <div></div>
         <div class="spanall"><label>Purpose / remarks</label><input name="purpose" value="${esc(a?.purpose || "")}" placeholder="e.g. For use of the Municipal Health Office"></div>
       </div>
-      ${datalist("offices", settings().offices)}
       <h3 style="margin-top:1.4rem">Items delivered</h3>
       <p class="xs muted" style="margin-top:-.3rem">Choose <b>Equipment / furniture</b> for property (unit cost ₱${num(th.capitalization)} and up becomes PPE with a PAR; below that, Semi-Expendable with an ICS) or <b>Supplies</b> for consumable / distributable items (issued with a RIS). The GSO confirms the classification.</p>
       <div class="table-wrap"><table class="lines"><thead><tr><th>Type</th><th>Description</th><th>Specifications</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Becomes</th><th></th></tr></thead><tbody id="lb"></tbody>

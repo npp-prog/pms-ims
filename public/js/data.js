@@ -234,14 +234,14 @@ export function claimSuperadmin(data) {
 }
 export function updateProfile(data) {
   return wrap(() => updateDoc(doc(db, "users", S.user.uid), {
-    displayName: String(data.displayName || "").trim(), office: String(data.office || "").trim(), position: String(data.position || "").trim(),
+    displayName: String(data.displayName || "").trim(), position: String(data.position || "").trim(),
     contact: String(data.contact || "").trim(), updatedAt: serverTimestamp()
   }));
 }
-export function setUserAccess(uid, { role, status, note = "" }) {
+export function setUserAccess(uid, { role, status, note = "", office }) {
   return wrap(async () => {
-    await updateDoc(doc(db, "users", uid), { role, status, note, reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-    audit("user_access", "user", uid, { role, status });
+    await updateDoc(doc(db, "users", uid), { role, status, note, ...(office ? { office } : {}), reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    audit("user_access", "user", uid, { role, status, office: office || "" });
   });
 }
 export function saveSettings(patch) {
@@ -360,6 +360,7 @@ export function updateAsset(id, patch, note) {
       if ("usefulLifeYears" in clean) clean.usefulLifeYears = Number(clean.usefulLifeYears) || 0;
       if ("residualValue" in clean) clean.residualValue = round2(clean.residualValue);
       if (a.itemType === "ppe") clean.depreciable = isDepreciable({ ...a, ...clean, depreciable: true });
+      if ("office" in patch && patch.office !== (a.holder?.office || "")) clean.holder = { ...(a.holder || {}), office: patch.office };
       tx.update(ref, { ...clean, history: [...(a.history || []), stamp("Record corrected", note || Object.keys(clean).join(", "))], updatedAt: serverTimestamp() });
     });
     audit("asset_update", "asset", id, patch);

@@ -30,6 +30,9 @@ service cloud.firestore {
     function encoder() { return hasRole(['enduser', 'admin', 'superadmin']); }
     function issuer() { return hasRole(['gso', 'admin', 'superadmin']); }
     function poster() { return hasRole(['accounting', 'admin', 'superadmin']); }
+    // the signed-in user's office ("" if none) — End-Users see the property of their own office
+    function myOffice() { return get(userPath()).data.get('office', ''); }
+    function sameOffice(office) { return active() && myOffice() != '' && office == myOffice(); }
     function onlyChanged(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys); }
     function validFund(f) { return f in ['GF', 'SEF', 'TF']; }
 
@@ -51,11 +54,11 @@ service cloud.firestore {
         // the designated Super Administrator claims the role
         || (request.auth.uid == uid && bootstrapEmail() && request.resource.data.uid == uid
           && request.resource.data.role == 'superadmin' && request.resource.data.status == 'active')
-        // everyone edits their own profile details
-        || (signedIn() && request.auth.uid == uid && onlyChanged(['displayName', 'office', 'position', 'contact', 'photoURL', 'updatedAt']))
+        // everyone edits their own profile details — not their office, which decides whose property they see
+        || (signedIn() && request.auth.uid == uid && onlyChanged(['displayName', 'position', 'contact', 'photoURL', 'updatedAt']))
         // administrators set other people's role and status
         || (isAdmin() && request.auth.uid != uid
-          && onlyChanged(['role', 'status', 'note', 'reviewedBy', 'reviewedAt', 'updatedAt'])
+          && onlyChanged(['role', 'status', 'note', 'office', 'reviewedBy', 'reviewedAt', 'updatedAt'])
           && request.resource.data.role in ['superadmin', 'admin', 'accounting', 'gso', 'enduser']
           && request.resource.data.status in ['pending', 'active', 'disabled', 'declined']
           && (isSuper() || (!(request.resource.data.role in ['admin', 'superadmin']) && !(resource.data.role in ['admin', 'superadmin']))));
@@ -119,7 +122,7 @@ service cloud.firestore {
 
     // ---------------- PAR / ICS / RIS ----------------
     match /issuances/{id} {
-      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
+      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid) || sameOffice(resource.data.recipient.office);
 
       // Created only together with (or after) an approved AIR — getAfter sees the same transaction.
       allow create: if issuer()
@@ -146,7 +149,7 @@ service cloud.firestore {
     // ---------------- property register ----------------
     // One record per PAR / ICS line (created in the issuance transaction), per import row, or per split.
     match /assets/{id} {
-      allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid);
+      allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid) || sameOffice(resource.data.holder.office);
       allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import')
           // Accounting closes a CIP project into a new PPE record, in the same transaction
           || (poster() && request.resource.data.source.kind == 'cip'

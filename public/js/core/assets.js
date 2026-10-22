@@ -1,6 +1,6 @@
 // Property register rules: depreciation (straight-line, PMS method), transfers / returns / disposals,
 // Trial Balance reconciliation and the import of existing PMS / IMS records. Pure functions only.
-import { ppeAccount, isSxAccount, accountCategory, accountByCodeOrName, ZERO_RESIDUAL_ACCOUNTS, INV_ACCOUNTS, PPE_ACCOUNTS, SX_ACCOUNTS, FUNDS } from "./catalog.js";
+import { ppeAccount, isSxAccount, accountCategory, accountByCodeOrName, ZERO_RESIDUAL_ACCOUNTS, INV_ACCOUNTS, PPE_ACCOUNTS, SX_ACCOUNTS, FUNDS, officeFromText, DEFAULT_OFFICES } from "./catalog.js";
 import { round2 } from "./logic.js";
 
 /* ---------------- periods ---------------- */
@@ -181,6 +181,7 @@ function isoDate(v) {
  * opts: { fund (default when the row has none), baselinePeriod (as-of period of the accumulated depreciation) }
  */
 export function normalizeAssets(rows, opts) {
+  opts = { offices: DEFAULT_OFFICES, ...opts };
   const items = [], errors = [], cip = [];
   rows.forEach((r, i) => {
     const line = i + 2;
@@ -219,7 +220,9 @@ export function normalizeAssets(rows, opts) {
       cost, unitCost: cost, residualValue: itemType === "ppe" ? (resid !== "" ? money(resid) : residualFor(accountCode, cost)) : 0,
       usefulLifeYears: itemType === "ppe" ? life : 0, depreciable: itemType === "ppe" && !!acc?.depreciable && life > 0 && depFlag !== "false",
       dateAcquired: isoDate(pick(r, "date_acquired", "Date Acquired")) || "",
-      holder: { name: pick(r, "accountable_officer", "Accountable Officer", "Officer"), position: "", office: pick(r, "office", "Office", "Dept/Office") },
+      // PMS has no office column: the standard office is read from Office or, failing that, from Location
+      holder: { name: pick(r, "accountable_officer", "Accountable Officer", "Officer"), position: "",
+        office: officeFromText(pick(r, "office", "Office", "Dept/Office"), opts.offices) || officeFromText(pick(r, "location", "Location"), opts.offices) },
       location: pick(r, "location", "Location"),
       status: /retired|disposed/.test(status) ? "disposed" : "active",
       disposal: /retired|disposed/.test(status) ? { date: "", reason: "Retired in PMS before the import" } : null,

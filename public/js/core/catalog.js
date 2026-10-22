@@ -176,3 +176,64 @@ export const accountCategory = code => {
 };
 /** A distribution account (1040 2xxx) means a RIS issue is a Distribution, else a Consumption. */
 export const isDistributionAccount = code => String(code || "").startsWith("10402");
+
+/** Offices of the Municipal Government of Candoni, offered as a dropdown everywhere an office is chosen
+ *  (registration, AIR, PAR/ICS/RIS, transfers). Administrators can change the list in Settings. Office
+ *  names must match exactly: End-Users see the property of their own office by this name. */
+export const DEFAULT_OFFICES = [
+  "Office of the Municipal Mayor",
+  "Office of the Municipal Vice Mayor",
+  "Sangguniang Bayan",
+  "Municipal Administrator's Office",
+  "Human Resource Management Office",
+  "Municipal Planning and Development Office",
+  "Municipal Budget Office",
+  "Municipal Accounting Office",
+  "Municipal Treasurer's Office",
+  "Municipal Assessor's Office",
+  "Municipal Civil Registrar's Office",
+  "General Services Office",
+  "Municipal Engineering Office",
+  "Municipal Health Office",
+  "Municipal Social Welfare and Development Office",
+  "Municipal Agriculture Office",
+  "Municipal Disaster Risk Reduction and Management Office",
+  "Municipal Environment and Natural Resources Office",
+  "Business Permits and Licensing Office",
+  "Municipal Tourism Office",
+  "Public Employment Service Office",
+  "Municipal Economic Enterprise (Public Market)"
+];
+/** How offices are written in the PMS register's Location column → the standard name. */
+const OFFICE_ALIASES = [
+  [/\b(mayor'?s? office|office of the (municipal )?mayor|mayor'?s motorpool|mayors office)/i, "Office of the Municipal Mayor"],
+  [/\bvice mayor/i, "Office of the Municipal Vice Mayor"],
+  [/\b(sb office|sangguniang bayan)/i, "Sangguniang Bayan"],
+  [/\bdisaster risk|\bmdrrmo|\bldrrmo/i, "Municipal Disaster Risk Reduction and Management Office"],
+  [/\b(municipal health|rhu\b|rural health)/i, "Municipal Health Office"],
+  [/\b(mswdo|social welfare)/i, "Municipal Social Welfare and Development Office"],
+  [/\bagricultur/i, "Municipal Agriculture Office"],
+  [/\btreasur/i, "Municipal Treasurer's Office"],
+  [/\b(human resource|hrmo)/i, "Human Resource Management Office"],
+  [/\b(planning and development|mpdo)/i, "Municipal Planning and Development Office"],
+  [/\baccounting/i, "Municipal Accounting Office"],
+  [/\bbudget/i, "Municipal Budget Office"],
+  [/\bassessor/i, "Municipal Assessor's Office"],
+  [/\bcivil regist/i, "Municipal Civil Registrar's Office"],
+  [/\b(general services|gso\b)/i, "General Services Office"],
+  [/\bengineer/i, "Municipal Engineering Office"],
+  [/\b(environment and natural|menro)/i, "Municipal Environment and Natural Resources Office"],
+  [/\b(business permit|bplo)/i, "Business Permits and Licensing Office"],
+  [/\btourism/i, "Municipal Tourism Office"],
+  [/\b(public employment|peso\b)/i, "Public Employment Service Office"],
+  [/\bpublic market|economic enterprise/i, "Municipal Economic Enterprise (Public Market)"]
+];
+/** The standard office named in a free-text location/office ("MAYORS OFFICE - MTP" → "Office of the Municipal Mayor"), or "". */
+export function officeFromText(text, offices = DEFAULT_OFFICES) {
+  const t = String(text || "").trim();
+  if (!t) return "";
+  const exact = offices.find(o => o.toLowerCase() === t.toLowerCase());
+  if (exact) return exact;
+  const hit = OFFICE_ALIASES.find(([re]) => re.test(t));
+  return hit && offices.includes(hit[1]) ? hit[1] : "";
+}

@@ -209,3 +209,8 @@ export async function sheetAsText(file) {
 }
 /** Only http(s) links are rendered as links; anything else (e.g. javascript:) is dropped. */
 export const safeLink = u => (/^https?:\/\/[^\s"'<>]+$/i.test(String(u || "")) ? String(u) : "");
+/** Office dropdown from the standard list; a value not in the list (older records) is kept as an extra choice. */
+export function officeSelect(name, value, offices, { required = false, blank = "Choose office" } = {}) {
+  const list = value && !offices.includes(value) ? [[value, `${value} (not in the list)`], ...offices] : offices;
+  return `<select name="${esc(name)}" ${required ? "required" : ""}>${opts(list, value || "", blank)}</select>`;
+}

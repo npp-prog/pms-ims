@@ -2,7 +2,7 @@
 import { S, can, role, settings, fundAirs, fundDocs, airById, docById, activeUsers } from "../state.js";
 import {
   $, $$, esc, toast, busy, money, num, qty, fmtDate, fmtDateTime, manilaToday, renderTable, confirmBox,
-  docStatusBadge, downloadCSV
+  docStatusBadge, downloadCSV, officeSelect
 } from "../ui.js";
 import { fundName, DOC_TYPES, CATEGORIES, accountName, FUNDS, isDistributionAccount } from "../core/catalog.js";
 import { remainingQty, sxClass } from "../core/logic.js";
@@ -67,7 +67,7 @@ function issuePanel(main, airId) {
       <div><label class="req">${t === "ris" ? "Requested / received by" : "Received by (End-User)"}</label><input name="rname" list="ulist" autocomplete="off" value="${esc(a.endUserName || "")}"></div>
       <datalist id="ulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
       <div><label>Position / designation</label><input name="rpos" value="${esc(activeUsers().find(u => u.id === a.endUserUid)?.position || "")}"></div>
-      <div><label>Office</label><input name="roffice" value="${esc(a.office || "")}"></div>
+      <div><label>Office</label>${officeSelect("roffice", a.office || "", s.offices)}</div>
       ${t === "ris" ? `<div><label>Responsibility Center Code</label><input name="rcc"></div><div class="span1"><label>Purpose</label><input name="purpose" value="${esc(a.purpose || "")}"></div>
         <div><label>Approved by</label><input name="aname" value="${esc(s.signatories.approver)}"></div><div><label>Designation</label><input name="apos" value="${esc(s.signatories.approverPosition)}"></div><div></div>` : "<div></div>"}
       <div><label>Issued by</label><input name="iname" value="${esc(s.signatories.propertyCustodian || S.account?.displayName || "")}"></div>
@@ -89,7 +89,7 @@ function issuePanel(main, airId) {
     });
     const header = {
       date: fd.date, purpose: fd.purpose || "", lineInfo,
-      // property shows in "My Property" of the registered user who receives it (none if not a system user)
+      // property shows as "You" in Office Property of the registered user who receives it (none if not a system user)
       recipient: { uid: activeUsers().find(u => u.displayName === fd.rname.trim())?.id || (fd.rname.trim() === a.endUserName ? a.endUserUid : ""), name: fd.rname.trim(), position: fd.rpos.trim(), office: fd.roffice.trim(), rcc: (fd.rcc || "").trim() },
       issuedBy: { name: fd.iname.trim(), position: fd.ipos.trim() },
       approvedBy: t === "ris" ? { name: (fd.aname || "").trim(), position: (fd.apos || "").trim() } : {}
@@ -110,8 +110,8 @@ function issuePanel(main, airId) {
 export function list(main) {
   const enduser = role() === "enduser";
   const rows = enduser ? S.d.docs : fundDocs();
-  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "PAR / ICS / RIS Issued to Me" : "PAR / ICS / RIS"}</h1>
-      <p>${enduser ? "Property and supplies issued from your AIRs. Property on a PAR or ICS is under your accountability until returned or transferred." : `Documents issued by the GSO in the ${esc(fundName(S.fund))}, and whether Accounting has posted them.`}</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "PAR / ICS / RIS for My Office" : "PAR / ICS / RIS"}</h1>
+      <p>${enduser ? "Property and supplies issued from your AIRs or to your office. Property on a PAR or ICS stays under its receiver's accountability until returned or transferred." : `Documents issued by the GSO in the ${esc(fundName(S.fund))}, and whether Accounting has posted them.`}</p></div>
       <button class="btn" id="csv">Download CSV</button></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "docs-" + role(), rows, pageSize: 30, defaultSort: 1, defaultDir: -1,

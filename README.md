@@ -19,18 +19,21 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 | --- | --- | --- | --- |
 | 1 | **End-User** | Encodes the AIR: fund, supplier, PO and invoice, and each item delivered with its unit, quantity and unit cost. Saves it as a draft, then **submits it to the GSO**. The AIR number is assigned on submission. | Draft → *For GSO Inspection* |
 | 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian). Confirms each item's **classification** and **account code**, then **approves**. Or **returns** the AIR to the End-User with remarks; they correct it and resubmit. | *For Issuance* or *Returned* |
-| 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** (Appendix 51) for PPE<br>• **ICS** (Annex A.3) for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** (Appendix 48) for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
+| 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** for PPE<br>• **ICS** for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
 | 4 | **Accounting** | Marks each item as **posted in the registry**, with the posting date and JEV / reference number. One item per document: the **AIR supply receipt** (into the Supplies Ledger Card) and every **PAR, ICS and RIS**. Several can be posted at once under one JEV. | *Not posted* → *Partially posted* → *Fully posted* |
 
 After issuance, PAR and ICS items live in the **property register**, where their life continues:
 
 | Event | Who | Document | Effect |
 | --- | --- | --- | --- |
-| Transfer to another officer | GSO | **PTR** (PPE) / **ITR** (Annex A.5, semi-expendable) | Accountable officer and location change. A *Donation* also takes the item out of the books (Accounting posts it). |
-| Return to the GSO | GSO | **PRS** (PPE) / **RRSP** (Annex A.4, semi-expendable) | The item goes into GSO custody with its condition. It can be re-issued later by transfer, or disposed of. |
+| Transfer to another officer | GSO | **PTR** (PPE) / **ITR** (semi-expendable) | Accountable officer and location change. A *Donation* also takes the item out of the books (Accounting posts it). |
+| Return to the GSO | GSO | **PRS** (PPE) / **RRSP** (semi-expendable) | The item goes into GSO custody with its condition. It can be re-issued later by transfer, or disposed of. |
 | Disposal | GSO, then Accounting | Disposal report (mode, IIRUP / reference, carrying amount) | The item leaves the register; Accounting posts the derecognition. |
 | Monthly depreciation | Accounting | JEV summary | Straight-line, as in PMS (see below), posted month by month. |
 | Trial Balance check | Accounting | Reconciliation | Register vs Trial Balance, per account, at any month end. |
+
+| Construction in Progress | Accounting | CIP Ledger Card | Projects with their contractor billings (by contract or by administration), each matched to its **SWA**. "Complete → transfer to PPE" turns the billed total into a new PPE record. |
+| Repair | **End-User**, then GSO | History of Repair | The End-User records each job order (supplier, spare parts, labor) on property under their name. The GSO verifies it, or returns it with remarks, and it joins the item's history. |
 
 Semi-expendable items can be moved in part (for example 1 of 4 chairs); the record splits in two.
 PPE always moves as a whole record.
@@ -40,6 +43,35 @@ PPE always moves as a whole record.
 - Equipment or furniture **below ₱50,000** is **Semi-Expendable** and gets an **ICS**.
 - **Supplies** go to inventory and are issued with a **RIS**. Accounts `10402xxx` are
   *Distribution* (for example, welfare goods); other accounts are *Consumption*.
+
+### Construction in Progress and SWA (same rules as PMS)
+
+- **One project per CIP No.**, on one of the three CIP accounts (Land Improvements, Infrastructure,
+  Buildings).
+- **Billings:** each billing records its costs by contract and by administration (direct
+  materials, labor, overhead, consultancy, others) plus transfers/adjustments. The CIP Ledger Card
+  shows the running total.
+- **SWA (Statement of Work Accomplished):** encoded by the GSO or Accounting, with its number, CIP
+  No., contractor, cost, % accomplished and a link to the scanned document (for example Google
+  Drive; no file storage is needed). Accounting matches each SWA to one billing. A matched SWA is
+  locked until the billing releases it.
+- **Status:** a billing marked *FINAL* flags the project "Complete — awaiting transfer". Accounting
+  can also set this by hand.
+- **Complete → transfer to PPE:** creates the PPE record for the billed total. Default accounts are
+  Other Land Improvements, Other Infrastructure or Other Structures, as in PMS. The project closes.
+- **Trial Balance:** until it is transferred, a project's billings count toward its CIP account in
+  TB Reconciliation.
+
+### History of Repair
+
+- **Who records:** End-Users, from **My Property** or **History of Repair**, for items under their
+  name. The GSO can record for anyone.
+- **What a record holds:** one job order (make and model, serial, engine and plate numbers, job
+  order, invoice/PO, supplier, nature of repair, spare parts / materials / labor with costs) and the
+  Prepared by and Noted by signatories.
+- **Verification:** the GSO verifies (adding "Verified by") or returns the record with remarks. A
+  verified repair is locked and appears in the item's history.
+- **Print:** the History of Repair prints every job order for the item, with a grand total.
 
 ### Depreciation (same method as PMS)
 
@@ -64,7 +96,8 @@ chosen month end the app compares, account by account:
 - **Semi-expendable property:** cost.
 - **Inventory:** supplies on hand, valued from the Stock Cards.
 
-Differences under ₱1 count as rounding. Tested with your **December 2025 Trial Balance** and the PMS
+Construction in Progress counts on its CIP account until it is transferred to PPE. Differences under
+₱1 count as rounding. Tested with your **December 2025 Trial Balance** and the PMS
 baseline register: 27 of 29 accounts tie out exactly. The two that don't (Land, and Plants and
 Trees) differ in the source data itself.
 
@@ -87,15 +120,15 @@ Trees) differ in the source data itself.
   Property Card.
 - **Kept as they were:** the GF / SEF / TF fund switcher, the full PMS account catalog, the
   depreciation method, the PAR / ICS / PTR / ITR / RIS numbering, the printed form layouts, the
-  Stock Card (Appendix 53), the Supplies Ledger Card (Appendix 9) and the RSMI (Appendix 40).
+  Stock Card, the Supplies Ledger Card and the RSMI.
 
 ### Roles
 
 | Role | Can do |
 | --- | --- |
-| **End-User** | Encode, submit and correct **their own** AIRs. See the PAR, ICS and RIS issued from them, and **My Property** (items under their name). |
-| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Registries and reports. |
-| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Correct useful lives and residual values. |
+| **End-User** | Encode, submit and correct **their own** AIRs. See the PAR, ICS and RIS issued from them, **My Property** (items under their name) and record **repairs** of those items. |
+| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Registries and reports. |
+| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Correct useful lives and residual values. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
 | **Super Admin** | Everything, including assigning and removing **Admins**. |
 
@@ -107,7 +140,7 @@ document as posted.
 
 Dashboard · New AIR / My AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
 PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
-Transfers, Returns & Disposals · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
+Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
 Account, AIR Monitoring) · My Property · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.
@@ -187,8 +220,13 @@ with problems, and duplicates that will be skipped.
 3. Here, choose that month under *Accumulated depreciation as of*, choose the fund (if the file has
    no Fund column) and upload the file.
 4. PPE and semi-expendable items are told apart by their account code. Retired items come in as
-   disposed history.
+   disposed history. Items on a **Construction in Progress** account become **CIP projects**,
+   with their cost as a "balance brought forward" billing.
 5. Depreciation continues here from the following month.
+
+**CIP from PMS:** upload the file you use with PMS's *Bulk import CIP billings* (one billing per
+row, with its header row), or PMS's *CIP Projects → Export CSV* (one total per project). Projects
+already transferred in PMS are skipped.
 
 **Supplies from IMS:**
 1. In IMS, open the **Inventory Registry** and click **Download CSV**.
@@ -212,6 +250,9 @@ Then check the result in **TB Reconciliation** against the Trial Balance of that
 | `movements/{id}` | PTR / ITR / PRS / RRSP / disposal | lines with the items moved; disposals and donations carry `posting` |
 | `depreciation/{fund_YYYY-MM}` | posted month | JEV no., amount per item, summary by account |
 | `tbSnapshots/{fund_YYYY-MM}` | Trial Balance | account → debit / credit |
+| `cipProjects/{id}` | CIP project | `billings[]` (by contract / by administration, matched SWA), status, `completed` (transfer to PPE) |
+| `swa/{id}` | Statement of Work Accomplished | SWA No., CIP No., cost, % done, document link, `matched` |
+| `repairs/{id}` | repair job order | item, job order, supplier, `parts[]`, total, status (submitted / returned / verified) |
 | `counters/{fund_TYPE_YYYY-MM}` | numbering sequence | increases by exactly one, inside a transaction |
 | `settings/app` | — | entity, offices, thresholds, signatories |
 | `auditLogs/{id}` | action | append-only; readable by admins |

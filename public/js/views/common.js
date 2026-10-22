@@ -25,7 +25,9 @@ export function counts() {
     post: can("post") ? postingItems().filter(i => !i.posting.posted).length : 0,
     returned: S.d.airs.filter(a => a.endUserUid === S.user?.uid && a.status === "returned").length,
     drafts: S.d.airs.filter(a => a.endUserUid === S.user?.uid && a.status === "draft").length,
-    pending: isAdmin() ? S.d.users.filter(u => u.status === "pending").length : 0
+    pending: isAdmin() ? S.d.users.filter(u => u.status === "pending").length : 0,
+    repairs: can("issue") ? S.d.repairs.filter(r => r.fund === S.fund && r.status === "submitted").length : 0,
+    repairsReturned: S.d.repairs.filter(r => r.endUserUid === S.user?.uid && r.status === "returned").length
   };
   return c;
 }

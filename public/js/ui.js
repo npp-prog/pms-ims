@@ -62,7 +62,8 @@ export function openModal(html, { size = "", onClose } = {}) {
   $(".x", wrap).onclick = close;
   wrap.addEventListener("mousedown", e => { if (e.target === wrap) close(); });
   m.close = close;
-  const first = m.querySelector("input:not([type=hidden]),select,textarea"); first && setTimeout(() => first.focus(), 30);
+  // focus the first field, unless the user has already moved into one
+  const first = m.querySelector("input:not([type=hidden]),select,textarea"); first && setTimeout(() => { if (!m.contains(document.activeElement)) first.focus(); }, 30);
   return m;
 }
 export function closeModals() { $("#modal-root").innerHTML = ""; }
@@ -206,3 +207,5 @@ export async function sheetAsText(file) {
   const wb = X.read(await file.arrayBuffer(), { type: "array" });
   return X.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: "\t" });
 }
+/** Only http(s) links are rendered as links; anything else (e.g. javascript:) is dropped. */
+export const safeLink = u => (/^https?:\/\/[^\s"'<>]+$/i.test(String(u || "")) ? String(u) : "");

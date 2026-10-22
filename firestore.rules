@@ -147,7 +147,11 @@ service cloud.firestore {
     // One record per PAR / ICS line (created in the issuance transaction), per import row, or per split.
     match /assets/{id} {
       allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid);
-      allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import'))
+      allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import')
+          // Accounting closes a CIP project into a new PPE record, in the same transaction
+          || (poster() && request.resource.data.source.kind == 'cip'
+            && getAfter(/databases/$(database)/documents/cipProjects/$(request.resource.data.source.docId)).data.status == 'completed'
+            && getAfter(/databases/$(database)/documents/cipProjects/$(request.resource.data.source.docId)).data.completed.assetId == id))
         && validFund(request.resource.data.fund)
         && request.resource.data.itemType in ['ppe', 'sx']
         && request.resource.data.cost is number && request.resource.data.cost >= 0
@@ -189,6 +193,46 @@ service cloud.firestore {
     match /tbSnapshots/{id} {
       allow read: if viewer();
       allow write: if poster() && id == request.resource.data.fund + '_' + request.resource.data.period && validFund(request.resource.data.fund);
+    }
+
+    // ---------------- Construction in Progress (Accounting) ----------------
+    match /cipProjects/{id} {
+      allow read: if viewer();
+      allow create: if poster() && validFund(request.resource.data.fund)
+        && request.resource.data.accountCode in ['10710010', '10710020', '10710030'] && request.resource.data.status == 'in_progress';
+      // billings, status and details while open; a transferred project is closed for good
+      allow update: if poster() && resource.data.status != 'completed'
+        && request.resource.data.fund == resource.data.fund
+        && request.resource.data.accountCode in ['10710010', '10710020', '10710030']
+        && request.resource.data.status in ['in_progress', 'completed'];
+      allow delete: if poster() && resource.data.billings.size() == 0;
+    }
+
+    // Statements of Work Accomplished: encoded by the GSO or Accounting, matched to a billing by Accounting.
+    match /swa/{id} {
+      allow read: if viewer();
+      allow create: if (issuer() || poster()) && validFund(request.resource.data.fund) && request.resource.data.matched == false;
+      allow update: if ((issuer() || poster()) && resource.data.matched == false && request.resource.data.matched == false)
+        || (poster() && onlyChanged(['matched', 'matchedProjectId', 'matchedBillingId', 'updatedAt']));
+      allow delete: if (issuer() || poster()) && resource.data.matched == false;
+    }
+
+    // ---------------- History of Repair ----------------
+    // End-Users record repairs of property under their own name; the GSO can record for anyone and verifies.
+    match /repairs/{id} {
+      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
+      allow create: if active() && request.resource.data.status == 'submitted' && validFund(request.resource.data.fund)
+        && (issuer() || (request.resource.data.endUserUid == request.auth.uid
+          && get(/databases/$(database)/documents/assets/$(request.resource.data.assetId)).data.custodianUid == request.auth.uid));
+      allow update: if
+        // the End-User (or GSO) corrects a record that is not yet verified, and sends it (back) for verification
+        (active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status in ['submitted', 'returned']
+          && request.resource.data.status == 'submitted'
+          && request.resource.data.endUserUid == resource.data.endUserUid && request.resource.data.assetId == resource.data.assetId)
+        // the GSO verifies or returns it
+        || (issuer() && resource.data.status == 'submitted' && request.resource.data.status in ['verified', 'returned']
+          && onlyChanged(['status', 'gsoRemarks', 'verifiedBy', 'reviewedBy', 'reviewedAt', 'updatedAt']));
+      allow delete: if active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status != 'verified';
     }
 
     // ---------------- audit trail (append-only) ----------------

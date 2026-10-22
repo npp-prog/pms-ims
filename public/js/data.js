@@ -5,7 +5,7 @@ import {
 } from "./fb.js";
 import { S, settings } from "./state.js";
 import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount } from "./core/catalog.js";
-import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable } from "./core/assets.js";
+import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, CIP_COST_FIELDS, cipTotal, repairTotal } from "./core/assets.js";
 import {
   round2, lineAmount, linesTotal, counterKey, formatNumber, validateAir, validateInspection, checkIssue, sxClass,
   statusAfterIssue, remainingQty
@@ -436,6 +436,160 @@ export function importStock(items, asOf) {
       }
     }
     audit("import_stock", "air", "-", { count: n, asOf });
+  });
+}
+
+/* ---------------- Construction in Progress and SWA ---------------- */
+const cipFields = f => ({ fund: f.fund, accountCode: f.accountCode, cipNo: String(f.cipNo || "").trim(), name: String(f.name || "").trim(), location: String(f.location || "").trim(),
+  contractor: String(f.contractor || "").trim(), contractPeriod: String(f.contractPeriod || "").trim(), projectCost: round2(f.projectCost) });
+
+export function saveCip(id, f) {
+  return wrap(async () => {
+    const data = cipFields(f);
+    if (!data.cipNo) throw fail("Enter the CIP No.");
+    if (!data.name) throw fail("Enter the name of the project.");
+    if (id) await updateDoc(doc(db, "cipProjects", id), { ...data, updatedAt: serverTimestamp(), updatedBy: me() });
+    else {
+      const ref = await addDoc(collection(db, "cipProjects"), { ...data, status: "in_progress", statusOverride: null, billings: [], completed: null, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      id = ref.id;
+    }
+    audit("cip_save", "cip", id, { cipNo: data.cipNo });
+    return id;
+  });
+}
+export function importCip(projects) {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    for (let i = 0; i < projects.length; i += 400) {
+      const b = writeBatch(db);
+      for (const p of projects.slice(i, i + 400))
+        b.set(doc(collection(db, "cipProjects")), { ...p, status: "in_progress", statusOverride: null, completed: null, imported: true, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      await b.commit();
+    }
+    audit("import_cip", "cip", "-", { count: projects.length });
+  });
+}
+export const setCipOverride = (id, v) => wrap(() => updateDoc(doc(db, "cipProjects", id), { statusOverride: v || null, updatedAt: serverTimestamp() }));
+
+/** Adds or edits a billing; matching an SWA locks that SWA to this billing (and releases the one it replaces). */
+export function saveBilling(projectId, billingId, entry, swaId) {
+  return wrap(async () => {
+    if (!entry.date) throw fail("Enter the transaction date.");
+    await runTransaction(db, async tx => {
+      const pref = doc(db, "cipProjects", projectId); const p = (await tx.get(pref)).data();
+      if (p.status === "completed") throw fail("This project was already transferred to PPE.");
+      const billings = [...(p.billings || [])];
+      const i = billingId ? billings.findIndex(b => b.id === billingId) : -1;
+      const old = i >= 0 ? billings[i] : null;
+      const prevSwa = old?.swaId || null, nextSwa = swaId || null;
+      let swaDoc = null;
+      if (nextSwa && nextSwa !== prevSwa) {
+        swaDoc = await tx.get(doc(db, "swa", nextSwa));
+        if (!swaDoc.exists() || swaDoc.data().matched) throw fail("That SWA is already matched to another billing.");
+      }
+      const id = old?.id || uidLocal();
+      const clean = { id, date: entry.date, ref: String(entry.ref || "").trim(), particulars: String(entry.particulars || "").trim(), remarks: String(entry.remarks || "").trim(),
+        ...Object.fromEntries(CIP_COST_FIELDS.map(([k]) => [k, round2(entry[k])])), swaId: nextSwa, swaNo: nextSwa ? (swaDoc?.data().swaNo || old?.swaNo || "") : "", by: me().name, at: new Date().toISOString() };
+      if (i >= 0) billings[i] = clean; else billings.push(clean);
+      tx.update(pref, { billings, updatedAt: serverTimestamp() });
+      if (prevSwa && prevSwa !== nextSwa) tx.update(doc(db, "swa", prevSwa), { matched: false, matchedProjectId: null, matchedBillingId: null, updatedAt: serverTimestamp() });
+      if (nextSwa && nextSwa !== prevSwa) tx.update(doc(db, "swa", nextSwa), { matched: true, matchedProjectId: projectId, matchedBillingId: id, updatedAt: serverTimestamp() });
+    });
+    audit("cip_billing", "cip", projectId, { ref: entry.ref });
+  });
+}
+export function deleteBilling(projectId, billingId) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const pref = doc(db, "cipProjects", projectId); const p = (await tx.get(pref)).data();
+      if (p.status === "completed") throw fail("This project was already transferred to PPE.");
+      const b = (p.billings || []).find(x => x.id === billingId);
+      tx.update(pref, { billings: p.billings.filter(x => x.id !== billingId), updatedAt: serverTimestamp() });
+      if (b?.swaId) tx.update(doc(db, "swa", b.swaId), { matched: false, matchedProjectId: null, matchedBillingId: null, updatedAt: serverTimestamp() });
+    });
+    audit("cip_billing_delete", "cip", projectId, {});
+  });
+}
+const uidLocal = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
+
+/** Complete → transfer to PPE: the billed total becomes a new PPE record, and the project closes. */
+export function completeCip(id, f) {
+  return wrap(async () => {
+    if (!f.date) throw fail("Enter the date completed.");
+    if (!ppeAccount(f.accountCode)) throw fail("Choose the PPE account.");
+    let assetId = null;
+    await runTransaction(db, async tx => {
+      const pref = doc(db, "cipProjects", id); const p = (await tx.get(pref)).data();
+      if (p.status === "completed") throw fail("Already transferred.");
+      const total = cipTotal(p);
+      if (total <= 0) throw fail("This project has no billings to transfer yet.");
+      const aref = doc(collection(db, "assets")); assetId = aref.id;
+      const life = Number(f.life) || defaultLife(f.accountCode);
+      tx.set(aref, {
+        fund: p.fund, itemType: "ppe", accountCode: f.accountCode, propertyNo: String(f.propertyNo || "").trim(), description: p.name, specs: `Transferred from CIP ${p.cipNo}${p.contractor ? ` · ${p.contractor}` : ""}`,
+        unit: "lot", qty: 1, unitCost: total, cost: total, residualValue: f.residual !== "" && f.residual != null ? round2(f.residual) : residualFor(f.accountCode, total),
+        usefulLifeYears: life, estimatedLife: "", depreciable: !!ppeAccount(f.accountCode).depreciable && life > 0, dateAcquired: f.date,
+        holder: { name: String(f.holder || "").trim(), position: "", office: String(f.location || p.location || "").trim() }, custodianUid: "", location: String(f.location || p.location || "").trim(),
+        status: "active", condition: "Serviceable", source: { kind: "cip", docId: id, number: p.cipNo }, depBaseline: null, disposal: null,
+        history: [stamp(`Transferred from CIP ${p.cipNo} (${p.billings.length} billings)`)], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      tx.update(pref, { status: "completed", completed: { date: f.date, assetId: aref.id, accountCode: f.accountCode, total, by: me() }, updatedAt: serverTimestamp() });
+    });
+    audit("cip_complete", "cip", id, { assetId });
+    return assetId;
+  });
+}
+
+export function saveSwa(id, f) {
+  return wrap(async () => {
+    const data = { fund: f.fund, date: f.date, cipNo: String(f.cipNo || "").trim(), swaNo: String(f.swaNo || "").trim(), contractor: String(f.contractor || "").trim(),
+      cost: round2(f.cost), percent: f.percent === "" || f.percent == null ? null : round2(f.percent), docLink: String(f.docLink || "").trim(), remarks: String(f.remarks || "").trim() };
+    if (!data.swaNo) throw fail("Enter the SWA No.");
+    if (data.docLink && !/^https?:\/\//i.test(data.docLink)) throw fail("The document link must start with https://");
+    if (id) await updateDoc(doc(db, "swa", id), { ...data, updatedAt: serverTimestamp() });
+    else id = (await addDoc(collection(db, "swa"), { ...data, matched: false, matchedProjectId: null, matchedBillingId: null, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() })).id;
+    audit("swa_save", "swa", id, { swaNo: data.swaNo });
+    return id;
+  });
+}
+export const deleteSwa = id => wrap(() => deleteDoc(doc(db, "swa", id)));
+
+/* ---------------- History of Repair ---------------- */
+/** End-Users record repairs of property under their name; the GSO verifies (or returns) them. */
+export function saveRepair(id, f, asset) {
+  return wrap(async () => {
+    const parts = (f.parts || []).map(l => ({ qty: Number(l.qty) || 0, unit: String(l.unit || "").trim(), description: String(l.description || "").trim(), cost: round2(l.cost), remarks: String(l.remarks || "").trim() }))
+      .filter(l => l.description || l.cost || l.qty);
+    if (!asset) throw fail("Choose the item that was repaired.");
+    if (!String(f.jobOrderNo || "").trim()) throw fail("Enter the Job Order No.");
+    if (!f.jobOrderDate) throw fail("Enter the Job Order date.");
+    if (!parts.length) throw fail("Add at least one spare part, material or labor line.");
+    const data = {
+      fund: asset.fund, assetId: asset.id, propertyNo: asset.propertyNo || "", description: asset.description,
+      makeModel: String(f.makeModel || "").trim(), unitSerialNo: String(f.unitSerialNo || "").trim(), engineSerialNo: String(f.engineSerialNo || "").trim(), plateNo: String(f.plateNo || "").trim(),
+      endUser: String(f.endUser || "").trim(), designation: String(f.designation || "").trim(), office: String(f.office || "").trim(),
+      jobOrderNo: f.jobOrderNo.trim(), jobOrderDate: f.jobOrderDate, invoiceNo: String(f.invoiceNo || "").trim(), invoiceDate: f.invoiceDate || "", supplier: String(f.supplier || "").trim(),
+      nature: String(f.nature || "").trim(), parts, totalCost: repairTotal({ parts }), preparedBy: { name: String(f.preparedBy || "").trim(), position: String(f.preparedByPos || "").trim() },
+      notedBy: { name: String(f.notedBy || "").trim(), position: String(f.notedByPos || "").trim() }, status: "submitted", updatedAt: serverTimestamp()
+    };
+    if (id) await updateDoc(doc(db, "repairs", id), data);
+    else id = (await addDoc(collection(db, "repairs"), { ...data, endUserUid: asset.custodianUid === S.user.uid ? S.user.uid : (asset.custodianUid || ""), encodedBy: me(), createdAt: serverTimestamp() })).id;
+    audit("repair_save", "repair", id, { jobOrderNo: data.jobOrderNo, total: data.totalCost });
+    return id;
+  });
+}
+export const deleteRepair = id => wrap(() => deleteDoc(doc(db, "repairs", id)));
+/** GSO: verify (the repair is added to the item's history) or return with remarks. */
+export function reviewRepair(id, verify, remarks, verifiedBy) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const rref = doc(db, "repairs", id); const r = (await tx.get(rref)).data();
+      if (r.status !== "submitted") throw fail("Only a repair waiting for verification can be reviewed.");
+      const aref = doc(db, "assets", r.assetId); const a = verify ? (await tx.get(aref)).data() : null;
+      tx.update(rref, { status: verify ? "verified" : "returned", gsoRemarks: remarks || "", verifiedBy: verify ? verifiedBy : null, reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      if (verify && a) tx.update(aref, { history: [...(a.history || []), stamp(`Repaired — JO ${r.jobOrderNo} (₱${r.totalCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })})`, r.nature || r.parts.map(l => l.description).join(", "))], updatedAt: serverTimestamp() });
+    });
+    audit(verify ? "repair_verify" : "repair_return", "repair", id, { remarks });
   });
 }
 

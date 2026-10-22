@@ -241,3 +241,58 @@ test("only administrators import the IMS beginning balance", async () => {
   await assertFails(setDoc(doc(ctx("gso"), "airs/BB2"), { ...bb, endUserUid: "gso" }));
   await assertFails(setDoc(doc(ctx("eu"), "airs/BB3"), { ...bb, endUserUid: "eu" }));
 });
+
+test("Construction in Progress and SWA", async () => {
+  const proj = { fund: "GF", accountCode: "10710030", cipNo: "C1", status: "in_progress", billings: [] };
+  await assertSucceeds(setDoc(doc(ctx("acc"), "cipProjects/C1"), proj));
+  await assertFails(setDoc(doc(ctx("gso"), "cipProjects/C2"), proj));
+  await assertFails(setDoc(doc(ctx("acc"), "cipProjects/C3"), { ...proj, accountCode: "10705020" }));
+  await assertSucceeds(getDoc(doc(ctx("gso"), "cipProjects/C1")));
+  await assertFails(getDoc(doc(ctx("eu"), "cipProjects/C1")));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "cipProjects/C1"), { billings: [{ id: "b1", byContract: 5 }] }));
+  await assertFails(updateDoc(doc(ctx("acc"), "cipProjects/C1"), { fund: "SEF" }));
+  await assertFails(deleteDoc(doc(ctx("acc"), "cipProjects/C1")), "has billings");
+  // SWA: GSO or Accounting encode; only Accounting matches; a matched SWA is locked
+  await assertSucceeds(setDoc(doc(ctx("gso"), "swa/S1"), { fund: "GF", swaNo: "SWA-1", matched: false }));
+  await assertFails(setDoc(doc(ctx("eu"), "swa/S2"), { fund: "GF", swaNo: "SWA-2", matched: false }));
+  await assertFails(updateDoc(doc(ctx("gso"), "swa/S1"), { matched: true, matchedProjectId: "C1" }));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "swa/S1"), { matched: true, matchedProjectId: "C1", matchedBillingId: "b1" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "swa/S1"), { cost: 1 }), "matched: locked");
+  await assertFails(deleteDoc(doc(ctx("acc"), "swa/S1")), "matched: can't delete");
+  // completing: Accounting creates the PPE record and closes the project in one transaction
+  const a = ctx("acc");
+  await assertSucceeds(runTransaction(a, async tx => {
+    await tx.get(doc(a, "cipProjects/C1"));
+    tx.set(doc(a, "assets/FROMCIP"), asset({ source: { kind: "cip", docId: "C1" }, custodianUid: "" }));
+    tx.update(doc(a, "cipProjects/C1"), { status: "completed", completed: { assetId: "FROMCIP" } });
+  }));
+  await assertFails(setDoc(doc(a, "assets/FAKE"), asset({ source: { kind: "cip", docId: "C1" } })), "only the record named in the completion");
+  await assertFails(updateDoc(doc(a, "cipProjects/C1"), { name: "x" }), "a transferred project is closed");
+  await assertFails(setDoc(doc(ctx("acc"), "assets/NOCIP"), asset({ source: { kind: "par" } })), "Accounting can't create other property");
+});
+
+test("History of Repair: End-Users record repairs of their own property; the GSO verifies", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "assets/MINE"), asset({ custodianUid: "eu" }));
+    await setDoc(doc(d, "assets/OTHERS"), asset({ custodianUid: "eu2" }));
+  });
+  const rep = (o = {}) => ({ fund: "GF", assetId: "MINE", endUserUid: "eu", status: "submitted", jobOrderNo: "JO-1", parts: [], totalCost: 100, ...o });
+  const e = ctx("eu");
+  await assertSucceeds(setDoc(doc(e, "repairs/R1"), rep()));
+  await assertFails(setDoc(doc(e, "repairs/R2"), rep({ assetId: "OTHERS" })), "not their property");
+  await assertFails(setDoc(doc(e, "repairs/R3"), rep({ endUserUid: "eu2" })));
+  await assertFails(setDoc(doc(e, "repairs/R4"), rep({ status: "verified" })));
+  await assertFails(setDoc(doc(ctx("pend"), "repairs/R5"), rep({ endUserUid: "pend" })));
+  await assertSucceeds(setDoc(doc(ctx("gso"), "repairs/R6"), rep({ assetId: "OTHERS", endUserUid: "eu2" })), "the GSO records for anyone");
+  await assertSucceeds(getDocs(query(collection(e, "repairs"), where("endUserUid", "==", "eu"))));
+  await assertFails(getDoc(doc(e, "repairs/R6")));
+  await assertSucceeds(updateDoc(doc(e, "repairs/R1"), { totalCost: 120 }));
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { status: "verified" }), "can't verify their own");
+  await assertFails(updateDoc(doc(ctx("gso"), "repairs/R1"), { status: "verified", totalCost: 1 }), "verification changes nothing else");
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R1"), { status: "verified", verifiedBy: { name: "Ramon" } }));
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { totalCost: 5, status: "submitted" }), "verified: locked");
+  await assertFails(deleteDoc(doc(e, "repairs/R1")));
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "returned", gsoRemarks: "Attach JO" }));
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "submitted", totalCost: 99 }), "corrected and resent");
+});

@@ -27,7 +27,7 @@ function draw(main) {
   const out = $("#out", main);
   if (st.tab === "rsmi") {
     const r = rsmi(S.d.docs, S.fund, st.from, st.to);
-    out.innerHTML = `<p class="small muted">Report of Supplies and Materials Issued (Appendix 40): every RIS line issued in the period, with the recapitulation by stock number.</p>
+    out.innerHTML = `<p class="small muted">Report of Supplies and Materials Issued: every RIS line issued in the period, with the recapitulation by stock number.</p>
       <div class="table-wrap"><table><thead><tr><th>RIS No.</th><th>Date</th><th>Office</th><th>Stock No.</th><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th></tr></thead>
       <tbody>${r.lines.map(l => `<tr><td>${esc(l.risNo)}</td><td>${fmtDate(l.date)}</td><td>${esc(l.office)}</td><td>${esc(l.stockNo)}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)} ${esc(l.unit)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No RIS issued in this period.</td></tr>`}</tbody>
       <tfoot><tr><td colspan="7" class="right">Total</td><td class="right">${money(r.total)}</td></tr></tfoot></table></div>`;

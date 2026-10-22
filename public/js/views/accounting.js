@@ -57,12 +57,12 @@ export function reconciliation(main) {
   const tb = S.d.tb.find(t => t.fund === S.fund && t.period === period);
   const stock = {};
   for (const c of stockCards(S.d.airs, S.d.docs, S.fund, periodEnd(period))) stock[c.accountCode] = round2((stock[c.accountCode] || 0) + c.balValue);
-  const rows = reconcile(S.d.assets, S.d.depr.filter(r => r.fund === S.fund), stock, tb?.accounts || null, S.fund, period);
+  const rows = reconcile(S.d.assets, S.d.depr.filter(r => r.fund === S.fund), stock, tb?.accounts || null, S.fund, period, S.d.cip);
   const bad = rows.filter(r => !r.ok).length;
   // accumulated depreciation is complete up to the later of the last posted month and the imported PMS balance
   const covered = [last, ...S.d.assets.filter(a => a.fund === S.fund && a.depBaseline?.period).map(a => a.depBaseline.period)].filter(Boolean).sort().at(-1) || null;
   const deprBehind = S.d.assets.some(a => a.fund === S.fund && a.itemType === "ppe") && (!covered || covered < period);
-  main.innerHTML = `<div class="page-head"><div><h1>Trial Balance Reconciliation</h1><p>Compares the register at the end of the month — PPE cost and accumulated depreciation, semi-expendable cost, supplies on hand — with the Trial Balance, account by account. Differences under ₱1 are treated as rounding.</p></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Trial Balance Reconciliation</h1><p>Compares the register at the end of the month — PPE cost and accumulated depreciation, semi-expendable cost, Construction in Progress, supplies on hand — with the Trial Balance, account by account. Differences under ₱1 are treated as rounding.</p></div></div>
     <div class="card"><div class="table-tools" data-nodirty><div><label>As of the end of</label><input type="month" id="per" value="${period}"></div>
       <div class="grow small muted" style="align-self:center">${esc(fundName(S.fund))} · ${tb ? `Trial Balance saved ${fmtDateTime(tb.enteredAt)} by ${esc(tb.enteredBy?.name)} (${esc(tb.source)})` : "No Trial Balance saved for this month yet"}</div>
       <div class="btn-row" style="align-self:flex-end"><button class="btn" id="csv">CSV</button><button class="btn" id="pr">Print</button></div></div>
@@ -96,4 +96,4 @@ export function reconciliation(main) {
     busy(e.target, async () => { await saveTrialBalance(S.fund, period, accounts, $("#tbt", main).dataset.src || "Pasted"); window.dispatchEvent(new Event("app:clean")); }, "Trial Balance saved.").catch(() => {});
   };
 }
-reconciliation.deps = ["r:tb", "r:depr", "r:assets", "r:airs", "r:docs", "fund"];
+reconciliation.deps = ["r:tb", "r:depr", "r:assets", "r:airs", "r:docs", "r:cip", "fund"];

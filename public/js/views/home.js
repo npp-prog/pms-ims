@@ -33,6 +33,8 @@ export function dashboard(main) {
     isAdmin() && c.pending && row(I.user, "red", "Registrations to approve", "New accounts waiting for a role", c.pending, "#/users"),
     c.returned && row(I.back, "red", "AIRs returned to you", "Correct and resubmit to the GSO", c.returned, "#/airs"),
     c.drafts && row(I.doc, "", "Draft AIRs", "Not yet submitted to the GSO", c.drafts, "#/airs"),
+    c.repairsReturned && row(I.back, "red", "Repairs returned to you", "Correct the repair record and send it again", c.repairsReturned, "#/repairs"),
+    c.repairs && row(I.check, "blue", "Repairs to verify", "History of Repair records sent by End-Users", c.repairs, "#/repairs"),
     c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: AIR ${oldestInspect.airNo} from ${oldestInspect.office}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
     deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),

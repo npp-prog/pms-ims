@@ -127,7 +127,7 @@ export function splitCsv(line) {
 
 /** Register vs Trial Balance for one fund at the end of `period`.
  *  stock: { [accountCode]: value } supplies on hand at period end (from the stock cards). */
-export function reconcile(assets, runs, stock, tb, fund, period) {
+export function reconcile(assets, runs, stock, tb, fund, period, cipProjects = []) {
   const reg = new Map();
   const get = code => { if (!reg.has(code)) reg.set(code, { code, cost: 0, ad: 0 }); return reg.get(code); };
   for (const a of assets || []) {
@@ -137,6 +137,12 @@ export function reconcile(assets, runs, stock, tb, fund, period) {
     if (a.itemType === "ppe") r.ad = round2(r.ad + accumAsOf(a, period, runs));
   }
   for (const [code, v] of Object.entries(stock || {})) get(code).cost = round2(get(code).cost + v);
+  // Construction in Progress: billings to date on projects not yet transferred to PPE
+  for (const p of cipProjects || []) {
+    if (p.fund !== fund || !cipOpenAt(p, period)) continue;
+    const v = cipTotal(p, periodEnd(period));
+    if (v) get(p.accountCode).cost = round2(get(p.accountCode).cost + v);
+  }
   const known = new Set([...PPE_ACCOUNTS, ...SX_ACCOUNTS, ...INV_ACCOUNTS].map(a => a[1]));
   for (const code of Object.keys(tb || {})) if (known.has(code)) get(code);
   return [...reg.values()].sort((a, b) => a.code.localeCompare(b.code)).map(r => {
@@ -175,7 +181,7 @@ function isoDate(v) {
  * opts: { fund (default when the row has none), baselinePeriod (as-of period of the accumulated depreciation) }
  */
 export function normalizeAssets(rows, opts) {
-  const items = [], errors = [];
+  const items = [], errors = [], cip = [];
   rows.forEach((r, i) => {
     const line = i + 2;
     const accountCode = accountByCodeOrName(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Category", "Account Name", "Account"));
@@ -192,6 +198,16 @@ export function normalizeAssets(rows, opts) {
     const fund = fundCode(pick(r, "fund", "Fund")) || opts.fund;
     if (!fund) err.push("unknown fund");
     if (err.length) { errors.push({ line, description, problem: err.join(", ") }); return; }
+    // Older PMS registers kept Construction in Progress as assets: those become CIP projects here,
+    // with their cost as one "balance brought forward" billing (PMS keeps CIP in its own section too).
+    if (CIP_ACCOUNTS.includes(accountCode)) {
+      if (status.match(/retired|disposed/)) return;
+      const cipNo = pick(r, "property_id", "Property ID", "CIP No.").replace(/\.0$/, "") || `CIP-${line}`;
+      cip.push({ fund, accountCode, cipNo, name: description, location: pick(r, "location", "Location"), contractor: "", contractPeriod: "", projectCost: 0,
+        billings: [{ id: `imp${i}`, date: opts.baselinePeriod ? periodEnd(opts.baselinePeriod) : isoDate(pick(r, "date_acquired", "Date Acquired")), ref: "Balance brought forward",
+          particulars: "Imported from the PMS register", remarks: "", ...Object.fromEntries(CIP_COST_FIELDS.map(([k]) => [k, 0])), byContract: cost, swaId: null, swaNo: "" }] });
+      return;
+    }
     const acc = ppeAccount(accountCode);
     const life = Number(pick(r, "useful_life_years", "Useful Life (yrs)", "Useful Life")) || (itemType === "ppe" ? defaultLife(accountCode) : 0);
     const resid = pick(r, "residual_value", "Residual Value");
@@ -211,7 +227,7 @@ export function normalizeAssets(rows, opts) {
       legacyRef: pick(r, "dv_number", "DV No./Reference", "Reference")
     });
   });
-  return { items, errors };
+  return { items, errors, cip };
 }
 
 /**
@@ -239,4 +255,66 @@ export function normalizeStock(rows, opts) {
     items.push({ fund, stockNo, description, unit: pick(r, "Unit", "unit") || "pc", qty, unitCost, accountCode });
   });
   return { items, errors };
+}
+
+/* ---------------- Construction in Progress (PMS rules) ---------------- */
+export const CIP_ACCOUNTS = ["10710010", "10710020", "10710030"];
+export const CIP_COST_FIELDS = [["byContract", "By contract"], ["materials", "Direct materials"], ["labor", "Direct labor"], ["overhead", "Overhead"],
+  ["consultancy", "Consultancy"], ["others", "Others"], ["adjustments", "Transfers / adjustments"]];
+export const billingTotal = b => round2(CIP_COST_FIELDS.reduce((t, [k]) => t + (Number(b[k]) || 0), 0));
+export const cipTotal = (p, asOf = "") => round2((p.billings || []).filter(b => !asOf || String(b.date) <= asOf).reduce((t, b) => t + billingTotal(b), 0));
+/** "in_progress", "finished" (construction done, awaiting transfer — a billing marked final, or set by hand) or "completed" (transferred to PPE). */
+export function cipStatus(p) {
+  if (p.status === "completed") return "completed";
+  if (p.statusOverride) return p.statusOverride;
+  return (p.billings || []).some(b => /\bfinal\b/i.test(`${b.ref} ${b.particulars} ${b.remarks}`)) ? "finished" : "in_progress";
+}
+export const CIP_STATUS = { in_progress: "In progress", finished: "Complete — awaiting transfer", completed: "Transferred to PPE" };
+/** PMS default: Land Improvements / Infrastructure / Buildings CIP go to the matching "Other …" PPE account. */
+export const cipTransferAccount = code => ({ "10710010": "10702990", "10710020": "10703990", "10710030": "10704990" }[String(code)] || "10799990");
+/** Still in CIP at the end of `period`: not yet transferred by then. Value = billings dated by then. */
+export const cipOpenAt = (p, period) => !(p.status === "completed" && p.completed?.date && periodOf(p.completed.date) <= period);
+
+/* ---------------- History of Repair ---------------- */
+export const repairTotal = r => round2((r.parts || []).reduce((t, l) => t + (Number(l.cost) || 0), 0));
+export const REPAIR_STATUS = { submitted: "For GSO verification", returned: "Returned to End-User", verified: "Verified" };
+
+/**
+ * Normalises PMS Construction in Progress rows: either the PMS bulk-billing format (one billing per row:
+ * account_code, cip_code, project_name, location, contractor, date, ref, by_contract, admin_materials,
+ * admin_labor, admin_overhead, admin_consultancy, admin_others, transfers_adjustments, remarks) or the
+ * PMS "CIP Projects" CSV export (one row per project, its total billed to date). Projects already
+ * transferred to PPE are skipped — they come in with the property register.
+ * opts: { fund, asOf (date used for a project-total row) }. Returns { projects, errors, skipped }.
+ */
+export function normalizeCip(rows, opts) {
+  const byKey = new Map(), errors = [];
+  let skipped = 0;
+  rows.forEach((r, i) => {
+    const line = i + 2;
+    const accountCode = accountByCodeOrName(pick(r, "account_code", "Account Code"), pick(r, "Account Name"));
+    const cipNo = pick(r, "cip_code", "CIP No.", "CIP No", "cip_no").replace(/\.0$/, "");
+    const name = pick(r, "project_name", "Name of Project", "Project", "name");
+    const status = pick(r, "Status", "status").toLowerCase();
+    const fund = fundCode(pick(r, "Fund", "fund")) || opts.fund;
+    if (/transferred|completed/.test(status)) { skipped++; return; }
+    const err = [];
+    if (!CIP_ACCOUNTS.includes(accountCode)) err.push("not a Construction in Progress account");
+    if (!cipNo) err.push("no CIP No.");
+    if (!fund) err.push("unknown fund");
+    if (err.length) { errors.push({ line, description: name, problem: err.join(", ") }); return; }
+    const key = `${fund}|${cipNo}`;
+    if (!byKey.has(key)) byKey.set(key, { fund, accountCode, cipNo, name, location: pick(r, "location", "Location"), contractor: pick(r, "contractor", "Contractor"),
+      contractPeriod: pick(r, "Contract Period", "contract_period"), projectCost: money(pick(r, "Project Cost", "project_cost")), billings: [] });
+    const p = byKey.get(key);
+    if (!p.name && name) p.name = name;
+    const total = pick(r, "Total Billed to Date", "Billed to Date");
+    const b = total !== ""
+      ? { date: opts.asOf, ref: "Balance brought forward", particulars: "Billed to date in PMS", byContract: money(total) }
+      : { date: isoDate(pick(r, "date", "Date")) || opts.asOf, ref: pick(r, "ref", "Ref", "Reference"), particulars: name, remarks: pick(r, "remarks", "Remarks"),
+          byContract: money(pick(r, "by_contract")), materials: money(pick(r, "admin_materials")), labor: money(pick(r, "admin_labor")), overhead: money(pick(r, "admin_overhead")),
+          consultancy: money(pick(r, "admin_consultancy")), others: money(pick(r, "admin_others")), adjustments: money(pick(r, "transfers_adjustments")) };
+    if (billingTotal(b) || total === "") p.billings.push({ id: `imp${i}`, ref: "", particulars: "", remarks: "", ...Object.fromEntries(CIP_COST_FIELDS.map(([k]) => [k, b[k] || 0])), ...b, swaId: null, swaNo: "" });
+  });
+  return { projects: [...byKey.values()], errors, skipped };
 }

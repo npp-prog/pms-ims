@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], assets: [], movements: [], depr: [], tb: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -58,6 +58,7 @@ export function startRole() {
     live("r:airs", query(collection(db, "airs"), where("endUserUid", "==", uid)), v => { S.d.airs = v; });
     live("r:docs", query(collection(db, "issuances"), where("endUserUid", "==", uid)), v => { S.d.docs = v; });
     live("r:assets", query(collection(db, "assets"), where("custodianUid", "==", uid)), v => { S.d.assets = v; });
+    live("r:repairs", query(collection(db, "repairs"), where("endUserUid", "==", uid)), v => { S.d.repairs = v; });
   } else {
     live("r:airs", collection(db, "airs"), v => { S.d.airs = v; });
     live("r:docs", collection(db, "issuances"), v => { S.d.docs = v; });
@@ -65,6 +66,9 @@ export function startRole() {
     live("r:movements", collection(db, "movements"), v => { S.d.movements = v; });
     live("r:depr", collection(db, "depreciation"), v => { S.d.depr = v; });
     live("r:tb", collection(db, "tbSnapshots"), v => { S.d.tb = v; });
+    live("r:cip", collection(db, "cipProjects"), v => { S.d.cip = v; });
+    live("r:swa", collection(db, "swa"), v => { S.d.swa = v; });
+    live("r:repairs", collection(db, "repairs"), v => { S.d.repairs = v; });
     live("r:users", collection(db, "users"), v => { S.d.users = v; });
   }
   if (isAdmin()) {
@@ -83,7 +87,9 @@ const PERMS = {
   issue: ["gso", "admin", "superadmin"],
   post: ["accounting", "admin", "superadmin"],
   viewAll: ["gso", "accounting", "admin", "superadmin"],
-  manageUsers: ["admin", "superadmin"]
+  manageUsers: ["admin", "superadmin"],
+  manageCip: ["accounting", "admin", "superadmin"],
+  encodeSwa: ["gso", "accounting", "admin", "superadmin"]
 };
 export const can = perm => (PERMS[perm] || []).includes(role());
 

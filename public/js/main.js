@@ -14,6 +14,8 @@ import * as Admin from "./views/admin.js";
 import * as Property from "./views/property.js";
 import * as Accounting from "./views/accounting.js";
 import * as Import from "./views/import.js";
+import * as Cip from "./views/cip.js";
+import * as Repairs from "./views/repairs.js";
 import { counts } from "./views/common.js";
 
 const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>` };
@@ -58,11 +60,12 @@ function navGroups() {
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
     g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "My AIRs", c.returned]] });
-    g.push({ label: "Issued to Me", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "My Property"]] });
+    g.push({ label: "Issued to Me", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "My Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
     g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
-    g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["movements", "Transfers, Returns & Disposals"], ["registry/stock", "Supplies Stock Cards"]] });
+    g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs], ["registry/stock", "Supplies Stock Cards"]] });
+    g.push({ label: "Construction in Progress", items: [["cip", "CIP Projects"], ["swa", "SWA"]] });
     g.push({ label: "Accounting", items: [can("post") && ["posting", "For Posting", c.post], ["posted", "Posting Status"], ["depreciation", "Depreciation"], ["reconciliation", "TB Reconciliation"], ["reports", "Reports"]] });
   }
   if (isAdmin()) g.push({ label: "Administration", items: [["users", "Users & Roles", c.pending], ["import", "Data Import"], ["settings", "Settings"], ["audit", "Audit Trail"]] });
@@ -81,6 +84,8 @@ const ROUTES = {
   myproperty: () => Property.mine,
   depreciation: () => can("viewAll") && Accounting.depreciation, reconciliation: () => can("viewAll") && Accounting.reconciliation,
   import: () => isAdmin() && Import.importPage,
+  cip: () => can("viewAll") && Cip.list, cipProject: () => can("viewAll") && Cip.detail, swa: () => can("viewAll") && Cip.swaList,
+  repairs: () => Repairs.list, repairNew: () => Repairs.form, repair: () => Repairs.detail, repairEdit: () => Repairs.form,
   reports: () => can("viewAll") && Reports.reports,
   users: () => isAdmin() && Admin.users, settings: () => isAdmin() && Admin.settingsPage, audit: () => isAdmin() && Admin.audit,
   profile: () => Admin.profile
@@ -95,10 +100,14 @@ function parseHash() {
   else if (name === "issuances" && parts[1]) name = "issuance";
   else if (name === "assets" && parts[1]) name = "asset";
   else if (name === "movements" && parts[1]) name = "movement";
+  else if (name === "cip" && parts[1]) name = "cipProject";
+  else if (name === "repairs" && parts[1] === "new") { name = "repairNew"; params = [null, parts[2]]; }
+  else if (name === "repairs" && parts[1] && parts[2] === "edit") { name = "repairEdit"; params = [parts[1]]; }
+  else if (name === "repairs" && parts[1]) name = "repair";
   else if (name === "registry") { name = `registry/${parts[1] || "ppe"}`; params = parts.slice(2); }
   return { name, params };
 }
-const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe" };
+const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs" };
 
 function renderShell() {
   screen = "shell";

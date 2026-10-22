@@ -135,3 +135,57 @@ test("import of IMS supplies on hand", () => {
   assert.deepEqual(items.map(i => [i.stockNo, i.qty, i.unitCost]), [["OS-0001", 40, 250], ["OS-0002", 3, 150]]);
   assert.match(errors[0].problem, /not an inventory account/);
 });
+
+import { billingTotal, cipTotal, cipStatus, cipTransferAccount, cipOpenAt, normalizeCip, repairTotal } from "../public/js/core/assets.js";
+
+test("CIP: billing totals, status, default transfer account (PMS rules)", () => {
+  const p = { billings: [{ date: "2026-03-15", ref: "1ST BILLING", byContract: 1200000 }, { date: "2026-05-02", ref: "2ND BILLING", materials: 1000.5, labor: 500, adjustments: -0.5 }] };
+  assert.equal(billingTotal(p.billings[1]), 1500);
+  assert.equal(cipTotal(p), 1201500);
+  assert.equal(cipTotal(p, "2026-03-31"), 1200000, "as of a date");
+  assert.equal(cipStatus(p), "in_progress");
+  assert.equal(cipStatus({ billings: [{ ref: "2ND & FINAL BILLING" }] }), "finished", "a final billing marks it complete");
+  assert.equal(cipStatus({ billings: [{ ref: "FINAL" }], statusOverride: "in_progress" }), "in_progress");
+  assert.equal(cipStatus({ status: "completed", billings: [] }), "completed");
+  assert.deepEqual(["10710010", "10710020", "10710030"].map(cipTransferAccount), ["10702990", "10703990", "10704990"]);
+  const done = { status: "completed", completed: { date: "2026-06-10" } };
+  assert.ok(cipOpenAt(done, "2026-05") && !cipOpenAt(done, "2026-06"));
+});
+
+test("CIP is in the Trial Balance comparison until it is transferred", () => {
+  const cip = [{ fund: "GF", accountCode: "10710030", billings: [{ date: "2025-11-30", byContract: 7000000 }, { date: "2026-01-10", byContract: 1000000 }] },
+    { fund: "GF", accountCode: "10710030", status: "completed", completed: { date: "2025-10-01" }, billings: [{ date: "2025-05-01", byContract: 99 }] }];
+  const [r] = reconcile([], [], {}, { "10710030": { debit: 7000000, credit: 0 } }, "GF", "2025-12", cip);
+  assert.deepEqual([r.code, r.regCost, r.ok, r.regAD], ["10710030", 7000000, true, null]);
+});
+
+test("CIP import: PMS bulk-billing rows and the CIP Projects export", () => {
+  const bulk = [
+    { account_code: "10710020", cip_code: "2025-020-01", project_name: "Footbridge", contractor: "ABC", date: "3/15/2026", ref: "1ST BILLING", by_contract: "1,200,000.00" },
+    { account_code: "10710020", cip_code: "2025-020-01", date: "2026-05-02", ref: "2ND & FINAL BILLING", by_contract: "800000", admin_others: "250" },
+    { account_code: "10705020", cip_code: "X", project_name: "Not CIP", by_contract: "5" }];
+  const a = normalizeCip(bulk, { fund: "GF", asOf: "2025-12-31" });
+  assert.equal(a.projects.length, 1);
+  assert.equal(a.projects[0].billings.length, 2);
+  assert.equal(cipTotal(a.projects[0]), 2000250);
+  assert.equal(a.projects[0].billings[0].date, "2026-03-15");
+  assert.match(a.errors[0].problem, /not a Construction in Progress account/);
+  const b = normalizeCip([
+    { Fund: "General Fund", "CIP No.": "2020-020-06", "Account Code": "10710030", "Name of Project": "MPB", "Project Cost": "5,000,000", "Total Billed to Date": "3500000.00", Status: "In progress" },
+    { Fund: "General Fund", "CIP No.": "2019-1", "Account Code": "10710030", "Name of Project": "Old", "Total Billed to Date": "1", Status: "Transferred" }], { fund: "GF", asOf: "2025-12-31" });
+  assert.deepEqual([b.projects.length, b.skipped, cipTotal(b.projects[0]), b.projects[0].billings[0].ref, b.projects[0].projectCost], [1, 1, 3500000, "Balance brought forward", 5000000]);
+});
+
+test("repair totals", () => {
+  assert.equal(repairTotal({ parts: [{ cost: 1500.25 }, { cost: "350" }, {}] }), 1850.25);
+});
+
+test("PMS assets on a CIP account are imported as CIP projects, not PPE", () => {
+  const r = normalizeAssets([
+    { account_code: 10710030, property_id: "", description: "MULTI-PURPOSE BUILDING (ONGOING)", cost: 6826756.78, status: "active" },
+    { account_code: 10705020, property_id: "9", description: "PRINTER", cost: 9000, useful_life_years: 5, status: "active" }
+  ], { fund: "GF", baselinePeriod: "2025-12" });
+  assert.equal(r.items.length, 1);
+  assert.equal(r.cip.length, 1);
+  assert.deepEqual([r.cip[0].accountCode, cipTotal(r.cip[0]), r.cip[0].billings[0].date, r.cip[0].billings[0].ref], ["10710030", 6826756.78, "2025-12-31", "Balance brought forward"]);
+});

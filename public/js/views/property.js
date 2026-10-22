@@ -7,6 +7,7 @@ import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOS
 import { round2 } from "../core/logic.js";
 import { saveMovement, cancelMovement, updateAsset } from "../data.js";
 import { printForm, movementHtml, propertyCardHtml, tableReportHtml } from "../print.js";
+import { repairsOf, printHistory } from "./repairs.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 const today = () => manilaToday();
@@ -78,13 +79,16 @@ export function mine(main) {
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
       { label: "Cost", render: a => money(a.cost), cls: "right", headCls: "right" },
       { label: "Acquired", render: a => fmtDate(a.dateAcquired) },
-      { label: "", render: a => `<button class="btn sm" data-card="${esc(a.id)}">Print card</button>` }
+      { label: "", render: a => `<div class="btn-row" style="flex-wrap:nowrap"><a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record repair</a><button class="btn sm" data-hor="${esc(a.id)}">Repair history</button><button class="btn sm" data-card="${esc(a.id)}">Print card</button></div>` }
     ],
     empty: "No property is recorded under your name."
   });
-  $("#t", main).addEventListener("click", e => { const b = e.target.closest("[data-card]"); if (b) printForm(propertyCardHtml(rows.find(a => a.id === b.dataset.card), [])); });
+  $("#t", main).addEventListener("click", e => {
+    const b = e.target.closest("[data-card]"); if (b) printForm(propertyCardHtml(rows.find(a => a.id === b.dataset.card), []));
+    const h = e.target.closest("[data-hor]"); if (h) printHistory(rows.find(a => a.id === h.dataset.hor));
+  });
 }
-mine.deps = ["r:assets"];
+mine.deps = ["r:assets", "r:repairs"];
 
 /* ---------------- asset page ---------------- */
 function deprHistory(a, runs) {
@@ -110,6 +114,10 @@ export function detail(main, [id]) {
       ${ppe ? `<div class="card"><div class="card-head"><h3>Depreciation</h3><span class="small muted">${isDepreciable(a) ? `${money(monthlyRate(a))} a month` : "Not depreciated"}</span></div>
         ${dh.length ? `<div class="table-wrap"><table><thead><tr><th>Period</th><th>JEV No.</th><th class="right">Depreciation</th><th class="right">Accumulated</th><th class="right">Carrying amount</th></tr></thead>
         <tbody>${dh.map(r => `<tr><td>${esc(r.period)}</td><td>${esc(r.jevNo)}</td><td class="right">${num(r.amount)}</td><td class="right">${num(r.accum)}</td><td class="right">${num(r.carrying)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">No depreciation posted yet.</p>`}</div>` : ""}
+      <div class="card"><div class="card-head"><h3>History of Repair</h3><span class="small muted">${money(repairsOf(a.id).reduce((t, r) => t + r.totalCost, 0))}</span></div>
+        ${repairsOf(a.id).length ? `<div class="table-wrap"><table><thead><tr><th>JO date</th><th>Job Order No.</th><th>Nature / supplier</th><th class="right">Cost</th><th>Status</th></tr></thead>
+        <tbody>${repairsOf(a.id).sort((x, y) => String(y.jobOrderDate).localeCompare(String(x.jobOrderDate))).map(r => `<tr class="click" onclick="location.hash='#/repairs/${esc(r.id)}'"><td>${fmtDate(r.jobOrderDate)}</td><td>${esc(r.jobOrderNo)}</td><td>${esc(r.nature || "—")}<div class="xs muted">${esc(r.supplier)}</div></td><td class="right">${num(r.totalCost)}</td><td>${esc(r.status)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">No repairs recorded.</p>`}
+        <div class="btn-row" style="margin-top:.6rem">${onHand ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record a repair</a>` : ""}<button class="btn sm" id="hor">Print History of Repair</button></div></div>
     </div><div>
       <div class="card"><h3>Details</h3><dl class="kv">
         <dt>${ppe ? "Property No." : "Item No."}</dt><dd>${esc(a.propertyNo || "—")}</dd>
@@ -131,10 +139,11 @@ export function detail(main, [id]) {
       </div></div>
     </div></div>`;
   $("#card", main).onclick = () => printForm(propertyCardHtml(a, dh));
+  $("#hor", main).onclick = () => printHistory(a);
   $$("[data-mv]", main).forEach(b => b.onclick = () => movementModal(b.dataset.mv, [a]));
   $("#edit", main) && ($("#edit", main).onclick = () => editModal(a));
 }
-detail.deps = ["r:assets", "r:depr"];
+detail.deps = ["r:assets", "r:depr", "r:repairs"];
 
 function editModal(a) {
   const ppe = a.itemType === "ppe", gso = can("issue");

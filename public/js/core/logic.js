@@ -153,7 +153,7 @@ export function stockCards(airs, docs, fund, asOf = "") {
   return [...cards.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo));
 }
 
-/** RSMI lines (Appendix 40) for RIS issued within [from, to], with the recap by stock number. */
+/** RSMI lines for RIS issued within [from, to], with the recap by stock number. */
 export function rsmi(docs, fund, from, to) {
   const lines = [];
   for (const d of docs || []) {

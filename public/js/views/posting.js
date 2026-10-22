@@ -50,7 +50,7 @@ export function queue(main) {
       { label: "", render: i => `<input type="checkbox" data-nodirty data-sel="${esc(i.kind + ":" + i.id)}" ${sel.has(i.kind + ":" + i.id) ? "checked" : ""}>` },
       { label: "Date", render: i => fmtDate(i.date), sort: i => i.date || "" },
       { label: "Document", render: i => `<b>${esc(itemLabel(i))}</b><div class="xs muted">${esc(regOf(i))}</div>`, sort: i => i.number },
-      { label: "AIR No.", render: i => i.airId ? `<a href="#/airs/${i.airId}">${esc(i.airNo)}</a>` : `<a href="#/movements/${i.id}">open</a>`, sort: i => i.airNo },
+      { label: "AIR No.", render: i => i.airId ? `<a href="#/airs/${i.airId}">${esc(i.airNo)}</a>` : i.kind === "movement" ? `<a href="#/movements/${i.id}">open</a>` : `<a href="#/issuances/${i.id}">register items</a>`, sort: i => i.airNo },
       { label: "Office / recipient", render: i => `${esc(i.office)}${i.recipient ? `<div class="xs muted">${esc(i.recipient)}</div>` : ""}` },
       { label: "Amount", render: i => money(i.amount), sort: i => i.amount, cls: "right", headCls: "right" },
       { label: "", render: i => `<button class="btn sm primary" data-post="${esc(i.kind + ":" + i.id)}">Post</button>` }

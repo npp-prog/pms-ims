@@ -1,11 +1,13 @@
 // Dashboard — same layout as the TOSCAN Portal home: greeting, "Needs your attention" inbox,
 // "At a glance" figures and recent activity, with the content chosen by role.
-import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets, fundRuns } from "../state.js";
-import { esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
-import { fundName, ROLE_NAMES } from "../core/catalog.js";
+import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets } from "../state.js";
+import { $, esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
+import { fundName, ROLE_NAMES, ppeAccount, accountName } from "../core/catalog.js";
+import { searchAll } from "../core/cards.js";
 import { counts, postingItems } from "./common.js";
 import { stockCards } from "../core/logic.js";
-import { lastPosted, addMonths, periodOf, accumAsOf, isDepreciable } from "../core/assets.js";
+import { lastPosted, addMonths, periodOf, accumAsOf, impairmentAsOf, isDepreciable, cipTotal, cipStatus, reconcile, costGate } from "../core/assets.js";
+import { round2 } from "../core/logic.js";
 
 const I = {
   doc: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg>`,
@@ -49,7 +51,7 @@ export function dashboard(main) {
   ] : [
     [`AIRs encoded, ${year}`, airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, "#/airs"],
     [`Value received, ${year}`, money(airs.filter(a => ["approved", "issued"].includes(a.status) && yearOf(a.date) === year).reduce((t, a) => t + (a.total || 0), 0)), "#/airs"],
-    ["PPE on hand — carrying amount", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), fundRuns()), 0)), "#/registry/ppe"],
+    ["PPE on hand — carrying amount", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), S.d.depr), 0)), "#/registry/ppe"],
     ["Semi-expendable on hand — cost", money(onHand("sx").reduce((t, a) => t + a.cost, 0)), "#/registry/sx"],
     ["Supplies on hand", money(stockCards(S.d.airs, S.d.docs, S.fund).reduce((t, x) => t + x.balValue, 0)), "#/registry/stock"],
     ["Posted in the registry", `${posting.filter(p => p.posting.posted).length} of ${posting.length}`, "#/posted"]
@@ -62,7 +64,9 @@ export function dashboard(main) {
   main.innerHTML = `
     <div class="home-head">${avatar(S.account, "lg")}<div><h1>${greeting()}${name ? `, ${esc(name)}` : ""}</h1>
       <p>${esc(ROLE_NAMES[r] || "")}${S.account?.office ? ` · ${esc(S.account.office)}` : ""} · ${esc(fundName(S.fund))}</p></div></div>
+    ${can("viewAll") ? `<div class="card search-card" data-nodirty><input type="search" id="gs" placeholder="Search everything: property no., item, officer, PAR / ICS / RIS, PTR, job order, AIR, CIP…" value="${esc(srch.q)}" autocomplete="off"><div id="gsr" class="search-hits"></div></div>` : ""}
     <div class="steps">${flowSteps(r)}</div>
+    ${can("viewAll") ? overview() : ""}
     <div class="home">
       <div>
         <div class="card"><div class="card-head"><h3>Needs your attention</h3><span class="small muted">${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : ""}</span></div>
@@ -77,8 +81,60 @@ export function dashboard(main) {
           <ul class="upcoming">${recentDocs.map(d => `<li><span class="when">${fmtDateTime(d.createdAt)}</span><a href="#/issuances/${d.id}">${esc(d.docType.toUpperCase())} ${esc(d.number)}</a> — ${esc(d.recipient?.name || "")} ${docStatusBadge(d)}</li>`).join("") || `<li class="muted">Nothing issued yet.</li>`}</ul></div>
       </div>
     </div>`;
+  const gs = $("#gs", main);
+  if (gs) {
+    const show = () => { srch.q = gs.value; $("#gsr", main).innerHTML = hits(searchAll(gs.value, S.d, S.fund)); };
+    gs.addEventListener("input", show);
+    if (srch.q) { show(); if (srch.focus) { gs.focus(); gs.setSelectionRange(gs.value.length, gs.value.length); } }
+    gs.addEventListener("focus", () => { srch.focus = true; }); gs.addEventListener("blur", () => { srch.focus = false; });
+  }
 }
 dashboard.deps = ["*"];
+
+const srch = { q: "", focus: false };
+function hits(r) {
+  if (!r) return "";
+  const grp = (title, list, fn) => list.length ? `<h4>${esc(title)} <span class="xs muted">${list.length}</span></h4>${list.map(fn).join("")}` : "";
+  const html = grp("Property", r.assets, a => `<a href="#/assets/${esc(a.id)}"><b>${esc(a.propertyNo || "—")}</b> ${esc(a.description)} <span class="xs muted">${esc(a.holder?.name || "")} · ${esc(a.status)}</span></a>`)
+    + grp("PAR / ICS / RIS", r.docs, d => `<a href="#/issuances/${esc(d.id)}"><b>${esc(d.docType.toUpperCase())} ${esc(d.number)}</b> ${esc(d.recipient?.name || "")} <span class="xs muted">${esc(d.recipient?.office || "")} · ${money(d.total)}</span></a>`)
+    + grp("Transfers, returns and disposals", r.movements, x => `<a href="#/movements/${esc(x.id)}"><b>${esc(x.docType.toUpperCase())} ${esc(x.number)}</b> ${esc(x.from?.name || "")} → ${esc(x.to?.name || x.mode || "")}</a>`)
+    + grp("Repairs", r.repairs, x => `<a href="#/repairs/${esc(x.id)}"><b>JO ${esc(x.jobOrderNo)}</b> ${esc(x.description || "")} <span class="xs muted">${money(x.totalCost)}</span></a>`)
+    + grp("AIRs", r.airs, a => `<a href="#/airs/${esc(a.id)}"><b>AIR ${esc(a.airNo)}</b> ${esc(a.supplier)} <span class="xs muted">${esc(a.office)}</span></a>`)
+    + grp("Construction in Progress", r.cip, p => `<a href="#/cip/${esc(p.id)}"><b>CIP ${esc(p.cipNo)}</b> ${esc(p.name)}</a>`);
+  return html || `<p class="muted small" style="margin:.6rem 0 0">Nothing found in ${esc(fundName(S.fund))}.</p>`;
+}
+
+/** Property overview (PMS dashboard): balances, depreciation and reconciliation status, CIP waiting for transfer, and PPE by group. */
+function overview() {
+  const per = periodOf(manilaToday()), runs = S.d.depr;
+  const assets = fundAssets().filter(a => ["active", "returned"].includes(a.status));
+  const ppe = assets.filter(a => a.itemType === "ppe"), sx = assets.filter(a => a.itemType === "sx");
+  const ad = a => accumAsOf(a, per, runs) + impairmentAsOf(a, per);
+  const ppeCost = round2(ppe.reduce((t, a) => t + a.cost, 0)), ppeCarry = round2(ppe.reduce((t, a) => t + a.cost - ad(a), 0));
+  const cip = S.d.cip.filter(p => p.fund === S.fund && p.status !== "completed");
+  const awaiting = cip.filter(p => cipStatus(p) === "finished");
+  const last = lastPosted(runs, S.fund);
+  const tb = S.d.tb.filter(t => t.fund === S.fund).sort((a, b) => b.period.localeCompare(a.period))[0];
+  const rec = tb ? reconcile(S.d.assets, runs, {}, tb.accounts, S.fund, tb.period, S.d.cip).filter(r => ppeAccount(r.code) && (r.regCost || r.tbCost)) : [];
+  const flagged = rec.filter(r => !r.ok).length;
+  const next = last ? addMonths(last, 1) : null, gate = next && next < per ? costGate(S.d.assets, runs, S.d.tb, S.fund, next, S.d.cip) : null;
+  const byGroup = new Map();
+  for (const a of ppe) { const g = ppeAccount(a.accountCode)?.group || accountName(a.accountCode) || "Other"; const e = byGroup.get(g) || { g, n: 0, cost: 0, carry: 0 }; e.n++; e.cost += a.cost; e.carry += a.cost - ad(a); byGroup.set(g, e); }
+  return `<div class="card"><div class="card-head"><h3>Property overview</h3><span class="small muted">${esc(fundName(S.fund))} · as of ${fmtDate(manilaToday())}</span></div>
+    <div class="stats">
+      <div class="stat"><span class="n">${money(ppeCost)}</span><span class="l">PPE cost (${ppe.length})</span></div>
+      <div class="stat"><span class="n">${money(ppeCarry)}</span><span class="l">PPE carrying amount</span></div>
+      <div class="stat"><span class="n">${money(sx.reduce((t, a) => t + a.cost, 0))}</span><span class="l">Semi-expendable (${sx.length})</span></div>
+      <div class="stat"><span class="n">${money(cip.reduce((t, p) => t + cipTotal(p), 0))}</span><span class="l">Construction in progress (${cip.length})</span></div></div>
+    <ul class="glance">
+      <li><a href="#/depreciation"><span>Depreciation</span></a><b>${last ? `posted to ${esc(last)}` : "none posted yet"}${gate && !gate.ok ? " · on hold (Trial Balance)" : ""}</b></li>
+      <li><a href="#/reconciliation"><span>Reconciliation</span></a><b>${tb ? `${esc(tb.period)}: ${flagged ? `${flagged} account(s) to check` : "PPE ties out"}` : "no Trial Balance yet"}</b></li>
+      <li><a href="#/cip"><span>CIP ready to transfer to PPE</span></a><b>${awaiting.length}</b></li>
+    </ul>
+    ${byGroup.size ? `<div class="table-wrap" style="margin-top:.6rem"><table><thead><tr><th>PPE group</th><th class="right">Items</th><th class="right">Cost</th><th class="right">Carrying amount</th></tr></thead>
+      <tbody>${[...byGroup.values()].sort((a, b) => b.cost - a.cost).map(e => `<tr><td>${esc(e.g)}</td><td class="right">${e.n}</td><td class="right">${money(e.cost)}</td><td class="right">${money(e.carry)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+  </div>`;
+}
 
 const onHand = type => fundAssets().filter(a => a.itemType === type && ["active", "returned"].includes(a.status));
 /** For Accounting: the month that should be posted next, if it is already over. */

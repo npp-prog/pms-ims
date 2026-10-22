@@ -3,10 +3,27 @@
 import { $, esc, fmtDate, num, qty } from "./ui.js";
 import { settings } from "./state.js";
 import { fundName, accountName } from "./core/catalog.js";
+import { specialGroup, COMPONENTS, propertyCardRows } from "./core/cards.js";
 
 export function printForm(html, orientation = "portrait") {
-  $("#print-area").innerHTML = `<style>@page { size: A4 ${orientation}; margin: 10mm; }</style>${html}`;
-  setTimeout(() => window.print(), 200);
+  const area = $("#print-area");
+  area.innerHTML = `<style>@page { size: ${orientation === "tags" ? "A4 portrait" : `A4 ${orientation}`}; margin: 10mm; }</style>${html}`;
+  const qrs = area.querySelectorAll("[data-qr]");
+  if (!qrs.length) return void setTimeout(() => window.print(), 200);
+  loadQR().then(() => {
+    qrs.forEach(el => new window.QRCode(el, { text: el.dataset.qr, width: 96, height: 96, correctLevel: window.QRCode.CorrectLevel.M }));
+    setTimeout(() => window.print(), 300);
+  }).catch(() => { qrs.forEach(el => { el.textContent = "QR unavailable offline"; }); setTimeout(() => window.print(), 200); });
+}
+let qrLib;
+function loadQR() {
+  if (window.QRCode) return Promise.resolve();
+  return qrLib ||= new Promise((ok, fail) => {
+    const sc = document.createElement("script");
+    sc.src = "https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js";
+    sc.onload = ok; sc.onerror = () => { qrLib = null; fail(new Error("QR library didn't load")); };
+    document.head.appendChild(sc);
+  });
 }
 
 function head(title) {
@@ -57,7 +74,7 @@ export function parHtml(d) {
     <table class="pt"><thead><tr><th style="width:9%">Quantity</th><th style="width:8%">Unit</th><th>Description</th><th style="width:16%">Property Number</th><th style="width:13%">Date Acquired</th><th style="width:14%">Amount</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 6)}
       <tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td></tr></tbody></table>
-    <div class="pf-ref">Reference: AIR No. ${esc(d.airNo)} · Supplier: ${esc(d.supplier || "")}</div>
+    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)} · Supplier: ${esc(d.supplier || "")}` : "Property already in the register"}</div>
     <div class="sig2">${sig("Received by:", d.recipient?.name, "Signature over Printed Name of End User", d.recipient?.position)}
       ${sig("Issued by:", d.issuedBy?.name, "Signature over Printed Name of Supply and/or Property Custodian", d.issuedBy?.position)}</div></div>`;
 }
@@ -75,7 +92,7 @@ export function icsHtml(d) {
       <tr><th style="width:10%">Unit Cost</th><th style="width:11%">Total Cost</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="7">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 7)}
       <tr><td colspan="3" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td><td colspan="3"></td></tr></tbody></table>
-    <div class="pf-ref">Reference: AIR No. ${esc(d.airNo)} · ${d.sxClass === "low" ? "Low-Value" : "High-Value"} Semi-Expendable Property</div>
+    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)}` : "Property already in the register"} · ${d.sxClass === "low" ? "Low-Value" : "High-Value"} Semi-Expendable Property</div>
     <div class="sig2">${sig("Received from:", d.issuedBy?.name, "Signature over Printed Name", d.issuedBy?.position)}
       ${sig("Received by:", d.recipient?.name, "Signature over Printed Name", d.recipient?.position)}</div></div>`;
 }
@@ -201,20 +218,173 @@ function disposalHtml(m) {
       ${sig("Approved by:", m.approvedBy?.name, "Signature over Printed Name", m.approvedBy?.position)}</div></div>`;
 }
 
-/** Property Card (PPE) or Semi-Expendable Property Card, from the record's history; PPE adds its depreciation. */
-export function propertyCardHtml(a, deprRows) {
-  const ppe = a.itemType === "ppe";
-  const hist = (a.history || []).map(h => `<tr><td>${fmtDate(h.at)}</td><td>${esc(h.action)}${h.note ? ` — ${esc(h.note)}` : ""}</td><td>${esc(h.by)}</td></tr>`).join("");
-  const dep = ppe && deprRows?.length ? `<div style="margin-top:8px;font-size:11px"><b>Depreciation</b></div>
-    <table class="pt"><thead><tr><th>Period</th><th>JEV No.</th><th>Depreciation</th><th>Accumulated</th><th>Carrying Amount</th></tr></thead>
-    <tbody>${deprRows.map(r => `<tr><td>${esc(r.period)}</td><td>${esc(r.jevNo)}</td><td class="r">${num(r.amount)}</td><td class="r">${num(r.accum)}</td><td class="r">${num(r.carrying)}</td></tr>`).join("")}</tbody></table>` : "";
-  return `<div class="pf">${head(ppe ? "PROPERTY CARD" : "SEMI-EXPENDABLE PROPERTY CARD")}
-    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(a.fund))}</b></td></tr>
-      <tr><td>${ppe ? "Property, Plant and Equipment" : "Semi-expendable Property"}: <b>${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</b></td><td>${ppe ? "Property Number" : "Item No."}: <b>${esc(a.propertyNo)}</b></td></tr>
-      <tr><td>Description: <b>${esc(a.description)}</b>${a.specs ? ` — ${esc(a.specs)}` : ""}</td><td>Date acquired: <b>${fmtDate(a.dateAcquired)}</b></td></tr>
-      <tr><td>Quantity / cost: <b>${qty(a.qty)} ${esc(a.unit)} · ${num(a.cost)}</b></td><td>${ppe ? `Useful life: <b>${esc(a.usefulLifeYears)} yrs</b> · Residual: <b>${num(a.residualValue)}</b>` : `Estimated useful life: <b>${esc(a.estimatedLife)}</b>`}</td></tr>
-      <tr><td>Accountable officer: <b>${esc(a.holder?.name)}</b> ${esc(a.holder?.office ? "— " + a.holder.office : "")}</td><td>Status: <b>${esc(a.status)}</b></td></tr></table>
-    <table class="pt"><thead><tr><th style="width:16%">Date</th><th>Reference / Transaction</th><th style="width:20%">By</th></tr></thead><tbody>${hist}</tbody></table>${dep}</div>`;
+/* ---------------- Ledger Cards and Property Cards (PMS layouts) ----------------
+ * `rows` is assetTimeline(a, ctx) from core/cards.js. PPE prints the Equipment Ledger Card / Property Card,
+ * or the special form for Land, Road Network, Other Public Infrastructure, Buildings and Biological Assets;
+ * semi-expendable prints the SX Ledger Card / SX Property Card. All landscape. */
+const shortDate = d => d ? fmtDate(d) : "";
+const cardHead = (title, a, fundLabel = "Fund") => `${head(title)}<div class="r" style="font-size:11px;margin-top:-4px">${fundLabel}: <b><u>${esc(fundName(a.fund))}</u></b></div>`;
+const info = cells => `<table class="pt pinfo">${cells.map(r => `<tr>${r.map(([l, v, span]) => `<td class="lbl">${esc(l)}</td><td${span ? ` colspan="${span}"` : ""}>${v}</td>`).join("")}</tr>`).join("")}</table>`;
+const blankRows = (n, cols) => blanks(n, cols);
+const officerOf = a => a.holder?.name ? ` — ${esc(a.holder.name)}` : "";
+
+function equipmentLedger(a, rows) {
+  const dep = a.depreciable !== false;
+  return `<div class="pf card-l">${cardHead("EQUIPMENT LEDGER CARD", a)}
+    ${info([[["Equipment:", esc(a.articleType || accountName(a.accountCode))], ["Account Code:", esc(a.accountCode)]], [["Description:", `${esc(a.description)}${officerOf(a)}`, 3]]])}
+    <table class="pt"><thead><tr><th rowspan="2" style="width:7%">Date</th><th rowspan="2" style="width:10%">Reference</th><th rowspan="2" style="width:18%">Particulars</th><th rowspan="2" style="width:9%">Property ID No.</th>
+      <th rowspan="2" style="width:8%">Cost</th><th rowspan="2" style="width:6%">Estimated Useful Life</th><th rowspan="2" style="width:8%">Accumulated Depreciation</th><th rowspan="2" style="width:8%">Accumulated Impairment Losses</th>
+      <th rowspan="2" style="width:8%">Adjusted Cost</th><th colspan="2">Repair History</th><th rowspan="2" style="width:7%">Remarks</th></tr><tr><th style="width:6%">Nature of Repair</th><th style="width:5%">Amount</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td>${i === 0 ? esc(a.description) : esc(r.label)}</td><td>${i === 0 ? esc(a.propertyNo) : ""}</td>
+      <td class="r">${i === 0 || r.kind === "revalue" ? num(r.cost) : ""}</td><td class="c">${i === 0 && a.usefulLifeYears ? `${esc(a.usefulLifeYears)} yrs` : ""}</td>
+      <td class="r">${dep && r.kind !== "repair" ? num(r.accum) : ""}</td><td class="r">${r.kind === "impairment" ? num(r.impairment) : ""}</td><td class="r">${r.kind === "repair" ? "" : num(r.adjusted)}</td>
+      <td>${r.kind === "repair" ? esc(r.repairNature) : ""}</td><td class="r">${r.kind === "repair" ? num(r.repairAmount) : ""}</td><td>${r.kind === "retire" ? "Disposed" : r.kind === "transfer" ? "Transferred" : ""}</td></tr>`).join("")}
+    ${blankRows(14 - rows.length, 12)}</tbody></table></div>`;
+}
+
+function equipmentProperty(a, rows) {
+  const list = propertyCardRows(rows);
+  return `<div class="pf card-l">${cardHead("PROPERTY CARD", a)}
+    ${info([[["Property, Plant and Equipment:", esc(a.articleType || accountName(a.accountCode))], ["Property Number:", esc(a.propertyNo)]], [["Description:", esc(a.description) + (a.specs ? ` — ${esc(a.specs)}` : ""), 3]]])}
+    <table class="pt"><thead><tr><th rowspan="2" style="width:9%">Date</th><th rowspan="2" style="width:14%">Reference/ PAR No.</th><th style="width:8%">Receipt</th><th colspan="2">Issue/Transfer/Disposal</th>
+      <th rowspan="2" style="width:8%">Balance Qty.</th><th rowspan="2" style="width:12%">Amount</th><th rowspan="2" style="width:15%">Remarks</th></tr><tr><th>Qty.</th><th style="width:8%">Qty.</th><th style="width:18%">Office/Officer</th></tr></thead>
+    <tbody>${list.map(r => { const out = ["transfer", "retire", "return"].includes(r.kind);
+      return `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td class="r">${r.kind === "acquire" || r.kind === "reactivate" ? qty(a.qty || 1) : ""}</td><td class="r">${out ? qty(r.kind === "retire" ? a.qty || 1 : r.qty || a.qty || 1) : ""}</td>
+        <td>${r.kind === "transfer" ? esc([r.officer, r.office].filter(Boolean).join(" — ")) : r.kind === "return" ? "Returned to GSO" : r.kind === "retire" ? esc(a.holder?.name || "") : r.kind === "acquire" ? esc([a.parIcs?.recipient || "", a.holder?.office || ""].filter(Boolean).join(" — ")) : ""}</td>
+        <td class="r">${qty(r.balanceQty)}</td><td class="r">${num(r.cost)}</td><td>${r.kind === "revalue" ? esc(r.label) : r.kind === "transfer" ? "Transferred" : r.kind === "retire" ? esc(r.label) : r.kind === "reactivate" ? esc(r.label) : ""}</td></tr>`; }).join("")}
+    ${blankRows(12 - list.length, 8)}</tbody></table></div>`;
+}
+
+function landHeader(a, withAccount) {
+  const sp = a.special || {};
+  return info([...(withAccount ? [[["Account:", `${esc(a.accountCode)} — ${esc(accountName(a.accountCode))}`, 3]]] : []),
+    [["Location:", esc(a.location || "—")], ["Lot ID No.:", esc(sp.lotId || "—")]], [["Description:", esc(a.description), 3]],
+    [["Classification:", esc(sp.classification || "—"), 3]], [["Area:", esc(sp.area || "—"), 3]], [["Technical Description:", esc(sp.technicalDesc || "—"), 3]]]);
+}
+function landLedger(a, rows) {
+  return `<div class="pf card-l">${cardHead("LAND AND LAND IMPROVEMENTS LEDGER CARD", a)}${landHeader(a, true)}
+    <table class="pt"><thead><tr><th style="width:9%">Date</th><th style="width:11%">Reference</th><th style="width:18%">Particulars</th><th>Amount</th><th>Additions</th><th style="width:12%">Accumulated Depreciation (for Land Improvements)</th><th>Impairment</th><th>Carrying Amount</th><th>Disposal</th></tr></thead>
+    <tbody>${rows.filter(r => r.kind !== "repair").map((r, i) => `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td>${i === 0 ? esc(a.description) : esc(r.label)}</td><td class="r">${i === 0 ? num(r.cost) : ""}</td>
+      <td class="r">${r.kind === "revalue" ? num(r.cost) : ""}</td><td class="r">${a.depreciable !== false && Number(a.usefulLifeYears) ? num(r.accum) : ""}</td><td class="r">${r.kind === "impairment" ? num(r.impairment) : ""}</td><td class="r">${num(r.adjusted)}</td><td class="r">${r.kind === "retire" ? num(r.adjusted) : ""}</td></tr>`).join("")}
+    ${blankRows(12 - rows.length, 9)}</tbody></table></div>`;
+}
+function landProperty(a, rows) {
+  const list = propertyCardRows(rows);
+  return `<div class="pf card-l">${cardHead("LAND AND LAND IMPROVEMENTS PROPERTY CARD", a)}${landHeader(a, false)}
+    <table class="pt"><thead><tr><th style="width:10%">Date</th><th style="width:12%">Reference</th><th style="width:20%">Particulars</th><th>Amount</th><th>Additions</th><th>Adjustments</th><th>Disposal</th><th>Carrying Amount</th></tr></thead>
+    <tbody>${list.map((r, i) => `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td>${i === 0 ? esc(a.description) : esc(r.label)}</td><td class="r">${i === 0 ? num(r.cost) : ""}</td><td class="r">${r.kind === "revalue" ? num(r.cost) : ""}</td><td></td>
+      <td class="r">${r.kind === "retire" ? num(r.cost) : ""}</td><td class="r">${r.kind === "retire" ? "0.00" : num(r.cost)}</td></tr>`).join("")}
+    ${blankRows(12 - list.length, 8)}</tbody></table></div>`;
+}
+
+/** Road, Other Public Infrastructure and Buildings: one section per component. The item's own history prints under the
+ *  component that carries the depreciation (Pavement for roads, the first one otherwise); the other components show
+ *  their allocated cost when known, else blank rows to fill in by hand. */
+function componentCard(a, rows, { title, header, variant, group }) {
+  const ledger = variant === "ledger", cols = ledger ? 12 : 9;
+  const comps = COMPONENTS[group], amounts = a.components || {}, primary = group === "road" ? 1 : 0;
+  // the other components' known amounts print in their own sections, so the primary one shows the rest
+  const others = comps.reduce((t, [k], idx) => t + (idx !== primary && Number(amounts[k]) ? Number(amounts[k]) : 0), 0);
+  rows = rows.map(r => others ? { ...r, cost: r.cost - others, adjusted: r.adjusted - others } : r);
+  const list = ledger ? rows : rows.filter(r => !["depreciation", "baseline", "impairment", "adjustment"].includes(r.kind));
+  const row = (r, i) => ledger
+    ? `<tr><td></td><td class="c">${i === 0 && a.usefulLifeYears ? `${esc(a.usefulLifeYears)} yrs` : ""}</td><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td>${i === 0 ? esc(a.description) : esc(r.label)}</td>
+        <td class="r">${i === 0 || r.kind === "revalue" ? num(r.cost) : ""}</td><td class="r">${r.kind === "repair" ? "" : num(r.accum)}</td><td class="r">${r.kind === "impairment" ? num(r.impairment) : ""}</td><td class="r">${r.kind === "adjustment" ? num(r.adjustment) : ""}</td>
+        <td class="r">${r.kind === "repair" ? "" : num(r.adjusted)}</td><td>${r.kind === "repair" ? esc(r.repairNature) : ""}</td><td class="r">${r.kind === "repair" ? num(r.repairAmount) : ""}</td></tr>`
+    : `<tr><td></td><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td>${i === 0 ? esc(a.description) : esc(r.label)}</td><td class="r">${i === 0 || r.kind === "revalue" ? num(r.cost) : ""}</td><td></td>
+        <td class="r">${r.kind === "repair" ? "" : num(r.cost)}</td><td>${r.kind === "repair" ? esc(r.repairNature) : ""}</td><td class="r">${r.kind === "repair" ? num(r.repairAmount) : ""}</td></tr>`;
+  const staticRow = v => ledger
+    ? `<tr><td></td><td></td><td>${shortDate(a.dateAcquired)}</td><td></td><td>Included in acquisition cost above</td><td class="r">${num(v)}</td><td></td><td></td><td></td><td class="r">${num(v)}</td><td></td><td></td></tr>`
+    : `<tr><td></td><td>${shortDate(a.dateAcquired)}</td><td></td><td>Included in acquisition cost above</td><td class="r">${num(v)}</td><td></td><td class="r">${num(v)}</td><td></td><td></td></tr>`;
+  const body = comps.map(([key, label], idx) => {
+    const known = amounts[key] != null && amounts[key] !== "" && idx !== primary;
+    const data = idx === primary ? list.map(row).join("") : known ? staticRow(Number(amounts[key])) : "";
+    const blank = idx === primary ? Math.max(2, 5 - list.length) : known ? 3 : 4;
+    return `<tr><td colspan="${cols}" style="font-weight:700;background:#f2f2f2">${esc(label)}</td></tr>${data}${blankRows(blank, cols)}`;
+  }).join("");
+  const thead = ledger
+    ? `<tr><th rowspan="2" style="width:10%">Components</th><th rowspan="2" style="width:6%">Estimated Useful Life</th><th rowspan="2" style="width:7%">Date</th><th rowspan="2" style="width:9%">Reference</th><th rowspan="2" style="width:15%">Description</th><th rowspan="2" style="width:8%">Cost</th>
+        <th rowspan="2" style="width:8%">Accumulated Depreciation</th><th rowspan="2" style="width:8%">Accumulated Impairment Loss</th><th rowspan="2" style="width:7%">Adjustment/s</th><th rowspan="2" style="width:8%">Carrying Amount</th><th colspan="2">Maintenance History</th></tr>
+       <tr><th style="width:8%">Nature of Maintenance</th><th style="width:6%">Amount</th></tr>`
+    : `<tr><th rowspan="2" style="width:13%">Components</th><th rowspan="2" style="width:8%">Date</th><th rowspan="2" style="width:10%">Reference</th><th rowspan="2" style="width:20%">Description</th><th rowspan="2" style="width:9%">Cost</th><th rowspan="2" style="width:9%">Adjustment/s</th><th rowspan="2" style="width:9%">Adjusted Cost</th><th colspan="2">Maintenance History</th></tr>
+       <tr><th style="width:9%">Nature of Maintenance</th><th style="width:7%">Amount</th></tr>`;
+  return `<div class="pf card-l">${cardHead(title, a)}${header}<table class="pt"><thead>${thead}</thead><tbody>${body}</tbody></table></div>`;
+}
+function specialHeader(a, group) {
+  const sp = a.special || {}, v = k => esc(sp[k] || "—");
+  if (group === "road") return info([[["Road Network ID No.:", v("roadId")]], [["Name of Road Network:", esc(a.description)]], [["Type of Road:", v("roadType")]], [["Location:", esc(a.location || "—")]], [["Length / Width:", `${v("length")} / ${v("width")}`]], [["Thickness (Pavement):", v("thickness")]]]);
+  if (group === "buildings") return info([[["Building/Structure ID No.:", v("bldgId")]], [["Name of Building/Structure:", esc(a.description)]], [["Type/Made of Building:", v("typeMade")]], [["Location:", esc(a.location || "—")]], [["Floor Area / No. of Floors:", `${v("floorArea")} / ${v("floors")}`]]]);
+  return info([[["Account:", `${esc(a.accountCode)} — ${esc(accountName(a.accountCode))}`], ["Public Infrastructure ID No.:", v("infraId")]], [["Name:", esc(a.description), 3]], [["Type:", v("infraType"), 3]], [["Location:", esc(a.location || "—"), 3]], [["Other detailed description:", v("otherDesc"), 3]]]);
+}
+const SPECIAL_TITLES = { road: "LOCAL ROAD NETWORK", otherinfra: "OTHER PUBLIC INFRASTRUCTURE", buildings: "BUILDINGS AND STRUCTURES" };
+
+function biologicalProperty(a, rows) {
+  const n = Number(a.special?.headCount) || Number(a.qty) || 1, reason = String(a.disposal?.reason || a.disposal?.mode || "").toLowerCase();
+  let bal = 0;
+  const list = rows.filter(r => ["acquire", "revalue", "retire", "reactivate", "transfer"].includes(r.kind));
+  const body = list.map(r => {
+    const c = Array(8).fill(""); let remarks = "";
+    if (r.kind === "acquire" || r.kind === "reactivate") { c[0] = n; bal = n; }
+    if (r.kind === "retire") { if (reason.includes("sale")) c[3] = bal; else if (reason.includes("transfer")) c[5] = bal; else if (reason.includes("death") || reason.includes("died")) c[6] = bal; else { c[7] = bal; remarks = r.label; } bal = 0; }
+    if (r.kind === "transfer") remarks = r.label;
+    return `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td>${c.map(x => `<td class="r">${x}</td>`).join("")}<td class="r">${r.kind === "acquire" || r.kind === "revalue" ? num(r.cost) : ""}</td><td class="r">${bal}</td><td class="r">${bal ? num(r.cost) : "0.00"}</td><td>${esc(remarks)}</td></tr>`;
+  }).join("");
+  return `<div class="pf card-l">${cardHead("BIOLOGICAL ASSETS PROPERTY CARD", a)}
+    ${info([[["Biological Asset:", esc(accountName(a.accountCode))]], [["Description:", esc(a.description)]]])}
+    <table class="pt"><thead><tr><th rowspan="2" style="width:8%">Date</th><th rowspan="2" style="width:10%">Reference</th><th colspan="3">Additions</th><th colspan="5">Reductions</th><th rowspan="2" style="width:8%">Fair Value</th><th colspan="2">Balance</th><th rowspan="2" style="width:10%">Remarks</th></tr>
+      <tr><th>Purchase Qty.</th><th>Birth Qty.</th><th>Others Qty.</th><th>Sale Qty.</th><th>Selling Price</th><th>Transfer Qty.</th><th>Death Qty.</th><th>Others Qty.</th><th>Qty.</th><th>Amount</th></tr></thead>
+    <tbody>${body}${blankRows(12 - list.length, 14)}</tbody></table></div>`;
+}
+
+function sxLedger(a, rows) {
+  const list = rows.filter(r => !["depreciation", "baseline"].includes(r.kind));
+  return `<div class="pf card-l">${cardHead("SEMI-EXPENDABLE PROPERTY LEDGER CARD", a, "Fund Cluster")}
+    ${info([[["Entity Name:", esc(settings().entityName), 3]], [["Semi-expendable Property:", esc(a.articleType || accountName(a.accountCode))], ["Semi-expendable Property No.:", esc(a.propertyNo || "—")]],
+      [["Description:", `${esc(a.description)}${officerOf(a)}`], ["UACS Object Code:", esc(a.accountCode || "—")]]])}
+    <table class="pt"><thead><tr><th rowspan="2" style="width:8%">Date</th><th rowspan="2" style="width:11%">Reference</th><th colspan="3">Receipt</th><th rowspan="2" style="width:11%">Issues/Transfers/ Adjustments</th><th rowspan="2" style="width:10%">Accumulated Impairment Losses</th><th rowspan="2" style="width:9%">Adjusted Cost</th><th colspan="2">Repair History</th></tr>
+      <tr><th style="width:5%">Qty.</th><th style="width:8%">Unit Cost</th><th style="width:8%">Total Cost</th><th style="width:10%">Nature of Repair</th><th style="width:7%">Amount</th></tr></thead>
+    <tbody>${list.map(r => `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td class="r">${r.kind === "acquire" ? qty(a.qty || 1) : ""}</td><td class="r">${r.kind === "acquire" ? num(a.unitCost || (a.cost / (a.qty || 1))) : ""}</td><td class="r">${r.kind === "acquire" ? num(r.cost) : ""}</td>
+      <td class="r">${r.kind === "adjustment" ? num(r.adjustment) : r.kind === "transfer" ? esc(r.officer) : r.kind === "return" ? "Returned" : r.kind === "retire" ? "Disposed" : r.kind === "revalue" ? num(r.cost) : ""}</td><td class="r">${r.kind === "impairment" ? num(r.impairment) : ""}</td>
+      <td class="r">${r.kind === "repair" ? "" : num(r.sxAdjusted)}</td><td>${r.kind === "repair" ? esc(r.repairNature) : ""}</td><td class="r">${r.kind === "repair" ? num(r.repairAmount) : ""}</td></tr>`).join("")}
+    ${blankRows(12 - list.length, 10)}</tbody></table></div>`;
+}
+function sxProperty(a, rows) {
+  const list = rows.filter(r => ["acquire", "transfer", "return", "retire", "reactivate"].includes(r.kind));
+  return `<div class="pf card-l">${cardHead("SEMI-EXPENDABLE PROPERTY CARD", a)}
+    ${info([[["Semi-Expendable No.:", esc(a.propertyNo || "—")], ["Article/Type:", esc(a.articleType || accountName(a.accountCode) || "—")]], [["Item Description:", esc(a.description)], ["Accountable Officer:", esc(a.holder?.name || "—")]],
+      [["Location/Office:", esc(a.holder?.office || a.location || "—")], ["Unit of Measure:", esc(a.unit || "—")]]])}
+    <table class="pt"><thead><tr><th rowspan="2" style="width:9%">Date</th><th rowspan="2" style="width:13%">Reference</th><th rowspan="2" style="width:8%">Receipt Qty.</th><th colspan="3">Issue/Return/Disposal</th><th colspan="2">Balance</th></tr>
+      <tr><th style="width:7%">Qty.</th><th style="width:9%">Type</th><th style="width:18%">Remarks</th><th style="width:7%">Qty.</th><th style="width:10%">Value</th></tr></thead>
+    <tbody>${list.map(r => `<tr><td>${shortDate(r.date)}</td><td>${esc(r.reference)}</td><td class="r">${r.kind === "acquire" || r.kind === "reactivate" ? qty(a.qty || 1) : ""}</td><td class="r">${["transfer", "return", "retire"].includes(r.kind) ? qty(r.qty || a.qty || 1) : ""}</td>
+      <td>${{ transfer: "Transfer", return: "Return", retire: "Disposal", reactivate: "Reactivated" }[r.kind] || ""}</td><td>${r.kind === "acquire" ? "" : esc(r.kind === "transfer" ? [r.officer, r.office].filter(Boolean).join(" — ") : r.label)}</td>
+      <td class="r">${qty(r.balanceQty)}</td><td class="r">${r.balanceQty ? num(r.sxAdjusted) : "0.00"}</td></tr>`).join("")}
+    ${blankRows(10 - list.length, 8)}</tbody></table>
+    ${info([[["Status:", a.status === "disposed" ? "Disposed" : a.status === "returned" ? "Returned to GSO" : "In use"], ["Remarks:", esc(a.remarks || "")]]])}</div>`;
+}
+
+/** Ledger Card for one item (the Accounting copy). */
+export function ledgerCardHtml(a, rows) {
+  if (a.itemType === "sx") return sxLedger(a, rows);
+  const g = specialGroup(a.accountCode);
+  if (g === "land") return landLedger(a, rows);
+  if (SPECIAL_TITLES[g]) return componentCard(a, rows, { title: `${SPECIAL_TITLES[g]} LEDGER CARD`, header: specialHeader(a, g), variant: "ledger", group: g });
+  return equipmentLedger(a, rows);
+}
+/** Property Card for one item (the Property / Supply Office copy). */
+export function propertyCardHtml(a, rows) {
+  if (a.itemType === "sx") return sxProperty(a, rows);
+  const g = specialGroup(a.accountCode);
+  if (g === "biological") return biologicalProperty(a, rows);
+  if (g === "land") return landProperty(a, rows);
+  if (SPECIAL_TITLES[g]) return componentCard(a, rows, { title: `${SPECIAL_TITLES[g]} PROPERTY CARD`, header: specialHeader(a, g), variant: "property", group: g });
+  return equipmentProperty(a, rows);
+}
+
+/** Property ID tags with a QR code that opens the item's page; `items` = [{ a, url }]. Sized for 3 × 2 in. sticker labels. */
+export function idTagsHtml(items) {
+  const s = settings();
+  return `<div class="tags">${items.map(({ a, url }, i) => `<div class="tag"><div class="qr" data-qr="${esc(url)}" id="qr${i}"></div><div class="tinfo"><div class="xs">${esc(s.entityName)}</div><b>${esc(a.propertyNo || "—")}</b>
+    <div>${esc(a.description).slice(0, 80)}</div><div class="xs">${esc(a.holder?.name || "")}${a.holder?.office ? ` · ${esc(a.holder.office)}` : ""}</div><div class="xs">${esc(fundName(a.fund))} · ${shortDate(a.dateAcquired)}</div></div></div>`).join("")}</div>`;
 }
 
 /** JEV summary for a depreciation period. */

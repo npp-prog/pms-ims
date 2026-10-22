@@ -73,7 +73,18 @@ export function settingsPage(main) {
         ${f("inspector", "Inspection Officer / Committee", sg.inspector)}${f("inspectorPosition", "Position", sg.inspectorPosition)}
         ${f("approver", "RIS approved by", sg.approver)}${f("approverPosition", "Position", sg.approverPosition)}
         ${f("accountant", "Accounting (RSMI posted by)", sg.accountant)}${f("accountantPosition", "Position", sg.accountantPosition)}</div></fieldset>
-      <div class="spanall btn-row end"><button class="btn primary" type="submit">Save settings</button></div></form>`;
+      <div class="spanall btn-row end"><button class="btn primary" type="submit">Save settings</button></div></form>
+    <div class="card"><div class="card-head"><h3>Backup</h3></div><p class="small muted">Downloads everything this app holds — register, AIRs, PAR / ICS / RIS, transfers, depreciation, Trial Balances, CIP and SWA, repairs, users and settings — as one JSON file. Keep it somewhere safe; Firestore on the free plan has no automatic backups.</p>
+      <button class="btn" id="bk" type="button">Download full backup (JSON)</button></div>`;
+  $("#bk", main).onclick = () => {
+    const d = S.d, ts = new Date().toISOString();
+    const data = { app: "PMS-IMS", exportedAt: ts, exportedBy: S.account?.email || S.user.email, settings: S.settings,
+      assets: d.assets, airs: d.airs, issuances: d.docs, movements: d.movements, depreciation: d.depr, tbSnapshots: d.tb, cipProjects: d.cip, swa: d.swa, repairs: d.repairs, users: d.users };
+    const blob = new Blob([JSON.stringify(data, (k, v) => v && typeof v === "object" && typeof v.toDate === "function" ? v.toDate().toISOString() : v, 1)], { type: "application/json" });
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `pms-ims-backup-${ts.slice(0, 10)}.json`; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast(`Backup downloaded: ${d.assets.length} property records, ${d.airs.length} AIRs, ${d.docs.length} documents.`, "ok");
+  };
   $("#sf", main).onsubmit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.target).entries());

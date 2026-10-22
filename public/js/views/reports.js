@@ -1,6 +1,8 @@
 // Reports: RSMI, summary by account (for reconciliation with the Trial Balance), and AIR monitoring.
-import { S, fundAirs, fundDocs, docsOfAir } from "../state.js";
-import { $, $$, esc, money, num, qty, fmtDate, manilaToday, downloadCSV } from "../ui.js";
+import { S, fundAirs, fundDocs, docsOfAir, fundAssets } from "../state.js";
+import { $, $$, esc, money, num, qty, fmtDate, manilaToday, downloadCSV, renderTable } from "../ui.js";
+import { accumAsOf, impairmentAsOf, periodOf } from "../core/assets.js";
+import { printCards } from "./assetforms.js";
 import { fundName, accountName, CATEGORIES } from "../core/catalog.js";
 import { rsmi, postingSummary, AIR_STATUS, POSTING_STATE, round2 } from "../core/logic.js";
 import { printForm, rsmiHtml, tableReportHtml } from "../print.js";
@@ -9,8 +11,8 @@ const st = { tab: "rsmi", from: manilaToday().slice(0, 8) + "01", to: manilaToda
 
 export function reports(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Reports</h1><p>${esc(fundName(S.fund))}. Choose the period, then print or download.</p></div></div>
-    <div class="tabs">${[["rsmi", "RSMI"], ["accounts", "Summary by Account"], ["monitor", "AIR Monitoring"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
-    <div class="card"><div class="table-tools" data-nodirty>
+    <div class="tabs">${[["rsmi", "RSMI"], ["accounts", "Summary by Account"], ["monitor", "AIR Monitoring"], ["accountability", "Accountability"], ["disposed", "Disposed / Retired"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
+    <div class="card"><div class="table-tools" data-nodirty ${["accountability", "disposed"].includes(st.tab) ? "hidden" : ""}>
       <div><label>From</label><input type="date" id="from" value="${st.from}"></div><div><label>To</label><input type="date" id="to" value="${st.to}"></div>
       <div class="grow"></div><div class="btn-row" style="align-self:flex-end"><button class="btn" id="csv">Download CSV</button><button class="btn primary" id="pr">Print</button></div></div>
       <div id="out"></div></div>`;
@@ -19,12 +21,14 @@ export function reports(main) {
   $("#to", main).onchange = e => { st.to = e.target.value; draw(main); };
   draw(main);
 }
-reports.deps = ["r:airs", "r:docs", "fund"];
+reports.deps = ["r:airs", "r:docs", "r:assets", "r:depr", "r:movements", "r:repairs", "fund"];
 
 const inRange = d => (!st.from || d >= st.from) && (!st.to || d <= st.to);
 
 function draw(main) {
   const out = $("#out", main);
+  if (st.tab === "accountability") return accountability(out);
+  if (st.tab === "disposed") return disposed(out);
   if (st.tab === "rsmi") {
     const r = rsmi(S.d.docs, S.fund, st.from, st.to);
     out.innerHTML = `<p class="small muted">Report of Supplies and Materials Issued: every RIS line issued in the period, with the recapitulation by stock number.</p>
@@ -63,4 +67,78 @@ function draw(main) {
     $("#csv", main).onclick = () => downloadCSV(`AIR-Monitoring-${S.fund}-${st.from}-${st.to}`, headers, data);
     $("#pr", main).onclick = () => printForm(tableReportHtml("AIR MONITORING REPORT", `${fundName(S.fund)} · ${fmtDate(st.from)} to ${fmtDate(st.to)}`, headers, data.map(r => [r[0], fmtDate(r[1]), r[2], r[3], num(r[4]), r[5], r[6], r[7]])), "landscape");
   }
+}
+
+/* ---------------- property accountability (PMS reports) ---------------- */
+const per = () => periodOf(manilaToday());
+const carrying = a => a.itemType === "ppe" ? Math.round((a.cost - accumAsOf(a, per(), S.d.depr) - impairmentAsOf(a, per())) * 100) / 100 : a.cost;
+const STATUS_NAMES = { active: "In use", returned: "Returned to GSO", disposed: "Disposed" };
+
+function accountability(out) {
+  const rows = fundAssets().filter(a => a.status !== "cancelled");
+  out.innerHTML = `<p class="small muted">Property by accountable officer and office, as of today. Filter, then download, print the list, or print the Ledger / Property Cards of the items listed.</p>
+    <div id="at"></div><div class="btn-row end"><button class="btn sm" id="alc">Ledger Cards</button><button class="btn sm" id="apc">Property Cards</button><button class="btn sm" id="atg">ID tags</button><button class="btn sm" id="acsv">CSV</button><button class="btn sm primary" id="apr">Print list</button></div>`;
+  const officers = [...new Set(rows.map(a => a.holder?.name).filter(Boolean))].sort();
+  const offices = [...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort();
+  const t = renderTable($("#at", out), {
+    id: "accountability", rows, pageSize: 50, defaultSort: 0,
+    searchText: a => `${a.propertyNo} ${a.description} ${a.holder?.name} ${a.holder?.office} ${a.articleType}`,
+    filters: [
+      { key: "c", label: "Category", options: [["ppe", "PPE"], ["sx", "Semi-expendable"]], test: (a, v) => a.itemType === v },
+      { key: "t", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
+      { key: "o", label: "Officer", options: [["__none", "No officer"], ...officers], test: (a, v) => v === "__none" ? !a.holder?.name : a.holder?.name === v },
+      { key: "f", label: "Office", options: offices, test: (a, v) => a.holder?.office === v },
+      { key: "s", label: "Status", options: [["onhand", "On hand"], ...Object.entries(STATUS_NAMES)], value: "onhand", test: (a, v) => v === "onhand" ? a.status !== "disposed" : a.status === v }
+    ],
+    columns: [
+      { label: "Accountable officer", render: a => `${esc(a.holder?.name || "—")}<div class="xs muted">${esc(a.holder?.office || "")}</div>`, sort: a => `${a.holder?.name || "~"} ${a.propertyNo}` },
+      { label: "Property / Item No.", render: a => esc(a.propertyNo || "—"), sort: a => a.propertyNo || "" },
+      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</div>`, sort: a => a.description },
+      { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
+      { label: "Cost", render: a => num(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
+      { label: "Carrying", render: a => num(carrying(a)), sort: a => carrying(a), cls: "right", headCls: "right" },
+      { label: "Status", render: a => esc(STATUS_NAMES[a.status] || a.status) }
+    ],
+    empty: "No property matches.",
+    footer: l => `<tr><td colspan="4" class="right">Total (${l.length})</td><td class="right">${money(l.reduce((t, a) => t + a.cost, 0))}</td><td class="right">${money(l.reduce((t, a) => t + carrying(a), 0))}</td><td></td></tr>`,
+    onRow: a => { location.hash = `#/assets/${a.id}`; }
+  });
+  const headers = ["Accountable Officer", "Office", "Category", "Property/Item No.", "Description", "Account", "Date Acquired", "Qty", "Unit", "Cost", "Carrying Amount", "Status", "PAR/ICS"];
+  const data = () => t.rows().map(a => [a.holder?.name || "", a.holder?.office || "", a.itemType === "ppe" ? "PPE" : "Semi-expendable", a.propertyNo, a.description, a.accountCode, a.dateAcquired, a.qty, a.unit, a.cost, carrying(a), STATUS_NAMES[a.status] || a.status, a.parIcs?.number || a.source?.number || ""]);
+  $("#acsv", out).onclick = () => downloadCSV(`Accountability-${S.fund}-${manilaToday()}`, headers, data());
+  $("#apr", out).onclick = () => printForm(tableReportHtml("REPORT ON PROPERTY ACCOUNTABILITY", `${fundName(S.fund)} · as of ${fmtDate(manilaToday())}`,
+    ["Accountable Officer", "Office", "Property No.", "Description", "Acquired", "Cost", "Carrying", "Status"], data().map(r => [r[0], r[1], r[3], r[4], fmtDate(r[6]), num(r[9]), num(r[10]), r[11]]),
+    ["", "", "", `TOTAL (${t.rows().length})`, "", num(t.rows().reduce((x, a) => x + a.cost, 0)), num(t.rows().reduce((x, a) => x + carrying(a), 0)), ""]), "landscape");
+  $("#alc", out).onclick = () => printCards(t.rows(), "ledger");
+  $("#apc", out).onclick = () => printCards(t.rows(), "property");
+  $("#atg", out).onclick = () => printCards(t.rows(), "tags");
+}
+
+function disposed(out) {
+  const rows = fundAssets().filter(a => a.status === "disposed");
+  const carryingAt = a => { const m = S.d.movements.find(x => x.id === a.disposal?.movementId); const l = m?.lines.find(x => x.assetId === a.id); return l ? l.carrying : null; };
+  out.innerHTML = `<p class="small muted">Items disposed of, donated or otherwise derecognized, with their disposal reference. Accounting can reactivate an item disposed of by mistake from its page.</p><div id="dt"></div>
+    <div class="btn-row end"><button class="btn sm" id="dcsv">CSV</button><button class="btn sm primary" id="dpr">Print list</button></div>`;
+  const t = renderTable($("#dt", out), {
+    id: "disposed", rows, pageSize: 50, defaultSort: 0, defaultDir: -1,
+    searchText: a => `${a.propertyNo} ${a.description} ${a.disposal?.reason} ${a.disposal?.ref} ${a.holder?.name}`,
+    filters: [{ key: "c", label: "Category", options: [["ppe", "PPE"], ["sx", "Semi-expendable"]], test: (a, v) => a.itemType === v }],
+    columns: [
+      { label: "Disposed", render: a => fmtDate(a.disposal?.date), sort: a => a.disposal?.date || "" },
+      { label: "Property / Item No.", render: a => esc(a.propertyNo || "—"), sort: a => a.propertyNo || "" },
+      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${esc(a.accountCode)}</div>`, sort: a => a.description },
+      { label: "Mode / reference", render: a => `${esc(a.disposal?.reason || "—")}<div class="xs muted">${esc(a.disposal?.ref || "")}</div>` },
+      { label: "Last officer", render: a => esc(a.holder?.name || "—") },
+      { label: "Cost", render: a => num(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
+      { label: "Carrying at disposal", render: a => carryingAt(a) == null ? "—" : num(carryingAt(a)), cls: "right", headCls: "right" }
+    ],
+    empty: "Nothing disposed of in this fund.",
+    footer: l => `<tr><td colspan="5" class="right">Total (${l.length})</td><td class="right">${money(l.reduce((t, a) => t + a.cost, 0))}</td><td></td></tr>`,
+    onRow: a => { location.hash = `#/assets/${a.id}`; }
+  });
+  const headers = ["Date Disposed", "Property/Item No.", "Description", "Account", "Category", "Mode", "Reference", "Last Accountable Officer", "Cost", "Carrying Amount at Disposal"];
+  const data = () => t.rows().map(a => [a.disposal?.date || "", a.propertyNo, a.description, a.accountCode, a.itemType === "ppe" ? "PPE" : "Semi-expendable", a.disposal?.reason || "", a.disposal?.ref || "", a.holder?.name || "", a.cost, carryingAt(a) ?? ""]);
+  $("#dcsv", out).onclick = () => downloadCSV(`Disposed-${S.fund}-${manilaToday()}`, headers, data());
+  $("#dpr", out).onclick = () => printForm(tableReportHtml("DISPOSED / RETIRED PROPERTY", `${fundName(S.fund)} · as of ${fmtDate(manilaToday())}`,
+    ["Disposed", "Property No.", "Description", "Mode", "Reference", "Last Officer", "Cost", "Carrying"], data().map(r => [fmtDate(r[0]), r[1], r[2], r[5], r[6], r[7], num(r[8]), r[9] === "" ? "" : num(r[9])])), "landscape");
 }

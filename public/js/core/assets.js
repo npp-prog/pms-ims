@@ -39,7 +39,46 @@ export function accumAsOf(a, period, runs) {
   for (const r of runs || []) if (r.period <= period && (!bp || r.period > bp) && r.amounts?.[a.id]) sum += r.amounts[a.id];
   return round2(sum);
 }
-export const carryingAmount = (a, period, runs) => round2((Number(a.cost) || 0) - accumAsOf(a, period, runs));
+export const carryingAmount = (a, period, runs) => round2(costAsOf(a, period) - accumAsOf(a, period, runs) - impairmentAsOf(a, period));
+
+/* ---------------- changes that take effect from a date (PMS rules) ---------------- */
+const byDate = list => [...(list || [])].sort((x, y) => String(x.date).localeCompare(String(y.date)));
+/** Account in effect for `period`: an account reclassification applies from the month of its date. */
+export function accountAsOf(a, period) {
+  const ch = byDate(a.accountChanges);
+  if (!ch.length) return a.accountCode;
+  let code = ch[0].oldCode;
+  ch.forEach(c => { if (periodOf(c.date) <= period) code = c.newCode; });
+  return code;
+}
+/** Fund in effect for `period` (a fund transfer applies from the month of its date). */
+export function fundAsOf(a, period) {
+  const ch = byDate(a.fundChanges);
+  if (!ch.length) return a.fund;
+  let fund = ch[0].oldFund;
+  ch.forEach(c => { if (periodOf(c.date) <= period) fund = c.newFund; });
+  return fund;
+}
+/** Cost in effect at the end of `period`: a revaluation (or an addition from CIP) applies from its date. */
+export function costAsOf(a, period) {
+  const rv = byDate(a.revaluations);
+  if (!rv.length) return Number(a.cost) || 0;
+  let cost = Number(rv[0].oldCost) || 0;
+  rv.forEach(r => { if (periodOf(r.date) <= period) cost = Number(r.newCost) || 0; });
+  return cost;
+}
+/** Accumulated impairment losses recorded up to the end of `period`. */
+export const impairmentAsOf = (a, period) => round2((a.adjustments || []).filter(e => e.type === "impairment" && (!period || periodOf(e.date) <= period)).reduce((t, e) => t + Math.abs(Number(e.amount) || 0), 0));
+/** Semi-expendable adjusted cost (PMS): cost less any prior write-down, plus signed adjustments, less impairments. */
+export function adjustedCostAsOf(a, period) {
+  let t = costAsOf(a, period) - (Number(a.priorAdjustment) || 0);
+  for (const e of a.adjustments || []) {
+    if (period && periodOf(e.date) > period) continue;
+    if (e.type === "adjustment") t += Number(e.amount) || 0;
+    else if (e.type === "impairment") t -= Math.abs(Number(e.amount) || 0);
+  }
+  return round2(t);
+}
 
 /** Depreciation for `period`: starts the month after acquisition (or after the imported baseline),
  *  stops the month the asset is disposed, and never goes below the residual value. */
@@ -49,7 +88,7 @@ export function amountFor(a, period, runs) {
   if (a.dateAcquired && period <= periodOf(a.dateAcquired)) return 0;
   const rate = monthlyRate(a);
   if (rate <= 0) return 0;
-  const remaining = round2((Number(a.cost) || 0) - (Number(a.residualValue) || 0) - accumAsOf(a, addMonths(period, -1), runs));
+  const remaining = round2(costAsOf(a, period) - (Number(a.residualValue) || 0) - accumAsOf(a, addMonths(period, -1), runs) - impairmentAsOf(a, period));
   return remaining <= 0.004 ? 0 : round2(Math.min(rate, remaining));
 }
 
@@ -57,9 +96,9 @@ export function amountFor(a, period, runs) {
 export function depreciationFor(assets, fund, period, runs) {
   const rows = [];
   for (const a of assets || []) {
-    if (a.fund !== fund) continue;
+    if (fundAsOf(a, period) !== fund) continue;
     const amt = amountFor(a, period, runs);
-    if (amt > 0) rows.push({ id: a.id, propertyNo: a.propertyNo, description: a.description, accountCode: a.accountCode, amount: amt });
+    if (amt > 0) rows.push({ id: a.id, propertyNo: a.propertyNo, description: a.description, accountCode: accountAsOf(a, period), amount: amt });
   }
   const byAccount = new Map();
   for (const r of rows) {
@@ -131,9 +170,9 @@ export function reconcile(assets, runs, stock, tb, fund, period, cipProjects = [
   const reg = new Map();
   const get = code => { if (!reg.has(code)) reg.set(code, { code, cost: 0, ad: 0 }); return reg.get(code); };
   for (const a of assets || []) {
-    if (a.fund !== fund || !ownedAt(a, period)) continue;
-    const r = get(a.accountCode);
-    r.cost = round2(r.cost + (Number(a.cost) || 0));
+    if (fundAsOf(a, period) !== fund || !ownedAt(a, period)) continue;
+    const r = get(accountAsOf(a, period));
+    r.cost = round2(r.cost + costAsOf(a, period));
     if (a.itemType === "ppe") r.ad = round2(r.ad + accumAsOf(a, period, runs));
   }
   for (const [code, v] of Object.entries(stock || {})) get(code).cost = round2(get(code).cost + v);
@@ -321,3 +360,33 @@ export function normalizeCip(rows, opts) {
   });
   return { projects: [...byKey.values()], errors, skipped };
 }
+
+/* ---------------- depreciation gate (PMS) ---------------- */
+/** Before a period is posted, the Trial Balance of the month before must tie out on PPE cost (not accumulated
+ *  depreciation, which this posting changes; not semi-expendable or inventory). */
+export function costGate(assets, runs, tbList, fund, period, cipProjects = []) {
+  const required = addMonths(period, -1);
+  const tb = (tbList || []).find(t => t.fund === fund && t.period === required);
+  if (!tb) return { ok: false, reason: "no-tb", required, flagged: [] };
+  const rows = reconcile(assets, runs, {}, tb.accounts, fund, required, cipProjects).filter(r => ppeAccount(r.code) && r.regCost);
+  const flagged = rows.filter(r => r.tbCost == null || Math.abs(r.varCost) >= 1);
+  return { ok: !flagged.length, reason: flagged.length ? "variance" : "", required, flagged };
+}
+
+/* ---------------- manual items, revaluation and reclassification (PMS register) ---------------- */
+/** Checks a manually added or edited register item; returns the first problem, or "". */
+export function checkManualAsset(f) {
+  if (!FUNDS.some(x => x.code === f.fund)) return "Choose the fund.";
+  if (!["ppe", "sx"].includes(f.itemType)) return "Choose PPE or semi-expendable.";
+  if (!String(f.description || "").trim()) return "Enter the description.";
+  if (f.itemType === "ppe" && !ppeAccount(f.accountCode)) return "Choose a PPE account.";
+  if (f.itemType === "sx" && f.accountCode && !isSxAccount(f.accountCode)) return "Choose a semi-expendable account.";
+  if (!(Number(f.qty) > 0)) return "Enter the quantity.";
+  if (!(Number(f.cost) >= 0)) return "Enter the cost.";
+  if (!f.dateAcquired) return "Enter the date acquired.";
+  if (f.depBaseline && f.depBaseline.amount > 0 && !isPeriod(f.depBaseline.period)) return "Enter the month the opening accumulated depreciation is as of.";
+  if (f.depBaseline && f.depBaseline.amount > (Number(f.cost) || 0)) return "Opening accumulated depreciation can't be more than the cost.";
+  return "";
+}
+/** The item's cost and date can't change once depreciation has been posted for it — use Revalue instead. */
+export const hasPostedDepreciation = (a, runs) => (runs || []).some(r => r.amounts?.[a.id]);

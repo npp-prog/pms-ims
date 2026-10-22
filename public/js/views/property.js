@@ -1,12 +1,14 @@
 // Property register: PPE and semi-expendable records, their movements (PTR / ITR, PRS / RRSP, disposals)
 // and each record's property card with its depreciation.
-import { S, can, settings, fundAssets, fundRuns, assetById, activeUsers } from "../state.js";
+import { S, can, settings, fundAssets, assetById, activeUsers } from "../state.js";
 import { officeSelect, $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, accountName, FUNDS } from "../core/catalog.js";
-import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType } from "../core/assets.js";
+import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType, impairmentAsOf, adjustedCostAsOf } from "../core/assets.js";
 import { round2 } from "../core/logic.js";
-import { saveMovement, cancelMovement, updateAsset } from "../data.js";
-import { printForm, movementHtml, propertyCardHtml, tableReportHtml } from "../print.js";
+import { saveMovement, cancelMovement, editMovementDetails } from "../data.js";
+import { printForm, movementHtml, tableReportHtml } from "../print.js";
+import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, registerIssueModal, printCards, activityLog } from "./assetforms.js";
+import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES } from "../core/cards.js";
 import { repairsOf, printHistory } from "./repairs.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
@@ -19,13 +21,15 @@ const accum = (a, runs) => a.itemType === "ppe" ? accumAsOf(a, nowPeriod(), runs
 
 /* ---------------- registries ---------------- */
 function registry(main, itemType) {
-  const ppe = itemType === "ppe", runs = fundRuns();
+  const ppe = itemType === "ppe", runs = S.d.depr;
   const rows = fundAssets().filter(a => a.itemType === itemType && a.status !== "cancelled");
   const title = ppe ? "Property, Plant & Equipment" : "Semi-Expendable Property";
   const canMove = can("issue");
   main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every ${ppe ? "PPE" : "semi-expendable"} record in the ${esc(fundName(S.fund))}: issued on a ${ppe ? "PAR" : "ICS"} or imported from PMS.${canMove ? " Tick items held by one person to transfer, return or dispose of them." : ""}</p></div>
-    <div class="btn-row">${canMove ? `<button class="btn" data-mv="transfer" disabled>Transfer (${ppe ? "PTR" : "ITR"})</button><button class="btn" data-mv="return" disabled>Return (${ppe ? "PRS" : "RRSP"})</button><button class="btn danger" data-mv="dispose" disabled>Dispose</button>` : ""}
-      <button class="btn" id="csv">CSV</button><button class="btn" id="pr">Print</button></div></div><div class="card" id="t"></div>`;
+    <div class="btn-row">${can("issue") || can("post") ? `<button class="btn primary" id="add">Add item</button>` : ""}
+      ${canMove ? `<button class="btn" data-mv="transfer" disabled>Transfer (${ppe ? "PTR" : "ITR"})</button><button class="btn" data-mv="return" disabled>Return (${ppe ? "PRS" : "RRSP"})</button><button class="btn danger" data-mv="dispose" disabled>Dispose</button><button class="btn" data-mv="issue" disabled title="For register items without a ${ppe ? "PAR" : "ICS"}">Issue ${ppe ? "PAR" : "ICS"}</button>` : ""}</div></div>
+    <div class="card" id="t"></div>
+    <div class="btn-row end"><span class="small muted" style="align-self:center">Print the items listed (filters apply):</span><button class="btn sm" id="lc">Ledger Cards</button><button class="btn sm" id="pc">Property Cards</button><button class="btn sm" id="tg">ID tags (QR)</button><button class="btn sm" id="csv">CSV</button><button class="btn sm" id="pr">Register</button></div>`;
   const sel = new Set();
   const t = renderTable($("#t", main), {
     id: "assets-" + itemType, rows, pageSize: 50, defaultSort: 1,
@@ -33,11 +37,13 @@ function registry(main, itemType) {
     searchPlaceholder: "Property no., item, officer, office, PAR/ICS",
     filters: [
       { key: "s", label: "Status", options: [["onhand", "On hand"], ["active", "In use"], ["returned", "Returned to GSO"], ["disposed", "Disposed"]], value: "onhand", test: (a, v) => v === "onhand" ? ["active", "returned"].includes(a.status) : a.status === v },
-      { key: "a", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v }
+      { key: "a", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
+      { key: "o", label: "Office", options: [...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort(), test: (a, v) => a.holder?.office === v },
+      { key: "p", label: ppe ? "PAR" : "ICS", options: [["with", `With ${ppe ? "PAR" : "ICS"}`], ["without", `No ${ppe ? "PAR" : "ICS"} yet`]], test: (a, v) => (v === "with") === !!(a.parIcs?.number || ["par", "ics"].includes(a.source?.kind)) }
     ],
     columns: [
       ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),
-      { label: ppe ? "Property No." : "Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b><div class="xs muted">${esc(a.source?.kind === "import" ? "Imported" : `${a.source?.kind?.toUpperCase()} ${a.source?.number}`)}</div>`, sort: a => a.propertyNo || "" },
+      { label: ppe ? "Property No." : "Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b><div class="xs muted">${esc(sourceText(a))}</div>`, sort: a => a.propertyNo || "" },
       { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</div>`, sort: a => a.description },
       { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
@@ -52,10 +58,14 @@ function registry(main, itemType) {
   });
   const sync = () => $$("[data-mv]", main).forEach(b => { b.disabled = !sel.size; });
   $("#t", main).addEventListener("click", e => { const c = e.target.closest("[data-sel]"); if (!c) return; c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); sync(); });
-  $$("[data-mv]", main).forEach(b => b.onclick = () => movementModal(b.dataset.mv, [...sel].map(assetById).filter(Boolean)));
+  $$("[data-mv]", main).forEach(b => b.onclick = () => { const list = [...sel].map(assetById).filter(Boolean); b.dataset.mv === "issue" ? registerIssueModal(list) : movementModal(b.dataset.mv, list); });
+  $("#add", main) && ($("#add", main).onclick = () => assetFormModal(null, { itemType }));
+  $("#lc", main).onclick = () => printCards(t.rows(), "ledger");
+  $("#pc", main).onclick = () => printCards(t.rows(), "property");
+  $("#tg", main).onclick = () => printCards(t.rows(), "tags");
   const headers = ["Fund", ppe ? "Property No." : "Item No.", "Description", "Account", "Date Acquired", "Qty", "Unit", "Cost", ...(ppe ? ["Residual", "Useful Life", "Accum. Depr.", "Carrying Amount"] : []), "Accountable Officer", "Office", "Status", "Source"];
   $("#csv", main).onclick = () => downloadCSV(`${ppe ? "PPE" : "SemiExpendable"}-${S.fund}-${today()}`, headers, t.rows().map(a => [a.fund, a.propertyNo, a.description, a.accountCode, a.dateAcquired, a.qty, a.unit, a.cost,
-    ...(ppe ? [a.residualValue, a.usefulLifeYears, accum(a, runs), round2(a.cost - accum(a, runs))] : []), a.holder?.name, a.holder?.office, STATUS[a.status]?.[0], a.source?.kind === "import" ? "Imported" : `${a.source?.kind} ${a.source?.number}`]));
+    ...(ppe ? [a.residualValue, a.usefulLifeYears, accum(a, runs), round2(a.cost - accum(a, runs))] : []), a.holder?.name, a.holder?.office, STATUS[a.status]?.[0], sourceText(a)]));
   $("#pr", main).onclick = () => printForm(tableReportHtml(ppe ? "REGISTER OF PROPERTY, PLANT AND EQUIPMENT" : "REGISTRY OF SEMI-EXPENDABLE PROPERTY ISSUED", `${fundName(S.fund)} · as of ${fmtDate(today())}`,
     [ppe ? "Property No." : "Item No.", "Description", "Account", "Acquired", "Qty", "Cost", ...(ppe ? ["Accum. Depr.", "Carrying"] : []), "Accountable Officer"],
     t.rows().map(a => [a.propertyNo, a.description, a.accountCode, fmtDate(a.dateAcquired), `${qty(a.qty)} ${a.unit}`, num(a.cost), ...(ppe ? [num(accum(a, runs)), num(a.cost - accum(a, runs))] : []), a.holder?.name || ""])), "landscape");
@@ -81,7 +91,7 @@ export function mine(main) {
       { key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v }],
     columns: [
       { label: "Property / Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>`, sort: a => a.propertyNo || "" },
-      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(a.source?.kind === "import" ? "Imported" : `${a.source?.kind?.toUpperCase() || ""} ${a.source?.number || ""}`)}</div>`, sort: a => a.description },
+      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(sourceText(a))}</div>`, sort: a => a.description },
       { label: "Accountable officer", render: a => isMine(a) ? `<b>You</b>` : esc(a.holder?.name || "—"), sort: a => isMine(a) ? "" : a.holder?.name || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
       { label: "Cost", render: a => money(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
@@ -92,7 +102,7 @@ export function mine(main) {
     footer: l => `<tr><td colspan="4" class="right">Total</td><td class="right">${money(l.reduce((t, a) => t + a.cost, 0))}</td><td colspan="2"></td></tr>`
   });
   $("#t", main).addEventListener("click", e => {
-    const b = e.target.closest("[data-card]"); if (b) printForm(propertyCardHtml(rows.find(a => a.id === b.dataset.card), []));
+    const b = e.target.closest("[data-card]"); if (b) printCards([rows.find(a => a.id === b.dataset.card)], "property");
     const h = e.target.closest("[data-hor]"); if (h) printHistory(rows.find(a => a.id === h.dataset.hor));
   });
 }
@@ -112,13 +122,23 @@ function deprHistory(a, runs) {
 export function detail(main, [id]) {
   const a = assetById(id);
   if (!a) { main.innerHTML = `<div class="notice warn">Record not found.</div>`; return; }
-  const ppe = a.itemType === "ppe", runs = S.d.depr.filter(r => r.fund === a.fund);
+  const ppe = a.itemType === "ppe", runs = S.d.depr, per = nowPeriod();
   const dh = ppe ? deprHistory(a, runs) : [];
-  const ad = ppe ? accumAsOf(a, nowPeriod(), runs) : 0;
-  const onHand = ["active", "returned"].includes(a.status);
+  const ad = ppe ? accumAsOf(a, per, runs) : 0, imp = impairmentAsOf(a, per);
+  const onHand = ["active", "returned"].includes(a.status), acct = can("post"), gso = can("issue");
+  const g = specialGroup(a.accountCode), log = activityLog(a);
+  const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>` : "";
   main.innerHTML = `<div class="page-head"><div><h1>${esc(a.description)}</h1><p>${ppe ? "Property No." : "Item No."} ${esc(a.propertyNo || "—")} · ${esc(fundName(a.fund))} · ${ppe ? "PPE" : "Semi-expendable"}</p></div><div class="btn-row">${statusBadge(a.status)}</div></div>
+    <div class="card"><div class="btn-row">
+      <button class="btn sm" id="lc">Print Ledger Card</button><button class="btn sm" id="pc">Print Property Card</button><button class="btn sm" id="tag">ID tag (QR)</button>
+      ${(gso || acct) && a.status !== "cancelled" ? `<button class="btn sm" id="edit">Correct record</button>` : ""}
+      ${gso && onHand ? `<button class="btn sm" data-mv="transfer">Transfer</button>${a.status === "active" ? `<button class="btn sm" data-mv="return">Return to GSO</button>` : ""}<button class="btn sm danger" data-mv="dispose">Dispose</button>
+        ${!a.parIcs?.number && !["par", "ics"].includes(a.source?.kind) ? `<button class="btn sm" id="iss">Issue ${ppe ? "PAR" : "ICS"}</button>` : ""}` : ""}
+      ${acct && a.status !== "cancelled" ? `${ppe && a.status !== "disposed" ? `<button class="btn sm" id="rv">Revalue</button>` : ""}<button class="btn sm" id="le">Ledger entry</button><button class="btn sm" id="rc">Reclassify</button>${a.status === "disposed" ? `<button class="btn sm" id="ra">Reactivate</button>` : ""}` : ""}
+    </div></div>
     <div class="split"><div>
-      <div class="card"><h3>History</h3><ul class="timeline">${(a.history || []).slice().reverse().map(h => `<li class="done"><div>${esc(h.action)}${h.note ? ` — <i>${esc(h.note)}</i>` : ""}</div><div class="when">${fmtDateTime(h.at)} · ${esc(h.by)}</div></li>`).join("")}</ul></div>
+      ${log.length ? `<div class="card"><h3>Ledger changes</h3><div class="table-wrap"><table><thead><tr><th>Effective</th><th>Change</th><th>By</th></tr></thead>
+        <tbody>${log.map(([d, t, by]) => `<tr><td>${fmtDate(d)}</td><td>${esc(t)}</td><td class="small">${esc(by || "")}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
       ${ppe ? `<div class="card"><div class="card-head"><h3>Depreciation</h3><span class="small muted">${isDepreciable(a) ? `${money(monthlyRate(a))} a month` : "Not depreciated"}</span></div>
         ${dh.length ? `<div class="table-wrap"><table><thead><tr><th>Period</th><th>JEV No.</th><th class="right">Depreciation</th><th class="right">Accumulated</th><th class="right">Carrying amount</th></tr></thead>
         <tbody>${dh.map(r => `<tr><td>${esc(r.period)}</td><td>${esc(r.jevNo)}</td><td class="right">${num(r.amount)}</td><td class="right">${num(r.accum)}</td><td class="right">${num(r.carrying)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">No depreciation posted yet.</p>`}</div>` : ""}
@@ -126,61 +146,60 @@ export function detail(main, [id]) {
         ${repairsOf(a.id).length ? `<div class="table-wrap"><table><thead><tr><th>JO date</th><th>Job Order No.</th><th>Nature / supplier</th><th class="right">Cost</th><th>Status</th></tr></thead>
         <tbody>${repairsOf(a.id).sort((x, y) => String(y.jobOrderDate).localeCompare(String(x.jobOrderDate))).map(r => `<tr class="click" onclick="location.hash='#/repairs/${esc(r.id)}'"><td>${fmtDate(r.jobOrderDate)}</td><td>${esc(r.jobOrderNo)}</td><td>${esc(r.nature || "—")}<div class="xs muted">${esc(r.supplier)}</div></td><td class="right">${num(r.totalCost)}</td><td>${esc(r.status)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">No repairs recorded.</p>`}
         <div class="btn-row" style="margin-top:.6rem">${onHand ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record a repair</a>` : ""}<button class="btn sm" id="hor">Print History of Repair</button></div></div>
+      <div class="card"><h3>History</h3><ul class="timeline">${(a.history || []).slice().reverse().map(h => `<li class="done"><div>${esc(h.action)}${h.note ? ` — <i>${esc(h.note)}</i>` : ""}</div><div class="when">${fmtDateTime(h.at)} · ${esc(h.by)}</div></li>`).join("")}</ul></div>
     </div><div>
       <div class="card"><h3>Details</h3><dl class="kv">
         <dt>${ppe ? "Property No." : "Item No."}</dt><dd>${esc(a.propertyNo || "—")}</dd>
         <dt>Account</dt><dd>${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</dd>
+        ${a.articleType ? `<dt>Article / type</dt><dd>${esc(a.articleType)}</dd>` : ""}
         ${a.specs ? `<dt>Specifications</dt><dd>${esc(a.specs)}</dd>` : ""}
         <dt>Quantity</dt><dd>${qty(a.qty)} ${esc(a.unit)}</dd>
-        <dt>Cost</dt><dd>${money(a.cost)}</dd>
+        <dt>Cost</dt><dd>${money(a.cost)}${(a.revaluations || []).length ? ` <span class="xs muted">(revalued)</span>` : ""}</dd>
         <dt>Date acquired</dt><dd>${fmtDate(a.dateAcquired)}</dd>
-        ${ppe ? `<dt>Useful life</dt><dd>${esc(a.usefulLifeYears || 0)} years</dd><dt>Residual value</dt><dd>${money(a.residualValue)}</dd><dt>Accumulated depr.</dt><dd>${money(ad)}</dd><dt>Carrying amount</dt><dd><b>${money(a.cost - ad)}</b></dd>` : `<dt>Est. useful life</dt><dd>${esc(a.estimatedLife || "—")}</dd>`}
+        ${ppe ? `<dt>Useful life</dt><dd>${esc(a.usefulLifeYears || 0)} years</dd><dt>Residual value</dt><dd>${money(a.residualValue)}</dd><dt>Accumulated depr.</dt><dd>${money(ad)}</dd>${imp ? `<dt>Impairment</dt><dd>${money(imp)}</dd>` : ""}<dt>Carrying amount</dt><dd><b>${money(a.cost - ad - imp)}</b></dd>`
+          : `<dt>Est. useful life</dt><dd>${esc(a.estimatedLife || "—")}</dd>${(a.adjustments || []).length || a.priorAdjustment ? `<dt>Adjusted cost</dt><dd><b>${money(adjustedCostAsOf(a, per))}</b></dd>` : ""}`}
         <dt>Accountable officer</dt><dd>${esc(a.holder?.name || "—")}${a.holder?.office ? `<div class="xs muted">${esc(a.holder.office)}</div>` : ""}</dd>
         <dt>Location</dt><dd>${esc(a.location || "—")}</dd><dt>Condition</dt><dd>${esc(a.condition || "—")}</dd>
-        <dt>Source</dt><dd>${a.source?.kind === "import" ? "Imported from PMS" : `<a href="#/issuances/${esc(a.source?.docId)}">${esc(a.source?.kind?.toUpperCase())} ${esc(a.source?.number)}</a> · <a href="#/airs/${esc(a.source?.airId)}">AIR ${esc(a.source?.airNo)}</a>`}</dd>
+        <dt>Source</dt><dd>${sourceHtml(a)}</dd>
+        ${a.parIcs?.number ? `<dt>${esc(a.parIcs.docType.toUpperCase())}</dt><dd><a href="#/issuances/${esc(a.parIcs.docId)}">${esc(a.parIcs.number)}</a></dd>` : ""}
+        ${a.acquisition?.type && a.acquisition.type !== "purchased" ? `<dt>Acquired by</dt><dd>${esc((ACQUISITION_TYPES.find(x => x[0] === a.acquisition.type) || [])[1] || a.acquisition.type)}${a.acquisition.source ? ` — ${esc(a.acquisition.source)}` : ""}</dd>` : ""}
+        ${a.dvNo ? `<dt>DV No.</dt><dd>${esc(a.dvNo)}</dd>` : ""}
+        ${a.remarks ? `<dt>Remarks</dt><dd>${esc(a.remarks)}</dd>` : ""}
+        ${a.photoUrl || a.docUrl ? `<dt>Files</dt><dd>${[link(a.photoUrl, "Photo"), link(a.docUrl, "Document")].filter(Boolean).join(" · ")}</dd>` : ""}
+        ${g ? (SPECIAL_FIELDS[g] || []).filter(([k]) => a.special?.[k]).map(([k, l]) => `<dt>${esc(l)}</dt><dd>${esc(a.special[k])}</dd>`).join("") : ""}
+        ${g && COMPONENTS[g] && a.components ? COMPONENTS[g].filter(([k]) => a.components[k] != null).map(([k, l]) => `<dt>${esc(l)}</dt><dd>${money(a.components[k])}</dd>`).join("") : ""}
         ${a.disposal ? `<dt>Disposal</dt><dd>${esc(a.disposal.reason)}${a.disposal.date ? ` · ${fmtDate(a.disposal.date)}` : ""}${a.disposal.ref ? ` · ${esc(a.disposal.ref)}` : ""}</dd>` : ""}
-      </dl>
-      <div class="btn-row" style="margin-top:1rem">
-        <button class="btn sm" id="card">Print ${ppe ? "Property Card" : "SP Card"}</button>
-        ${(can("issue") || can("post")) && a.status !== "cancelled" ? `<button class="btn sm" id="edit">Correct record</button>` : ""}
-        ${can("issue") && onHand ? `<button class="btn sm" data-mv="transfer">Transfer</button>${a.status === "active" ? `<button class="btn sm" data-mv="return">Return to GSO</button>` : ""}<button class="btn sm danger" data-mv="dispose">Dispose</button>` : ""}
-      </div></div>
+      </dl></div>
     </div></div>`;
-  $("#card", main).onclick = () => printForm(propertyCardHtml(a, dh));
+  $("#lc", main).onclick = () => printCards([a], "ledger");
+  $("#pc", main).onclick = () => printCards([a], "property");
+  $("#tag", main).onclick = () => printCards([a], "tags");
   $("#hor", main).onclick = () => printHistory(a);
   $$("[data-mv]", main).forEach(b => b.onclick = () => movementModal(b.dataset.mv, [a]));
-  $("#edit", main) && ($("#edit", main).onclick = () => editModal(a));
+  const on = (sel, fn) => { const b = $(sel, main); if (b) b.onclick = fn; };
+  on("#edit", () => assetFormModal(a));
+  on("#iss", () => registerIssueModal([a]));
+  on("#rv", () => revalueModal(a));
+  on("#le", () => ledgerEntryModal(a));
+  on("#rc", () => reclassModal(a));
+  on("#ra", () => reactivateModal(a));
 }
-detail.deps = ["r:assets", "r:depr", "r:repairs"];
+detail.deps = ["r:assets", "r:depr", "r:repairs", "r:movements"];
 
-function editModal(a) {
-  const ppe = a.itemType === "ppe", gso = can("issue");
-  const m = openModal(`<h2>Correct record</h2><p class="muted small">Cost, account, fund and date acquired can't be changed here; they come from the PAR/ICS or the import.</p>
-    <form class="grid g2" id="ef">
-      <div><label>${ppe ? "Property No." : "Item No."}</label><input name="propertyNo" value="${esc(a.propertyNo || "")}"></div>
-      ${gso ? `<div><label>Office</label>${officeSelect("office", a.holder?.office || "", settings().offices, { blank: "No office" })}<div class="xs muted">The office's End-Users can see this item.</div></div>
-      <div><label>Location</label><input name="location" value="${esc(a.location || "")}"></div>
-      <div class="spanall"><label>Description</label><input name="description" value="${esc(a.description)}"></div>` : ""}
-      <div><label>Condition</label><select name="condition">${opts(["Serviceable", "Needs repair", "Unserviceable"], a.condition)}</select></div>
-      ${ppe ? `<div><label>Useful life (years)</label><input type="number" min="0" step="1" name="usefulLifeYears" value="${esc(a.usefulLifeYears || 0)}"></div>
-        <div><label>Residual value (₱)</label><input type="number" min="0" step="0.01" name="residualValue" value="${esc(a.residualValue || 0)}"></div>` : gso ? `<div><label>Estimated useful life</label><input name="estimatedLife" value="${esc(a.estimatedLife || "")}"></div>` : ""}
-      <div class="spanall"><label class="req">Reason for the correction</label><input name="note"></div>
-      <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { size: "narrow" });
-  $("[data-x]", m).onclick = () => m.close();
-  $("#ef", m).onsubmit = e => {
-    e.preventDefault();
-    const v = Object.fromEntries(new FormData(e.target).entries());
-    if (!v.note.trim()) return toast("Enter the reason for the correction.", "err");
-    const { note, ...patch } = v;
-    busy(e.submitter, async () => { await updateAsset(a.id, patch, note); m.close(); }, "Record updated.").catch(() => {});
-  };
+function sourceHtml(a) {
+  const k = a.source?.kind;
+  if (k === "import") return "Imported from PMS";
+  if (k === "manual") return `Added to the register${a.source.by ? ` by ${esc(a.source.by)}` : ""}`;
+  if (k === "cip") return `<a href="#/cip/${esc(a.source.docId)}">CIP ${esc(a.source.number)}</a>`;
+  return `<a href="#/issuances/${esc(a.source?.docId)}">${esc(k?.toUpperCase())} ${esc(a.source?.number)}</a> · <a href="#/airs/${esc(a.source?.airId)}">AIR ${esc(a.source?.airNo)}</a>`;
 }
+const sourceText = a => ({ import: "Imported", manual: "Added to register", cip: `CIP ${a.source?.number || ""}` }[a.source?.kind] || `${a.source?.kind?.toUpperCase() || ""} ${a.source?.number || ""}`);
 
 /* ---------------- transfer / return / dispose ---------------- */
 function movementModal(kind, assets) {
   const err = checkMovement(assets, kind);
   if (err) return toast(err, "err");
-  const s = settings(), sx = assets[0].itemType === "sx", runs = S.d.depr.filter(r => r.fund === assets[0].fund);
+  const s = settings(), sx = assets[0].itemType === "sx", runs = S.d.depr;
   const dt = movementDocType(kind, assets[0].itemType);
   const title = kind === "transfer" ? (sx ? "Inventory Transfer Report (ITR)" : "Property Transfer Report (PTR)") : kind === "return" ? (sx ? "Receipt of Returned Semi-Expendable Property (RRSP)" : "Property Return Slip (PRS)") : "Dispose of property";
   const carrying = a => a.itemType === "ppe" ? round2(a.cost - accumAsOf(a, nowPeriod(), runs)) : a.cost;
@@ -252,7 +271,7 @@ export function movement(main, [id]) {
   const x = S.d.movements.find(m => m.id === id);
   if (!x) { main.innerHTML = `<div class="notice warn">Document not found.</div>`; return; }
   main.innerHTML = `<div class="page-head"><div><h1>${esc(DOC_NAMES[x.docType])} ${esc(x.number)}</h1><p>${fmtDate(x.date)} · ${esc(fundName(x.fund))}</p></div>
-      <div class="btn-row"><button class="btn primary" id="print">Print</button>${can("issue") && x.needsPosting && x.status !== "cancelled" && !x.posting?.posted ? `<button class="btn danger" id="cancel">Cancel</button>` : ""}</div></div>
+      <div class="btn-row"><button class="btn primary" id="print">Print</button>${can("issue") && x.status !== "cancelled" ? `<button class="btn" id="ed">Edit printed details</button>` : ""}${can("issue") && x.needsPosting && x.status !== "cancelled" && !x.posting?.posted ? `<button class="btn danger" id="cancel">Cancel</button>` : ""}</div></div>
     ${x.status === "cancelled" ? `<div class="notice bad">Cancelled — ${esc(x.cancel?.reason)}</div>` : ""}
     <div class="card"><dl class="kv"><dt>From</dt><dd>${esc(x.from?.name || "—")} ${esc(x.from?.office ? "· " + x.from.office : "")}</dd>
       ${x.to ? `<dt>To</dt><dd>${esc(x.to.name)} ${esc(x.to.office ? "· " + x.to.office : "")}</dd>` : ""}
@@ -263,6 +282,22 @@ export function movement(main, [id]) {
     <div class="card"><div class="table-wrap"><table><thead><tr><th>Property / Item No.</th><th>Description</th><th class="right">Qty</th><th class="right">Cost</th>${x.docType === "dsp" ? `<th class="right">Carrying</th>` : ""}<th>Condition</th></tr></thead>
       <tbody>${x.lines.map(l => `<tr class="click" onclick="location.hash='#/assets/${esc(l.assetId)}'"><td>${esc(l.propertyNo || "—")}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.amount)}</td>${x.docType === "dsp" ? `<td class="right">${num(l.carrying)}</td>` : ""}<td>${esc(l.condition)}</td></tr>`).join("")}</tbody></table></div></div>`;
   $("#print", main).onclick = () => printForm(movementHtml(x), x.docType === "dsp" ? "landscape" : "portrait");
+  $("#ed", main) && ($("#ed", main).onclick = () => {
+    const m = openModal(`<h2>Edit printed details</h2><p class="muted small">Signatories, reason and reference as they print on the ${esc(DOC_NAMES[x.docType])}. The items and their custody don't change.</p>
+      <form class="grid g2" id="ef">
+        <div class="spanall"><label>${x.docType === "dsp" ? "Remarks" : "Reason"}</label><input name="reason" value="${esc(x.reason || "")}"></div>
+        ${x.transferType === "others" ? `<div class="spanall"><label>Transfer type — specify</label><input name="typeOther" value="${esc(x.typeOther || "")}"></div>` : ""}
+        ${x.docType === "dsp" ? `<div class="spanall"><label>Reference</label><input name="ref" value="${esc(x.ref || "")}"></div>` : ""}
+        <div><label>Approved by</label><input name="aName" value="${esc(x.approvedBy?.name || "")}"></div><div><label>Position</label><input name="aPos" value="${esc(x.approvedBy?.position || "")}"></div>
+        <div><label>Released / issued by</label><input name="iName" value="${esc(x.issuedBy?.name || "")}"></div><div><label>Position</label><input name="iPos" value="${esc(x.issuedBy?.position || "")}"></div>
+        <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { size: "narrow" });
+    $("[data-x]", m).onclick = () => m.close();
+    $("#ef", m).onsubmit = e => {
+      e.preventDefault();
+      const v = Object.fromEntries(new FormData(e.target).entries());
+      busy(e.submitter, async () => { await editMovementDetails(x.id, { reason: v.reason, ref: v.ref ?? x.ref, typeOther: v.typeOther ?? x.typeOther, approvedBy: { name: v.aName, position: v.aPos }, issuedBy: { name: v.iName, position: v.iPos } }); m.close(); clean(); }, "Saved.").catch(() => {});
+    };
+  });
   $("#cancel", main) && ($("#cancel", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel ${DOC_NAMES[x.docType]} ${x.number}?`, body: "The items return to how they were before.", fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: "Cancel it", danger: true });
     if (v) busy(e.target, () => cancelMovement(x.id, v.reason), "Cancelled.").catch(() => {});

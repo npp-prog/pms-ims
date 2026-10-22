@@ -324,3 +324,46 @@ test("End-Users see the property and PAR/ICS/RIS of their own office, not other 
   await assertSucceeds(getDoc(doc(e, "assets/AGRI1")), "after the administrator moved her");
   await assertFails(getDoc(doc(e, "assets/MHO1")));
 });
+
+test("PMS register maintenance: manual items, revaluation, ledger entries, reclassification, reactivation", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "assets/P1"), asset());
+    await setDoc(doc(d, "assets/PX"), asset({ status: "disposed", disposal: { reason: "Lost" } }));
+  });
+  // Accounting (and the GSO) add items by hand; Accounting can't pretend they came from a PAR
+  await assertSucceeds(setDoc(doc(ctx("acc"), "assets/M1"), asset({ source: { kind: "manual" } })));
+  await assertSucceeds(setDoc(doc(ctx("gso"), "assets/M2"), asset({ source: { kind: "manual" } })));
+  await assertFails(setDoc(doc(ctx("acc"), "assets/M3"), asset({ source: { kind: "par" } })));
+  await assertFails(setDoc(doc(ctx("eu"), "assets/M4"), asset({ source: { kind: "manual" } })));
+  // Accounting: revalue, ledger entries, reclassify, fund transfer
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/P1"), { cost: 70000, residualValue: 3500, revaluations: [{ date: "2026-10-01", oldCost: 60000, newCost: 70000 }] }));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/P1"), { adjustments: [{ type: "impairment", amount: 1000 }] }));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/P1"), { accountCode: "10705020", accountChanges: [{ oldCode: "10705030", newCode: "10705020" }], fund: "SEF", fundChanges: [{ oldFund: "GF", newFund: "SEF" }] }));
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { fund: "XYZ" }), "only real funds");
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { itemType: "sx" }), "PPE stays PPE");
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { status: "disposed" }), "Accounting doesn't dispose; the GSO does on a disposal report");
+  // the GSO keeps custody, but not the ledger side
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/P1"), { revaluations: [] }));
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/P1"), { adjustments: [] }));
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "assets/P1"), { special: { lotId: "L-1" }, remarks: "ok", parIcs: { docType: "par", number: "2026-10-0002" } }));
+  // reactivation: disposed → active only
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/PX"), { status: "active", disposal: null, reactivations: [{ reason: "found" }] }));
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { status: "returned" }));
+});
+
+test("PAR / ICS for register items, editing a transfer's printed details, depreciation override", async () => {
+  const reg = baseDoc({ airId: null, airNo: "", origin: "register", number: "2026-10-0005" });
+  await assertSucceeds(setDoc(doc(ctx("gso"), "issuances/R1"), reg));
+  await assertFails(setDoc(doc(ctx("gso"), "issuances/R2"), { ...reg, docType: "ris" }), "RIS always comes from an AIR");
+  await assertFails(setDoc(doc(ctx("gso"), "issuances/R3"), { ...reg, origin: "", airId: "A_SUB" }), "otherwise the AIR must be approved");
+  await assertFails(setDoc(doc(ctx("acc"), "issuances/R4"), reg));
+  const mv = { docType: "ptr", fund: "GF", status: "done", needsPosting: false, posting: { posted: false }, lines: [{ assetId: "P1" }], reason: "old" };
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "movements/T1"), mv); });
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "movements/T1"), { reason: "Reassigned to MEO", approvedBy: { name: "Mayor" } }));
+  await assertFails(updateDoc(doc(ctx("gso"), "movements/T1"), { lines: [] }), "the items don't change");
+  await assertFails(updateDoc(doc(ctx("acc"), "movements/T1"), { reason: "x" }));
+  const run = { fund: "GF", period: "2026-02", amounts: { P1: 950 }, total: 950, override: { reason: "TB late" } };
+  await assertFails(setDoc(doc(ctx("acc"), "depreciation/GF_2026-02"), run), "only an administrator overrides the Trial Balance gate");
+  await assertSucceeds(setDoc(doc(ctx("ad"), "depreciation/GF_2026-02"), run));
+});

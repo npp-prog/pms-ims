@@ -3,9 +3,10 @@
 import {
   db, doc, collection, setDoc, updateDoc, deleteDoc, addDoc, runTransaction, serverTimestamp, arrayUnion, dbError
 } from "./fb.js";
-import { S, settings } from "./state.js";
-import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount } from "./core/catalog.js";
-import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, CIP_COST_FIELDS, cipTotal, repairTotal } from "./core/assets.js";
+import { S, settings, can } from "./state.js";
+import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/catalog.js";
+import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, checkManualAsset, hasPostedDepreciation } from "./core/assets.js";
+import { specialGroup } from "./core/cards.js";
 import {
   round2, lineAmount, linesTotal, counterKey, formatNumber, validateAir, validateInspection, checkIssue, sxClass,
   statusAfterIssue, remainingQty
@@ -182,6 +183,14 @@ export function cancelDoc(docId, reason) {
       const d = snap.data();
       if (!d || d.status === "cancelled") throw fail("This document is already cancelled.");
       if (d.posting?.posted) throw fail("Accounting has already posted this document. Ask Accounting to unpost it first.");
+      if (d.origin === "register") {
+        // PAR / ICS for register items: the items stay in the register, only the link to this document goes
+        const snaps = [];
+        for (const l of d.lines) snaps.push(await tx.get(doc(db, "assets", l.assetId)));
+        tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
+        snaps.forEach(x => { if (x.exists() && x.data().parIcs?.docId === docId) tx.update(x.ref, { parIcs: null, history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
+        return;
+      }
       const airRef = doc(db, "airs", d.airId); const airSnap = await tx.get(airRef);
       const air = airSnap.data();
       const assetRefs = d.lines.filter(l => l.assetId).map(l => doc(db, "assets", l.assetId));
@@ -350,34 +359,247 @@ export function cancelMovement(id, reason) {
   });
 }
 
-/** Corrections to a property record (not its cost or fund). */
+/* ---------------- register maintenance (PMS): manual items, corrections, revaluation, ledger entries ---------------- */
+const str = v => String(v ?? "").trim();
+const DESCRIPTIVE = ["propertyNo", "location", "condition", "estimatedLife", "description", "specs", "articleType", "remarks", "dvNo", "photoUrl", "docUrl", "unit"];
+const linkOk = v => !v || /^https:\/\//i.test(v);
+function cleanSpecial(v) { return v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x)]).filter(([, x]) => x)) : null; }
+function cleanComponents(v) {
+  if (!v || typeof v !== "object") return null;
+  const out = Object.fromEntries(Object.entries(v).filter(([, x]) => x !== "" && x != null).map(([k, x]) => [k, round2(x)]));
+  return Object.keys(out).length ? out : null;
+}
+/** Residual value: 5% of cost (zero for infrastructure); for a road, the Road Lot value (land is never depreciated). */
+function residualOf(code, cost, components) {
+  return specialGroup(code) === "road" && components?.lot ? round2(Math.min(cost, components.lot)) : residualFor(code, cost);
+}
+
+/** Adds an item straight to the register (found at the station, donated, or acquired before the system) — GSO or Accounting. */
+export function addAsset(f) {
+  return wrap(async () => {
+    const err = checkManualAsset(f); if (err) throw fail(err);
+    if (!linkOk(f.photoUrl) || !linkOk(f.docUrl)) throw fail("Photo and document links must start with https://");
+    const ppe = f.itemType === "ppe", cost = round2(f.cost), qty = Number(f.qty) || 1;
+    const life = ppe ? (f.usefulLifeYears === "" || f.usefulLifeYears == null ? defaultLife(f.accountCode) : Number(f.usefulLifeYears) || 0) : 0;
+    const components = cleanComponents(f.components);
+    const a = {
+      fund: f.fund, itemType: f.itemType, accountCode: f.accountCode || "", propertyNo: str(f.propertyNo), description: str(f.description), specs: str(f.specs), articleType: str(f.articleType),
+      unit: str(f.unit) || (ppe ? "unit" : "pc"), qty, unitCost: round2(f.unitCost || cost / qty), cost,
+      residualValue: ppe ? (f.residualValue === "" || f.residualValue == null ? residualOf(f.accountCode, cost, components) : round2(f.residualValue)) : 0,
+      usefulLifeYears: life, estimatedLife: ppe ? "" : str(f.estimatedLife), depreciable: ppe && !!ppeAccount(f.accountCode)?.depreciable && life > 0,
+      dateAcquired: f.dateAcquired, holder: { name: str(f.holderName), position: str(f.holderPosition), office: str(f.office) }, custodianUid: f.custodianUid || "",
+      location: str(f.location) || str(f.office), status: "active", condition: f.condition || "Serviceable",
+      acquisition: { type: f.acquisitionType || "purchased", source: str(f.acquisitionSource) }, dvNo: str(f.dvNo), remarks: str(f.remarks),
+      photoUrl: str(f.photoUrl), docUrl: str(f.docUrl), special: cleanSpecial(f.special), components,
+      depBaseline: ppe && Number(f.depBaseline?.amount) > 0 ? { period: f.depBaseline.period, amount: round2(f.depBaseline.amount) } : null,
+      priorAdjustment: ppe ? 0 : round2(f.priorAdjustment || 0),
+      source: { kind: "manual", by: me().name }, disposal: null, revaluations: [], adjustments: [],
+      history: [stamp("Added to the register", f.acquisitionType && f.acquisitionType !== "purchased" ? `${f.acquisitionType}${f.acquisitionSource ? ` — ${str(f.acquisitionSource)}` : ""}` : "")],
+      createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+    };
+    const ref = await addDoc(collection(db, "assets"), a);
+    audit("asset_add", "asset", ref.id, { description: a.description, cost });
+    return ref.id;
+  });
+}
+
+/**
+ * Corrections to a register item. The GSO keeps custody data and descriptions; Accounting can also correct cost,
+ * account, date acquired and the opening balances — but only while no depreciation has been posted for the item
+ * (after that, use Revalue / Reclassify so the change is dated).
+ */
 export function updateAsset(id, patch, note) {
+  return wrap(async () => {
+    if (!str(note)) throw fail("Enter the reason for the correction.");
+    if (!linkOk(patch.photoUrl) || !linkOk(patch.docUrl)) throw fail("Photo and document links must start with https://");
+    const acct = can("post") || can("manageUsers"), runs = S.d.depr;
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "assets", id); const snap = await tx.get(ref);
+      if (!snap.exists()) throw fail("Record not found.");
+      const a = { id, ...snap.data() }, ppe = a.itemType === "ppe";
+      const clean = {};
+      for (const k of DESCRIPTIVE) if (k in patch) clean[k] = str(patch[k]);
+      if ("special" in patch) clean.special = cleanSpecial(patch.special);
+      if ("acquisitionType" in patch) clean.acquisition = { type: patch.acquisitionType || "purchased", source: str(patch.acquisitionSource) };
+      if (ppe) for (const k of ["usefulLifeYears", "residualValue"]) if (k in patch && patch[k] !== "") clean[k] = k === "residualValue" ? round2(patch[k]) : Number(patch[k]) || 0;
+      if ("office" in patch && patch.office !== (a.holder?.office || "")) clean.holder = { ...(a.holder || {}), office: patch.office };
+      if (acct) {
+        if ("components" in patch) clean.components = cleanComponents(patch.components);
+        const locked = hasPostedDepreciation(a, runs);
+        const money = { cost: "cost", dateAcquired: "date acquired", accountCode: "account" };
+        for (const [k, label] of Object.entries(money)) {
+          if (!(k in patch) || patch[k] === "" || String(patch[k]) === String(a[k] ?? "")) continue;
+          if (locked) throw fail(`Depreciation has been posted for this item, so its ${label} can't be corrected here. Use ${k === "accountCode" ? "Reclassify" : "Revalue"} instead.`);
+          clean[k] = k === "cost" ? round2(patch[k]) : String(patch[k]);
+        }
+        if (clean.accountCode && (ppe ? !ppeAccount(clean.accountCode) : !isSxAccount(clean.accountCode))) throw fail("Choose an account of the same kind (PPE or semi-expendable).");
+        if ("cost" in clean) clean.unitCost = round2(clean.cost / (Number(a.qty) || 1));
+        if (ppe && "depBaseline" in patch) {
+          const b = patch.depBaseline;
+          if (locked && JSON.stringify(b || null) !== JSON.stringify(a.depBaseline || null)) throw fail("Depreciation has been posted, so the opening accumulated depreciation can't change.");
+          clean.depBaseline = b && Number(b.amount) > 0 ? { period: b.period, amount: round2(b.amount) } : null;
+          if (clean.depBaseline && !isPeriod(clean.depBaseline.period)) throw fail("Enter the month the opening accumulated depreciation is as of.");
+        }
+        if (!ppe && "priorAdjustment" in patch) clean.priorAdjustment = round2(patch.priorAdjustment || 0);
+      }
+      if (ppe) clean.depreciable = isDepreciable({ ...a, ...clean, depreciable: true });
+      tx.update(ref, { ...clean, history: [...(a.history || []), stamp("Record corrected", `${note} (${Object.keys(clean).filter(k => k !== "depreciable").join(", ")})`)], updatedAt: serverTimestamp() });
+    });
+    audit("asset_update", "asset", id, { ...patch, note });
+  });
+}
+
+/** Revaluation (new appraisal or zonal value): the new cost and residual apply from the effective date — Accounting. */
+export function revalueAsset(id, f) {
+  return wrap(async () => {
+    if (!f.date) throw fail("Enter the effective date.");
+    if (!(Number(f.newCost) > 0)) throw fail("Enter the new value.");
+    if (!str(f.reason)) throw fail("Enter the reason (appraisal, zonal valuation…).");
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "assets", id); const a = (await tx.get(ref)).data();
+      if (a.itemType !== "ppe") throw fail("Only PPE is revalued.");
+      if (a.status === "disposed") throw fail("This item is disposed.");
+      const newCost = round2(f.newCost), newResidual = f.newResidual === "" || f.newResidual == null ? round2(a.residualValue) : round2(f.newResidual);
+      if (newResidual > newCost) throw fail("The residual value can't be more than the new value.");
+      const entry = { date: f.date, oldCost: a.cost, newCost, oldResidual: a.residualValue || 0, newResidual, reason: str(f.reason), ref: str(f.ref), kind: "revaluation", by: me().name, at: new Date().toISOString() };
+      tx.update(ref, { cost: newCost, unitCost: round2(newCost / (Number(a.qty) || 1)), residualValue: newResidual, revaluations: [...(a.revaluations || []), entry],
+        history: [...(a.history || []), stamp(`Revalued ${a.cost} → ${newCost}`, entry.reason)], updatedAt: serverTimestamp() });
+    });
+    audit("asset_revalue", "asset", id, f);
+  });
+}
+
+/** Ledger entry: an adjustment (write-up / write-down; negative lowers the cost) or an impairment loss — Accounting. */
+export function addLedgerEntry(id, f) {
+  return wrap(async () => {
+    if (!["adjustment", "impairment"].includes(f.type)) throw fail("Choose the entry type.");
+    if (!f.date) throw fail("Enter the date.");
+    const amount = round2(f.amount);
+    if (!amount) throw fail("Enter the amount.");
+    if (f.type === "impairment" && amount < 0) throw fail("Enter the impairment loss as a positive amount.");
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "assets", id); const a = (await tx.get(ref)).data();
+      const entry = { type: f.type, date: f.date, amount, ref: str(f.ref), note: str(f.note), by: me().name, at: new Date().toISOString() };
+      tx.update(ref, { adjustments: [...(a.adjustments || []), entry], history: [...(a.history || []), stamp(f.type === "impairment" ? `Impairment loss ${amount}` : `Adjustment ${amount}`, entry.note)], updatedAt: serverTimestamp() });
+    });
+    audit("asset_ledger_entry", "asset", id, f);
+  });
+}
+/** Removes a ledger entry recorded by mistake (by its timestamp) — Accounting. */
+export function removeLedgerEntry(id, at, reason) {
   return wrap(async () => {
     await runTransaction(db, async tx => {
       const ref = doc(db, "assets", id); const a = (await tx.get(ref)).data();
-      const clean = {};
-      for (const k of ["propertyNo", "location", "usefulLifeYears", "residualValue", "condition", "estimatedLife", "description", "specs"]) if (k in patch) clean[k] = patch[k];
-      if ("usefulLifeYears" in clean) clean.usefulLifeYears = Number(clean.usefulLifeYears) || 0;
-      if ("residualValue" in clean) clean.residualValue = round2(clean.residualValue);
-      if (a.itemType === "ppe") clean.depreciable = isDepreciable({ ...a, ...clean, depreciable: true });
-      if ("office" in patch && patch.office !== (a.holder?.office || "")) clean.holder = { ...(a.holder || {}), office: patch.office };
-      tx.update(ref, { ...clean, history: [...(a.history || []), stamp("Record corrected", note || Object.keys(clean).join(", "))], updatedAt: serverTimestamp() });
+      const e = (a.adjustments || []).find(x => x.at === at); if (!e) throw fail("Entry not found.");
+      tx.update(ref, { adjustments: a.adjustments.filter(x => x.at !== at), history: [...(a.history || []), stamp(`Removed ${e.type} of ${e.amount} dated ${e.date}`, reason)], updatedAt: serverTimestamp() });
     });
-    audit("asset_update", "asset", id, patch);
+    audit("asset_ledger_remove", "asset", id, { at, reason });
+  });
+}
+
+/** Account reclassification and/or fund transfer, effective from a date (depreciation and reconciliation follow it) — Accounting. */
+export function reclassifyAsset(id, f) {
+  return wrap(async () => {
+    if (!f.date) throw fail("Enter the effective date.");
+    if (!str(f.reason)) throw fail("Enter the reason.");
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "assets", id); const a = (await tx.get(ref)).data();
+      const patch = {}, notes = [];
+      if (f.accountCode && f.accountCode !== a.accountCode) {
+        if (a.itemType === "ppe" ? !ppeAccount(f.accountCode) : !isSxAccount(f.accountCode)) throw fail("Choose an account of the same kind (PPE or semi-expendable).");
+        patch.accountCode = f.accountCode;
+        patch.accountChanges = [...(a.accountChanges || []), { date: f.date, oldCode: a.accountCode, newCode: f.accountCode, reason: str(f.reason), by: me().name, at: new Date().toISOString() }];
+        if (a.itemType === "ppe") patch.depreciable = isDepreciable({ ...a, accountCode: f.accountCode, depreciable: true });
+        notes.push(`account ${a.accountCode} → ${f.accountCode}`);
+      }
+      if (f.fund && f.fund !== a.fund) {
+        patch.fund = f.fund;
+        patch.fundChanges = [...(a.fundChanges || []), { date: f.date, oldFund: a.fund, newFund: f.fund, reason: str(f.reason), by: me().name, at: new Date().toISOString() }];
+        notes.push(`fund ${a.fund} → ${f.fund}`);
+      }
+      if (!notes.length) throw fail("Choose a different account or fund.");
+      tx.update(ref, { ...patch, history: [...(a.history || []), stamp(`Reclassified: ${notes.join("; ")}`, str(f.reason))], updatedAt: serverTimestamp() });
+    });
+    audit("asset_reclassify", "asset", id, f);
+  });
+}
+
+/** Brings a disposed item back (disposed by mistake, found again): the earlier disposal stays on record — Accounting. */
+export function reactivateAsset(id, f) {
+  return wrap(async () => {
+    if (!f.date) throw fail("Enter the date.");
+    if (!str(f.reason)) throw fail("Enter the reason.");
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "assets", id); const a = (await tx.get(ref)).data();
+      if (a.status !== "disposed") throw fail("Only a disposed item can be reactivated.");
+      tx.update(ref, { status: "active", disposal: null, reactivations: [...(a.reactivations || []), { date: f.date, reason: str(f.reason), previousDisposal: a.disposal || null, by: me().name, at: new Date().toISOString() }],
+        history: [...(a.history || []), stamp("Reactivated", str(f.reason))], updatedAt: serverTimestamp() });
+    });
+    audit("asset_reactivate", "asset", id, f);
+  });
+}
+
+/** PAR / ICS for items already in the register (imported or added by hand) — no AIR behind them. The items are
+ *  issued to the recipient and keep a link to the document. */
+export function issueForAssets(assetIds, header) {
+  return wrap(async () => {
+    if (!header.date) throw fail("Enter the date issued.");
+    if (!str(header.recipient?.name)) throw fail("Enter the end-user receiving the property.");
+    let out = null;
+    await runTransaction(db, async tx => {
+      const snaps = [];
+      for (const id of assetIds) snaps.push(await tx.get(doc(db, "assets", id)));
+      const assets = snaps.map(x => ({ id: x.id, ...x.data() }));
+      if (!assets.length) throw fail("Choose the items.");
+      if (assets.some(a => !["active", "returned"].includes(a.status))) throw fail("Disposed or cancelled items can't be issued.");
+      if (new Set(assets.map(a => a.itemType)).size > 1 || new Set(assets.map(a => a.fund)).size > 1) throw fail("Choose items of one kind (PPE or semi-expendable) and one fund.");
+      if (assets.some(a => a.parIcs?.number)) throw fail("Some items already have a PAR / ICS. Use a transfer (PTR / ITR) to change their accountable officer.");
+      const docType = assets[0].itemType === "ppe" ? "par" : "ics";
+      const cls = docType === "ics" ? sxClass(Math.max(...assets.map(a => Number(a.unitCost) || a.cost)), settings().thresholds) : "";
+      const c = await readCounter(tx, assets[0].fund, docType, header.date, cls);
+      tx.set(c.ref, { seq: c.seq, updatedAt: serverTimestamp() });
+      const ref = doc(collection(db, "issuances"));
+      const lines = assets.map(a => ({ assetId: a.id, description: a.description, specs: a.specs || "", unit: a.unit, qty: a.qty, unitCost: a.unitCost || a.cost, amount: a.cost,
+        accountCode: a.accountCode, stockNo: "", propertyNo: a.propertyNo || "", usefulLife: a.itemType === "ppe" ? `${a.usefulLifeYears || ""}` : a.estimatedLife || "", qtyRequested: a.qty }));
+      const r = header.recipient;
+      tx.set(ref, { docType, number: c.number, fund: assets[0].fund, date: header.date, sxClass: cls || null, airId: null, airNo: "", origin: "register",
+        endUserUid: r.uid || "", office: r.office || "", supplier: "", recipient: r, issuedBy: header.issuedBy || {}, approvedBy: {}, purpose: "",
+        lines, total: round2(lines.reduce((t, l) => t + l.amount, 0)), status: "issued", posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      for (const a of assets) tx.update(doc(db, "assets", a.id), {
+        holder: { name: str(r.name), position: str(r.position), office: str(r.office) }, custodianUid: r.uid || "", location: str(r.office) || a.location || "", status: "active",
+        parIcs: { docType, number: c.number, docId: ref.id, date: header.date }, history: [...(a.history || []), stamp(`${docType.toUpperCase()} ${c.number} issued to ${str(r.name)}`)], updatedAt: serverTimestamp() });
+      out = { id: ref.id, number: c.number, docType };
+    });
+    audit(`${out.docType}_register_issue`, "issuance", out.id, { number: out.number, items: assetIds.length });
+    return out;
+  });
+}
+
+/** Edits the printed details of a PTR / ITR / PRS / RRSP / disposal (signatories, reason, reference) — the items are not touched. */
+export function editMovementDetails(id, f) {
+  return wrap(async () => {
+    const patch = { reason: str(f.reason), ref: str(f.ref), typeOther: str(f.typeOther),
+      approvedBy: { name: str(f.approvedBy?.name), position: str(f.approvedBy?.position) }, issuedBy: { name: str(f.issuedBy?.name), position: str(f.issuedBy?.position) },
+      edited: arrayUnion({ by: me().name, at: new Date().toISOString() }), updatedAt: serverTimestamp() };
+    await updateDoc(doc(db, "movements", id), patch);
+    audit("movement_edit", "movement", id, {});
   });
 }
 
 /* ---------------- depreciation and Trial Balance ---------------- */
-export function postDepreciation(fund, period, jevNo, preview) {
+/** override: { reason } when an administrator posts although the prior month's Trial Balance doesn't tie out. */
+export function postDepreciation(fund, period, jevNo, preview, override = null) {
   return wrap(async () => {
     if (!String(jevNo || "").trim()) throw fail("Enter the JEV number.");
+    if (override && !str(override.reason)) throw fail("Enter the reason for posting without a tied-out Trial Balance.");
     const ref = doc(db, "depreciation", `${fund}_${period}`);
     await runTransaction(db, async tx => {
       if ((await tx.get(ref)).exists()) throw fail(`${period} is already posted.`);
       tx.set(ref, { fund, period, jevNo: jevNo.trim(), amounts: Object.fromEntries(preview.rows.map(r => [r.id, r.amount])),
-        byAccount: preview.byAccount, total: preview.total, count: preview.rows.length, postedBy: me(), postedAt: serverTimestamp() });
+        byAccount: preview.byAccount, total: preview.total, count: preview.rows.length, postedBy: me(), postedAt: serverTimestamp(),
+        ...(override ? { override: { reason: str(override.reason), by: me(), at: new Date().toISOString() } } : {}) });
     });
-    audit("depreciation_post", "depreciation", `${fund}_${period}`, { total: preview.total, jevNo });
+    audit(override ? "depreciation_post_override" : "depreciation_post", "depreciation", `${fund}_${period}`, { total: preview.total, jevNo, ...(override ? { reason: override.reason } : {}) });
   });
 }
 export function unpostDepreciation(fund, period) {
@@ -513,31 +735,70 @@ export function deleteBilling(projectId, billingId) {
 }
 const uidLocal = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 
-/** Complete → transfer to PPE: the billed total becomes a new PPE record, and the project closes. */
+/** Complete → transfer to PPE: the billed total becomes a new PPE record (split into building / road components
+ *  when given), or — for roads — is added to an existing road as an addition dated the completion date. */
 export function completeCip(id, f) {
   return wrap(async () => {
     if (!f.date) throw fail("Enter the date completed.");
-    if (!ppeAccount(f.accountCode)) throw fail("Choose the PPE account.");
+    const addTo = f.mode === "add" && f.targetAssetId;
+    if (f.mode === "add" && !f.targetAssetId) throw fail("Choose the road to add to.");
+    if (!addTo && !ppeAccount(f.accountCode)) throw fail("Choose the PPE account.");
     let assetId = null;
     await runTransaction(db, async tx => {
       const pref = doc(db, "cipProjects", id); const p = (await tx.get(pref)).data();
       if (p.status === "completed") throw fail("Already transferred.");
       const total = cipTotal(p);
       if (total <= 0) throw fail("This project has no billings to transfer yet.");
+      if (addTo) {
+        const aref = doc(db, "assets", f.targetAssetId); const snap = await tx.get(aref);
+        if (!snap.exists()) throw fail("Choose the road to add to.");
+        const a = snap.data(); assetId = aref.id;
+        if (a.status === "disposed" || a.status === "cancelled") throw fail("That item is disposed.");
+        if (a.fund !== p.fund) throw fail("The road is in another fund.");
+        const comp = f.component || (specialGroup(a.accountCode) === "road" ? "pavement" : "");
+        const components = { ...(a.components || {}) };
+        if (comp) components[comp] = round2((Number(components[comp]) || 0) + total);
+        const newCost = round2(a.cost + total), newResidual = comp === "lot" ? round2((a.residualValue || 0) + total) : a.residualValue || 0;
+        const entry = { date: f.date, oldCost: a.cost, newCost, oldResidual: a.residualValue || 0, newResidual, reason: `CIP transfer — CIP ${p.cipNo} ${p.name}`, ref: `CIP ${p.cipNo}`, kind: "addition", cipId: id, by: me().name, at: new Date().toISOString() };
+        tx.update(aref, { cost: newCost, unitCost: round2(newCost / (Number(a.qty) || 1)), residualValue: newResidual, components, revaluations: [...(a.revaluations || []), entry],
+          history: [...(a.history || []), stamp(`Addition from CIP ${p.cipNo}: ${total}`, comp ? `component: ${comp}` : "")], updatedAt: serverTimestamp() });
+        tx.update(pref, { status: "completed", completed: { date: f.date, assetId, accountCode: a.accountCode, total, mode: "add", by: me() }, updatedAt: serverTimestamp() });
+        return;
+      }
       const aref = doc(collection(db, "assets")); assetId = aref.id;
       const life = Number(f.life) || defaultLife(f.accountCode);
+      const components = cleanComponents(f.components);
+      if (components && Math.abs(Object.values(components).reduce((t, v) => t + v, 0) - total) >= 0.01) throw fail(`The components must add up to the billed total (${total}).`);
       tx.set(aref, {
-        fund: p.fund, itemType: "ppe", accountCode: f.accountCode, propertyNo: String(f.propertyNo || "").trim(), description: p.name, specs: `Transferred from CIP ${p.cipNo}${p.contractor ? ` · ${p.contractor}` : ""}`,
-        unit: "lot", qty: 1, unitCost: total, cost: total, residualValue: f.residual !== "" && f.residual != null ? round2(f.residual) : residualFor(f.accountCode, total),
+        fund: p.fund, itemType: "ppe", accountCode: f.accountCode, propertyNo: str(f.propertyNo), description: p.name, specs: `Transferred from CIP ${p.cipNo}${p.contractor ? ` · ${p.contractor}` : ""}`,
+        unit: "lot", qty: 1, unitCost: total, cost: total, residualValue: f.residual !== "" && f.residual != null ? round2(f.residual) : residualOf(f.accountCode, total, components),
         usefulLifeYears: life, estimatedLife: "", depreciable: !!ppeAccount(f.accountCode).depreciable && life > 0, dateAcquired: f.date,
-        holder: { name: String(f.holder || "").trim(), position: "", office: String(f.location || p.location || "").trim() }, custodianUid: "", location: String(f.location || p.location || "").trim(),
+        holder: { name: str(f.holder), position: "", office: str(f.location || p.location) }, custodianUid: "", location: str(f.location || p.location),
         status: "active", condition: "Serviceable", source: { kind: "cip", docId: id, number: p.cipNo }, depBaseline: null, disposal: null,
+        components, special: cleanSpecial(f.special), revaluations: [], adjustments: [],
         history: [stamp(`Transferred from CIP ${p.cipNo} (${p.billings.length} billings)`)], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
-      tx.update(pref, { status: "completed", completed: { date: f.date, assetId: aref.id, accountCode: f.accountCode, total, by: me() }, updatedAt: serverTimestamp() });
+      tx.update(pref, { status: "completed", completed: { date: f.date, assetId: aref.id, accountCode: f.accountCode, total, mode: "new", by: me() }, updatedAt: serverTimestamp() });
     });
-    audit("cip_complete", "cip", id, { assetId });
+    audit("cip_complete", "cip", id, { assetId, mode: addTo ? "add" : "new" });
     return assetId;
+  });
+}
+
+/** Releases an SWA from the billing it was matched to (the billing stays, without the SWA). */
+export function unmatchSwa(swaId) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const sref = doc(db, "swa", swaId); const w = (await tx.get(sref)).data();
+      if (!w?.matched) throw fail("This SWA isn't matched.");
+      if (w.matchedProjectId) {
+        const pref = doc(db, "cipProjects", w.matchedProjectId); const p = (await tx.get(pref)).data();
+        if (p?.status === "completed") throw fail("That project was already transferred to PPE, so its billings are closed.");
+        if (p) tx.update(pref, { billings: (p.billings || []).map(b => b.swaId === swaId ? { ...b, swaId: null, swaNo: "" } : b), updatedAt: serverTimestamp() });
+      }
+      tx.update(sref, { matched: false, matchedProjectId: null, matchedBillingId: null, updatedAt: serverTimestamp() });
+    });
+    audit("swa_unmatch", "swa", swaId, {});
   });
 }
 

@@ -3,7 +3,8 @@ import { S, can, settings } from "../state.js";
 import { $, $$, esc, busy, toast, money, num, fmtDate, manilaToday, opts, accountOpts, renderTable, openModal, confirmBox, downloadCSV, safeLink } from "../ui.js";
 import { FUNDS, fundName, accountName, PPE_ACCOUNTS } from "../core/catalog.js";
 import { CIP_ACCOUNTS, CIP_COST_FIELDS, CIP_STATUS, billingTotal, cipTotal, cipStatus, cipTransferAccount, defaultLife, residualFor } from "../core/assets.js";
-import { saveCip, setCipOverride, saveBilling, deleteBilling, completeCip, saveSwa, deleteSwa } from "../data.js";
+import { saveCip, setCipOverride, saveBilling, deleteBilling, completeCip, saveSwa, deleteSwa, unmatchSwa } from "../data.js";
+import { specialGroup, COMPONENTS } from "../core/cards.js";
 import { printForm, cipLedgerHtml } from "../print.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
@@ -14,7 +15,7 @@ const cipAccountRows = PPE_ACCOUNTS.filter(a => CIP_ACCOUNTS.includes(a[1]));
 export function list(main) {
   const rows = S.d.cip.filter(p => p.fund === S.fund);
   main.innerHTML = `<div class="page-head"><div><h1>Construction in Progress</h1><p>Projects under construction in the ${esc(fundName(S.fund))}, with every contractor billing and its SWA. A project stays in its CIP account (and in the Trial Balance comparison) until it is completed and transferred to PPE.</p></div>
-    <div class="btn-row">${can("manageCip") ? `<button class="btn primary" id="new">New project</button>` : ""}<button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
+    <div class="btn-row">${can("manageCip") ? `<button class="btn primary" id="new">New project</button>` : ""}<button class="btn" id="csv">CSV</button><button class="btn" id="cards">Print ledger cards</button></div></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "cip", rows, pageSize: 50, defaultSort: 0,
     searchText: p => `${p.cipNo} ${p.name} ${p.contractor} ${p.location}`,
@@ -34,6 +35,7 @@ export function list(main) {
     onRow: p => { location.hash = `#/cip/${p.id}`; }
   });
   $("#new", main) && ($("#new", main).onclick = () => projectModal(null));
+  $("#cards", main).onclick = () => t.rows().length ? printForm(t.rows().map(p => cipLedgerHtml(p, billingTotal)).join(""), "landscape") : toast("No projects to print.", "err");
   $("#csv", main).onclick = () => downloadCSV(`CIP-${S.fund}`, ["CIP No.", "Project", "Contractor", "Location", "Account", "Contract Period", "Project Cost", "Billed to Date", "Status"],
     t.rows().map(p => [p.cipNo, p.name, p.contractor, p.location, p.accountCode, p.contractPeriod, p.projectCost, cipTotal(p), CIP_STATUS[cipStatus(p)]]));
 }
@@ -92,7 +94,7 @@ export function detail(main, [id]) {
   $$("[data-ov]", main).forEach(b => b.onclick = () => busy(b, () => setCipOverride(p.id, b.dataset.ov), "Status updated.").catch(() => {}));
   $("#done", main).onclick = () => completeModal(p);
 }
-detail.deps = ["r:cip", "r:swa"];
+detail.deps = ["r:cip", "r:swa", "r:assets"];
 
 function billingModal(p, b) {
   const free = S.d.swa.filter(s => s.fund === p.fund && (!s.matched || s.id === b?.swaId)).sort((x, y) => (x.cipNo === p.cipNo ? -1 : 0) - (y.cipNo === p.cipNo ? -1 : 0));
@@ -123,23 +125,41 @@ function billingModal(p, b) {
 
 function completeModal(p) {
   const total = cipTotal(p), code = cipTransferAccount(p.accountCode);
-  const m = openModal(`<h2>Complete → transfer to PPE</h2><p class="muted small">${esc(p.name)} — the ${money(total)} billed to date becomes a new PPE record and this project closes. This can't be undone here.</p>
+  const roads = S.d.assets.filter(a => a.fund === p.fund && specialGroup(a.accountCode) === "road" && ["active", "returned"].includes(a.status));
+  const compFields = c => { const g = specialGroup(c); return COMPONENTS[g] ? `<div class="spanall xs muted">Split the ${money(total)} by component (optional; must add up to the total)${g === "road" ? ". The Road Lot part is land: it becomes the residual value and is never depreciated" : ""}.</div>
+    ${COMPONENTS[g].map(([k, l]) => `<div><label>${esc(l)}</label><input type="number" min="0" step="0.01" name="cp_${k}"></div>`).join("")}` : ""; };
+  const m = openModal(`<h2>Complete → transfer to PPE</h2><p class="muted small">${esc(p.name)} — the ${money(total)} billed to date ${roads.length ? "becomes a new PPE record, or is added to an existing road," : "becomes a new PPE record"} and this project closes. This can't be undone here.</p>
     <form class="grid g2" id="cf">
-      <div class="spanall"><label class="req">PPE account</label><select name="accountCode">${accountOpts(PPE_ACCOUNTS.filter(a => a[3]), code)}</select></div>
+      ${roads.length ? `<div class="spanall"><label>Transfer as</label><select name="mode">${opts([["new", "A new PPE record"], ["add", "An addition to an existing road"]], "new")}</select></div>
+        <div class="spanall" data-add hidden><label class="req">Road</label><select name="targetAssetId">${opts(roads.map(a => [a.id, `${a.propertyNo || a.special?.roadId || "—"} — ${a.description} (${money(a.cost)})`]), "", "Choose the road")}</select></div>
+        <div data-add hidden><label>Component</label><select name="component">${opts(COMPONENTS.road.map(([k, l]) => [k, l]), "pavement")}</select></div>` : ""}
+      <div class="spanall" data-new><label class="req">PPE account</label><select name="accountCode">${accountOpts(PPE_ACCOUNTS.filter(a => a[3]), code)}</select></div>
       <div><label class="req">Date completed</label><input type="date" name="date" value="${manilaToday()}"></div>
-      <div><label>Property No.</label><input name="propertyNo"></div>
-      <div><label>Useful life (years)</label><input type="number" min="0" step="1" name="life" value="${defaultLife(code)}"></div>
-      <div><label>Residual value (₱)</label><input type="number" min="0" step="0.01" name="residual" value="${residualFor(code, total)}"></div>
-      <div><label>Location / office</label><input name="location" value="${esc(p.location || "")}"></div>
-      <div><label>Accountable officer</label><input name="holder" value="${esc(settings().signatories.propertyCustodian || "")}"></div>
+      <div data-new><label>Property No.</label><input name="propertyNo"></div>
+      <div data-new><label>Useful life (years)</label><input type="number" min="0" step="1" name="life" value="${defaultLife(code)}"></div>
+      <div data-new><label>Residual value (₱)</label><input type="number" min="0" step="0.01" name="residual" value="${residualFor(code, total)}"><div class="xs muted">Leave blank to compute it.</div></div>
+      <div data-new><label>Location / office</label><input name="location" value="${esc(p.location || "")}"></div>
+      <div data-new><label>Accountable officer</label><input name="holder" value="${esc(settings().signatories.propertyCustodian || "")}"></div>
+      <div class="spanall grid g2" data-new id="cpc" style="margin:0">${compFields(code)}</div>
+      <div class="spanall form-msg err" id="cm"></div>
       <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Transfer ${money(total)} to PPE</button></div></form>`);
   const f = $("#cf", m);
-  f.accountCode.onchange = () => { f.life.value = defaultLife(f.accountCode.value); f.residual.value = residualFor(f.accountCode.value, total); };
+  f.accountCode.onchange = () => { f.life.value = defaultLife(f.accountCode.value); f.residual.value = residualFor(f.accountCode.value, total); $("#cpc", m).innerHTML = compFields(f.accountCode.value); };
+  if (f.mode) f.mode.onchange = () => { const add = f.mode.value === "add"; $$("[data-add]", m).forEach(x => { x.hidden = !add; }); $$("[data-new]", m).forEach(x => { x.hidden = add; }); };
   $("[data-x]", m).onclick = () => m.close();
   f.onsubmit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(f).entries());
-    busy(e.submitter, async () => { const aid = await completeCip(p.id, v); m.close(); location.hash = `#/assets/${aid}`; }, "Transferred to PPE.").catch(() => {});
+    const components = {};
+    for (const [k, x] of Object.entries(v)) if (k.startsWith("cp_") && x !== "") components[k.slice(3)] = Number(x);
+    if (Object.keys(components).length) {
+      v.components = components;
+      if (specialGroup(v.accountCode) === "road" && components.lot && v.residual === String(residualFor(v.accountCode, total))) v.residual = "";
+    }
+    $("#cm", m).textContent = "";
+    busy(e.submitter, async () => {
+      try { const aid = await completeCip(p.id, v); m.close(); location.hash = `#/assets/${aid}`; } catch (err) { $("#cm", m).textContent = err.message; throw err; }
+    }, "Transferred to PPE.").catch(() => {});
   };
 }
 
@@ -160,15 +180,21 @@ export function swaList(main) {
       { label: "% done", render: s => s.percent == null ? "—" : `${num(s.percent)}%`, cls: "right" },
       { label: "Cost", render: s => money(s.cost), sort: s => s.cost, cls: "right", headCls: "right" },
       { label: "Document", render: s => safeLink(s.docLink) ? `<a href="${esc(safeLink(s.docLink))}" target="_blank" rel="noopener">Open</a>` : "—" },
-      { label: "Status", render: s => s.matched ? `<a class="badge b-ok" href="#/cip/${esc(s.matchedProjectId)}">Matched</a>` : `<span class="badge b-warn">Not matched</span>` }
+      { label: "Status", render: s => s.matched ? `<a class="badge b-ok" href="#/cip/${esc(s.matchedProjectId)}">Matched</a>${can("manageCip") ? ` <button class="btn sm" data-um="${esc(s.id)}">Unmatch</button>` : ""}` : `<span class="badge b-warn">Not matched</span>` }
     ],
     empty: "No SWAs yet.",
     onRow: s => can("encodeSwa") && !s.matched ? swaModal(s) : s.matched ? (location.hash = `#/cip/${s.matchedProjectId}`) : null
   });
+  $("#t", main).addEventListener("click", async e => {
+    const b = e.target.closest("[data-um]"); if (!b) return;
+    e.stopPropagation();
+    const w = rows.find(x => x.id === b.dataset.um);
+    if (await confirmBox({ title: `Unmatch SWA ${w.swaNo}?`, body: "The billing stays; it just no longer has this SWA, and the SWA can be matched again.", confirmText: "Unmatch" })) busy(b, () => unmatchSwa(w.id), "SWA unmatched.").catch(() => {});
+  }, true);
   $("#new", main) && ($("#new", main).onclick = () => swaModal(null));
   $("#csv", main).onclick = () => downloadCSV(`SWA-${S.fund}`, ["Date", "SWA No.", "CIP No.", "Contractor", "Percent", "Cost", "Matched", "Document"], t.rows().map(s => [s.date, s.swaNo, s.cipNo, s.contractor, s.percent ?? "", s.cost, s.matched ? "Yes" : "No", s.docLink]));
 }
-swaList.deps = ["r:swa", "fund"];
+swaList.deps = ["r:swa", "r:cip", "fund"];
 
 function swaModal(s) {
   const cips = S.d.cip.filter(p => p.fund === (s?.fund || S.fund) && p.status !== "completed");

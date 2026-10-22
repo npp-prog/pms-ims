@@ -106,6 +106,47 @@ PPE always moves as a whole record.
   for every item, and only the latest month can be unposted. The accumulated-depreciation account
   is the cost account + 1, for example `10705020` → `10705021`, as in PMS.
 
+- **Trial Balance gate (as in PMS):** a month can be posted only when the Trial Balance of the
+  month before is entered and ties out on **PPE cost** (semi-expendable and inventory don't hold it).
+  An Administrator can post anyway with a reason; the override is saved with the posting and in
+  the audit trail. The JEV can be printed or downloaded as CSV.
+- **Dated changes:** a revaluation, an impairment loss, an account reclassification or a fund
+  transfer applies from its effective month, so earlier months, depreciation and reconciliation
+  stay as they were.
+
+### Property register (everything from PMS)
+
+- **Add an item by hand** (GSO or Accounting): property found at the station, donated, transferred
+  in, or acquired before the system, with DV No., remarks, photo and document links, and an
+  opening accumulated depreciation "as of" month (or a prior write-down for semi-expendable).
+- **Special card details** by account: Land (lot ID, classification, area, technical description),
+  Road Network (road ID, type, length, width, thickness, and cost by component — the Road Lot is
+  land, becomes the residual value and is never depreciated), Other Public Infrastructure,
+  Buildings and Structures (ID, type, floor area, floors, components), Biological Assets.
+- **Correct record:** descriptions and custody by the GSO; cost, account, date acquired and
+  opening balances by Accounting, **locked once depreciation is posted** (use Revalue / Reclassify).
+- **Accounting actions on each item:** Revalue, Ledger entry (adjustment or impairment loss),
+  Reclassify (account and/or fund), Reactivate a disposed item. Each keeps a dated record shown
+  under "Ledger changes".
+- **PAR / ICS for register items** that came from PMS or were added by hand (no AIR behind them).
+- **Printed cards**, one or in bulk from any filtered list: Equipment Ledger Card, Property Card,
+  Semi-Expendable Property Ledger Card and Property Card, Land and Land Improvements, Local Road
+  Network, Other Public Infrastructure and Buildings and Structures (ledger and property cards,
+  sectioned by component), Biological Assets Property Card. Rows come from the item's whole
+  history: acquisition, balance forward, depreciation by month, revaluations and CIP additions,
+  impairments, transfers, verified repairs, disposal and reactivation.
+- **QR ID tags** (3 × 2 in. stickers) that open the item's page when scanned.
+- **Transfers:** the printed details of a PTR / ITR / PRS / RRSP / disposal (reason, signatories,
+  reference) can be edited without touching the items.
+- **CIP completion** can split the cost by building or road component, or **add the project to an
+  existing road** (dated "Addition — CIP transfer"). SWAs can be unmatched from the SWA page, and
+  all CIP ledger cards printed at once.
+- **Dashboard:** search across property, PAR / ICS / RIS, transfers, repairs, AIRs and CIP, and a
+  property overview (PPE cost and carrying amount, semi-expendable, CIP, depreciation and
+  reconciliation status, PPE by group).
+- **Reports:** Accountability (by officer / office / account / status, with CSV and bulk cards)
+  and Disposed / Retired. **Settings → Download full backup (JSON).**
+
 ### Trial Balance reconciliation
 
 Paste the Trial Balance from Excel or upload the file (account code, name, debit, credit). For the
@@ -145,8 +186,8 @@ Trees) differ in the source data itself.
 | Role | Can do |
 | --- | --- |
 | **End-User** | Encode, submit and correct **their own** AIRs. See **Office Property** (every item held by their office, their own marked "You") and the PAR / ICS / RIS of their office. Record **repairs** of items under their own name. |
-| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Registries and reports. |
-| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Correct useful lives and residual values. |
+| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Add items by hand, PAR / ICS for register items, cards and QR tags. Registries and reports. |
+| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Add items by hand, correct cost and opening balances, revalue, impairments and adjustments, reclassify, reactivate. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
 | **Super Admin** | Everything, including assigning and removing **Admins**. |
 
@@ -160,7 +201,7 @@ Dashboard · Office Property · New AIR / My AIRs / All AIRs · For Inspection �
 PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
 Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
-Account, AIR Monitoring) · Users & Roles · Data Import · Settings · Audit Trail ·
+Account, AIR Monitoring, Accountability, Disposed / Retired) · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.
 Every list can be downloaded as a CSV, and every form prints on A4.
 
@@ -264,7 +305,7 @@ Then check the result in **TB Reconciliation** against the Trial Balance of that
 | `users/{uid}` | person | `role`, `status` (pending / active / disabled / declined), office, position |
 | `airs/{id}` | AIR | header, `lines[]` (category, account, stock no., **issuedQty**), `inspection`, `acceptance`, `status`, `posting` (supply receipt), `history[]` |
 | `issuances/{id}` | PAR / ICS / RIS | `docType`, `number`, `airId`, `lines[]` (each linked to its AIR line), `recipient`, `status` (issued / cancelled), `posting` |
-| `assets/{id}` | property record (PAR / ICS line, import row, or split part) | PPE or semi-expendable, cost, residual, useful life, holder, status (active / returned / disposed / cancelled), `depBaseline` (imported accumulated depreciation), `history[]` |
+| `assets/{id}` | property record (PAR / ICS line, import row, or split part) | PPE or semi-expendable, cost, residual, useful life, holder, status (active / returned / disposed / cancelled), `depBaseline` (opening accumulated depreciation), `special` / `components` (card details), `revaluations[]`, `adjustments[]`, `accountChanges[]`, `fundChanges[]`, `reactivations[]`, `parIcs`, `history[]` |
 | `movements/{id}` | PTR / ITR / PRS / RRSP / disposal | lines with the items moved; disposals and donations carry `posting` |
 | `depreciation/{fund_YYYY-MM}` | posted month | JEV no., amount per item, summary by account |
 | `tbSnapshots/{fund_YYYY-MM}` | Trial Balance | account → debit / credit |
@@ -292,7 +333,8 @@ public/                 ← what Netlify serves
   js/print.js           ← AIR, PAR, ICS, RIS, Stock Card, SLC, RSMI layouts
   js/core/catalog.js    ← funds, roles, thresholds, account catalogs (PPE, SX, Inventory)
   js/core/logic.js      ← AIR / issuance / posting rules (pure; shared with the tests)
-  js/core/assets.js     ← depreciation, movements, reconciliation, import parsing (pure)
+  js/core/assets.js     ← depreciation, movements, reconciliation, TB gate, import parsing (pure)
+  js/core/cards.js      ← Ledger / Property Card timeline, special card groups, search (pure)
   js/views/*.js         ← screens
 firestore.rules         ← server-side access control
 tests/                  ← logic tests + security-rules tests
@@ -304,7 +346,8 @@ netlify.toml, firebase.json, firestore.indexes.json
 ```sh
 npm install
 npm run test:logic     # business rules: thresholds, numbering, issuance, stock cards, RSMI,
-                       # depreciation, movements, TB parsing/reconciliation, PMS/IMS import
+                       # depreciation, movements, TB parsing/reconciliation, PMS/IMS import,
+                       # revaluation / reclassification / impairment, card timeline, TB gate
 npm run test:rules     # security rules on the Firestore emulator (needs Java 11+)
 ```
 

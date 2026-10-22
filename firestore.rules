@@ -131,9 +131,12 @@ service cloud.firestore {
         && request.resource.data.number is string && request.resource.data.number.size() > 0
         && request.resource.data.status == 'issued'
         && request.resource.data.posting.posted == false
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
+        && (
+          // PAR / ICS for items already in the register (no AIR behind them)
+          (request.resource.data.get('origin', '') == 'register' && request.resource.data.docType in ['par', 'ics'] && request.resource.data.airId == null)
+          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid;
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid));
 
       allow update: if
         // GSO cancels a document Accounting has not posted
@@ -151,6 +154,8 @@ service cloud.firestore {
     match /assets/{id} {
       allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid) || sameOffice(resource.data.holder.office);
       allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import')
+          // Accounting adds items to the register by hand (found, donated, acquired before the system)
+          || (poster() && request.resource.data.source.kind == 'manual')
           // Accounting closes a CIP project into a new PPE record, in the same transaction
           || (poster() && request.resource.data.source.kind == 'cip'
             && getAfter(/databases/$(database)/documents/cipProjects/$(request.resource.data.source.docId)).data.status == 'completed'
@@ -159,12 +164,19 @@ service cloud.firestore {
         && request.resource.data.itemType in ['ppe', 'sx']
         && request.resource.data.cost is number && request.resource.data.cost >= 0
         && request.resource.data.status in ['active', 'returned', 'disposed'];
-      allow update: if request.resource.data.status in ['active', 'returned', 'disposed', 'cancelled'] && (
-        // GSO: custody, movements, splits and record corrections — never the fund, account, source or acquisition data
-        (issuer() && onlyChanged(['holder', 'custodianUid', 'location', 'status', 'condition', 'disposal', 'history', 'updatedAt', 'qty', 'cost',
-          'propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'estimatedLife', 'description', 'specs']))
-        // Accounting: depreciation parameters
-        || (poster() && onlyChanged(['propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'condition', 'history', 'updatedAt']))
+      allow update: if request.resource.data.status in ['active', 'returned', 'disposed', 'cancelled']
+        && request.resource.data.itemType == resource.data.itemType && validFund(request.resource.data.fund) && (
+        // GSO: custody, movements, splits, PAR / ICS for register items and descriptions — never the fund, account, source or ledger
+        (issuer() && onlyChanged(['holder', 'custodianUid', 'location', 'status', 'condition', 'disposal', 'history', 'updatedAt', 'qty', 'cost', 'unitCost',
+          'propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'estimatedLife', 'description', 'specs',
+          'articleType', 'remarks', 'dvNo', 'photoUrl', 'docUrl', 'unit', 'special', 'acquisition', 'parIcs']))
+        // Accounting: the ledger side — cost corrections, revaluations, adjustments / impairments, reclassification,
+        // fund transfer, opening balances, CIP additions and reactivation of a disposed item (status: disposed → active only)
+        || (poster() && onlyChanged(['propertyNo', 'usefulLifeYears', 'residualValue', 'depreciable', 'condition', 'history', 'updatedAt',
+          'description', 'specs', 'articleType', 'remarks', 'dvNo', 'photoUrl', 'docUrl', 'unit', 'special', 'acquisition', 'estimatedLife', 'location',
+          'cost', 'unitCost', 'dateAcquired', 'accountCode', 'depBaseline', 'priorAdjustment', 'components',
+          'revaluations', 'adjustments', 'accountChanges', 'fundChanges', 'fund', 'reactivations', 'status', 'disposal'])
+          && (request.resource.data.status == resource.data.status || (resource.data.status == 'disposed' && request.resource.data.status == 'active')))
         || isAdmin());
       allow delete: if false;
     }
@@ -179,6 +191,8 @@ service cloud.firestore {
       allow update: if
         (issuer() && resource.data.needsPosting == true && resource.data.status == 'done' && resource.data.posting.posted == false
           && request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))
+        // printed details only (signatories, reason, reference) — the items are untouched
+        || (issuer() && resource.data.status == 'done' && onlyChanged(['reason', 'ref', 'typeOther', 'approvedBy', 'issuedBy', 'edited', 'updatedAt']))
         || (poster() && resource.data.needsPosting == true && resource.data.status == 'done' && onlyChanged(['posting', 'updatedAt']));
       allow delete: if false;
     }
@@ -187,7 +201,9 @@ service cloud.firestore {
     match /depreciation/{id} {
       allow read: if viewer();
       allow create: if poster() && id == request.resource.data.fund + '_' + request.resource.data.period
-        && validFund(request.resource.data.fund) && request.resource.data.period.matches('^[0-9]{4}-[0-9]{2}$');
+        && validFund(request.resource.data.fund) && request.resource.data.period.matches('^[0-9]{4}-[0-9]{2}$')
+        // posting although the prior month's Trial Balance doesn't tie out is an administrator's call
+        && (!('override' in request.resource.data) || isAdmin());
       allow delete: if poster();
       allow update: if false;
     }

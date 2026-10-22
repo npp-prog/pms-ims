@@ -1,8 +1,8 @@
 // Accounting: monthly depreciation (straight-line, posted per period with its JEV) and Trial Balance reconciliation.
-import { S, can, fundRuns } from "../state.js";
+import { S, can, isAdmin, fundRuns } from "../state.js";
 import { $, esc, busy, toast, money, num, fmtDate, fmtDateTime, manilaToday, confirmBox, downloadCSV, sheetAsText } from "../ui.js";
 import { fundName, accountName, CATEGORIES } from "../core/catalog.js";
-import { depreciationFor, lastPosted, checkPostPeriod, addMonths, periodOf, periodEnd, parseTrialBalance, reconcile, isPeriod } from "../core/assets.js";
+import { depreciationFor, lastPosted, checkPostPeriod, addMonths, periodOf, periodEnd, parseTrialBalance, reconcile, isPeriod, costGate } from "../core/assets.js";
 import { stockCards, round2 } from "../core/logic.js";
 import { postDepreciation, unpostDepreciation, saveTrialBalance } from "../data.js";
 import { printForm, depreciationJevHtml, tableReportHtml } from "../print.js";
@@ -17,18 +17,25 @@ export function depreciation(main) {
   const preview = posted ? { rows: Object.entries(posted.amounts || {}).map(([id, amount]) => { const a = S.d.assets.find(x => x.id === id) || {}; return { id, amount, propertyNo: a.propertyNo, description: a.description || "(record not found)", accountCode: a.accountCode }; }), byAccount: posted.byAccount, total: posted.total }
     : depreciationFor(S.d.assets, S.fund, period, S.d.depr);
   const err = posted ? "" : checkPostPeriod(S.d.depr, S.fund, period, manilaToday());
+  const gate = posted || err ? null : costGate(S.d.assets, S.d.depr, S.d.tb, S.fund, period, S.d.cip);
+  const gateMsg = !gate || gate.ok ? "" : gate.reason === "no-tb"
+    ? `Posting is on hold: enter the ${esc(gate.required)} Trial Balance in <a href="#/reconciliation">Reconciliation</a> first — the register's PPE cost must tie out to the month before.`
+    : `Posting is on hold: ${gate.flagged.length} PPE cost account(s) don't tie out to the ${esc(gate.required)} Trial Balance (${gate.flagged.map(r => esc(r.code)).join(", ")}). Fix them in <a href="#/reconciliation">Reconciliation</a> first.`;
+  const canPost = can("post") && !posted && !err && preview.rows.length;
   main.innerHTML = `<div class="page-head"><div><h1>Depreciation</h1><p>Straight-line, monthly, as in PMS: (cost − residual value) ÷ useful life, starting the month after acquisition (or after the imported balance) and stopping at the residual value. Periods are posted in order.</p></div></div>
     <div class="card"><div class="table-tools" data-nodirty>
       <div><label>Period</label><input type="month" id="per" value="${period}"></div>
       <div class="grow small muted" style="align-self:center">${esc(fundName(S.fund))} · last posted: <b>${esc(last || "none yet")}</b>${last ? ` · next: <b>${esc(addMonths(last, 1))}</b>` : ""}</div>
-      <div class="btn-row" style="align-self:flex-end"><button class="btn" id="csv">CSV</button><button class="btn" id="jev">Print JEV</button></div></div>
+      <div class="btn-row" style="align-self:flex-end"><button class="btn" id="csv">CSV</button><button class="btn" id="jcsv">JEV CSV</button><button class="btn" id="jev">Print JEV</button></div></div>
       ${posted ? `<div class="notice ok">Posted · JEV ${esc(posted.jevNo)} · ${fmtDateTime(posted.postedAt)} by ${esc(posted.postedBy?.name)}</div>`
-        : err ? `<div class="notice warn">${esc(err)}</div>` : ""}
+        : err ? `<div class="notice warn">${esc(err)}</div>` : gateMsg ? `<div class="notice warn">${gateMsg}</div>` : ""}
+      ${posted?.override ? `<div class="notice warn">Posted without a tied-out Trial Balance — ${esc(posted.override.reason)} (${esc(posted.override.by?.name)})</div>` : ""}
       <h3>JEV summary — ${money(preview.total)}</h3>
       <div class="table-wrap"><table><thead><tr><th>Account</th><th class="right">Items</th><th>Debit (expense)</th><th>Credit (accumulated depreciation)</th><th class="right">Amount</th></tr></thead>
         <tbody>${preview.byAccount.map(r => `<tr><td><b>${esc(r.code)}</b> ${esc(r.name)}</td><td class="right">${r.count}</td><td class="small">${esc(r.expCode)} ${esc(r.expName)}</td><td class="small">${esc(r.adCode)}</td><td class="right">${num(r.amount)}</td></tr>`).join("") || `<tr><td colspan="5" class="empty">Nothing to depreciate for this period.</td></tr>`}</tbody>
         <tfoot><tr><td colspan="4" class="right">Total</td><td class="right">${money(preview.total)}</td></tr></tfoot></table></div>
-      ${can("post") && !posted && !err && preview.rows.length ? `<form class="btn-row" id="pf" style="margin-top:1rem;justify-content:flex-end"><input name="jev" placeholder="JEV No." style="width:220px" data-nodirty><button class="btn primary" type="submit">Post ${esc(period)}</button></form>` : ""}
+      ${canPost && !gateMsg ? `<form class="btn-row" id="pf" style="margin-top:1rem;justify-content:flex-end"><input name="jev" placeholder="JEV No." style="width:220px" data-nodirty><button class="btn primary" type="submit">Post ${esc(period)}</button></form>` : ""}
+      ${canPost && gateMsg && isAdmin() ? `<form class="btn-row" id="of" style="margin-top:1rem;justify-content:flex-end"><input name="reason" placeholder="Reason for posting anyway" style="width:280px" data-nodirty><input name="jev" placeholder="JEV No." style="width:180px" data-nodirty><button class="btn danger" type="submit">Administrator override: post ${esc(period)}</button></form>` : ""}
       ${can("post") && posted && posted.period === last ? `<div class="btn-row end" style="margin-top:1rem"><button class="btn danger" id="un">Unpost ${esc(period)}</button></div>` : ""}
     </div>
     <details class="card"><summary><b>Items (${preview.rows.length})</b> — show each record's depreciation</summary><div class="table-wrap" style="margin-top:.8rem"><table><thead><tr><th>Property No.</th><th>Description</th><th>Account</th><th class="right">Depreciation</th></tr></thead>
@@ -39,6 +46,15 @@ export function depreciation(main) {
   $("#jev", main).onclick = () => printForm(depreciationJevHtml(S.fund, period, preview, posted?.jevNo));
   $("#csv", main).onclick = () => downloadCSV(`Depreciation-${S.fund}-${period}`, ["Property No.", "Description", "Account", "Depreciation Expense", "Accumulated Depreciation", "Amount"],
     preview.rows.map(r => { const b = preview.byAccount.find(x => x.code === r.accountCode) || {}; return [r.propertyNo, r.description, r.accountCode, b.expCode, b.adCode, r.amount]; }));
+  $("#jcsv", main).onclick = () => downloadCSV(`JEV-Depreciation-${S.fund}-${period}`, ["JEV No.", "Date", "Fund", "UACS Code", "Account", "Debit", "Credit", "Particulars"],
+    preview.byAccount.flatMap(r => [[posted?.jevNo || "", periodEnd(period), S.fund, r.expCode, r.expName, r.amount, "", `Depreciation ${period} — ${r.name}`],
+      [posted?.jevNo || "", periodEnd(period), S.fund, r.adCode, `Accumulated Depreciation — ${r.name}`, "", r.amount, `Depreciation ${period} — ${r.name}`]]));
+  $("#of", main) && ($("#of", main).onsubmit = async e => {
+    e.preventDefault();
+    const f = e.target;
+    if (!(await confirmBox({ title: `Post ${period} without a tied-out Trial Balance?`, body: "The override and your reason are recorded with the posting and in the audit log.", confirmText: "Post anyway", danger: true }))) return;
+    busy(e.submitter, () => postDepreciation(S.fund, period, f.jev.value, preview, { reason: f.reason.value }), `Depreciation for ${period} posted.`).catch(() => {});
+  });
   $("#pf", main) && ($("#pf", main).onsubmit = e => {
     e.preventDefault();
     busy(e.submitter, () => postDepreciation(S.fund, period, e.target.jev.value, preview), `Depreciation for ${period} posted.`).catch(() => {});
@@ -48,7 +64,7 @@ export function depreciation(main) {
     busy(e.target, () => unpostDepreciation(S.fund, period), "Unposted.").catch(() => {});
   });
 }
-depreciation.deps = ["r:depr", "r:assets", "fund"];
+depreciation.deps = ["r:depr", "r:assets", "r:tb", "r:cip", "fund"];
 
 /* ---------------- Trial Balance reconciliation ---------------- */
 export function reconciliation(main) {
@@ -57,7 +73,7 @@ export function reconciliation(main) {
   const tb = S.d.tb.find(t => t.fund === S.fund && t.period === period);
   const stock = {};
   for (const c of stockCards(S.d.airs, S.d.docs, S.fund, periodEnd(period))) stock[c.accountCode] = round2((stock[c.accountCode] || 0) + c.balValue);
-  const rows = reconcile(S.d.assets, S.d.depr.filter(r => r.fund === S.fund), stock, tb?.accounts || null, S.fund, period, S.d.cip);
+  const rows = reconcile(S.d.assets, S.d.depr, stock, tb?.accounts || null, S.fund, period, S.d.cip);
   const bad = rows.filter(r => !r.ok).length;
   // accumulated depreciation is complete up to the later of the last posted month and the imported PMS balance
   const covered = [last, ...S.d.assets.filter(a => a.fund === S.fund && a.depBaseline?.period).map(a => a.depBaseline.period)].filter(Boolean).sort().at(-1) || null;

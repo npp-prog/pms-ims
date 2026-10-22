@@ -333,3 +333,11 @@ tfoot td { font-weight: 600; border-top: 1px solid var(--line-2); }
 .sig2 .pos { border-bottom: 1px solid #000; margin-top: 14px; min-height: 15px; }
 .sig2 .cap, .pf .cap { font-size: 9px; }
 .sigt td { height: 20px; }
+.pinfo { margin-top: 2px; } .pinfo td { font-size: 10.5px; } .pinfo td.lbl { width: 1%; white-space: nowrap; font-weight: 700; }
+.card-l .pt { font-size: 9.5px; } .card-l .pt th { font-size: 9px; }
+.tags { display: grid; grid-template-columns: repeat(2, 3in); gap: 6mm; }
+.tag { width: 3in; height: 1.9in; border: 1px solid #000; display: flex; gap: 8px; align-items: center; padding: 6px 8px; font-family: Arial, sans-serif; font-size: 10px; page-break-inside: avoid; overflow: hidden; }
+.tag .qr { flex: 0 0 96px; height: 96px; } .tag .qr img, .tag .qr canvas { width: 96px; height: 96px; }
+.tag b { font-size: 12px; display: block; margin: 2px 0; } .tag .xs { font-size: 8.5px; }
+.search-hits h4 { margin: .8rem 0 .3rem; } .search-hits a { display: block; padding: .3rem .4rem; border-radius: 6px; } .search-hits a:hover { background: var(--bg-soft, #f3f6f2); }
+.search-card input[type=search] { width: 100%; font-size: 1rem; padding: .7rem .9rem; }

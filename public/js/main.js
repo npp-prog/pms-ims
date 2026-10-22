@@ -18,7 +18,36 @@ import * as Cip from "./views/cip.js";
 import * as Repairs from "./views/repairs.js";
 import { counts } from "./views/common.js";
 
-const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>` };
+const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`,
+  logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>` };
+// One line icon per menu entry (24px grid, 1.8 stroke), shown before the label.
+const P = {
+  home: '<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
+  "airs/new": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/>',
+  airs: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+  inspect: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M8.5 11l1.8 1.8 3.2-3.3"/>',
+  issue: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
+  issuances: '<path d="M7 3h10a2 2 0 0 1 2 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6"/>',
+  myproperty: '<path d="M3 21h18M5 21V8l7-5 7 5v13"/><path d="M9 21v-5h6v5M9 11h.01M15 11h.01"/>',
+  repairs: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+  "registry/ppe": '<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>',
+  "registry/sx": '<path d="M4 7h16v13H4zM9 7V4h6v3"/><path d="M4 12h16"/>',
+  movements: '<path d="M7 7h13l-3-3M17 17H4l3 3"/>',
+  "registry/stock": '<path d="M4 4h16v4H4zM5 8v12h14V8"/><path d="M10 12h4"/>',
+  cip: '<path d="M2 20h20M4 20V10l8-6 8 6v10"/><path d="M9 20v-6h6v6"/><path d="M12 4V2"/>',
+  swa: '<path d="M9 11l3 3 8-8"/><path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9"/>',
+  posting: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M9 9l2 2 4-4"/>',
+  posted: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/>',
+  depreciation: '<path d="M3 3v18h18"/><path d="M7 8l4 4 3-3 6 6"/>',
+  reconciliation: '<path d="M12 3v18M5 7h14M3 14l2-7 2 7a2 2 0 0 1-4 0zM17 14l2-7 2 7a2 2 0 0 1-4 0z"/>',
+  reports: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  users: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14a5.5 5.5 0 0 1 3.5 6"/>',
+  import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>',
+  settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  audit: '<path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/>',
+  profile: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'
+};
+const navIcon = k => `<svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k] || P.home}</svg>`;
 let screen = "", current = null, dirty = false, renderTimer = null, activeRole = null;
 
 if (!CONFIGURED) Auth.renderSetupNeeded($("#app"));
@@ -119,14 +148,15 @@ function renderShell() {
       <img class="seal" src="assets/municipal-seal.png" alt="">
       <div class="brand"><b>PMS-IMS</b><span>Property &amp; Inventory Management · Municipal Government of Candoni</span></div>
       <div class="spacer"></div>
-      <div class="me" id="me"></div>
-      <button class="icon-btn" id="logout">Log out</button>
+      <a class="me" id="me" href="#/profile" title="My Profile"></a>
+      <button class="icon-btn" id="logout" title="Log out">${ICON.logout}<span class="lo-txt">Log out</span></button>
     </header>
     <div class="layout"><nav class="side" aria-label="Main">
       <div class="fund"><label for="fund-sel">Fund</label><select id="fund-sel" class="fund-select" data-nodirty>${opts(FUNDS.map(f => [f.code, f.name]), S.fund)}</select></div>
-      <div id="nav"></div></nav><main class="main" id="main" tabindex="-1"></main></div>`;
+      <div id="nav"></div></nav><div class="scrim" id="scrim"></div><main class="main" id="main" tabindex="-1"></main></div>`;
+  $("#scrim").onclick = () => document.body.classList.remove("nav-open");
   $("#logout").onclick = async () => { if (!dirty || confirm("Leave without saving your changes?")) await signOut(auth); };
-  $("#menu-btn").onclick = () => document.body.classList.toggle("nav-open");
+  $("#menu-btn").onclick = () => { const open = document.body.classList.toggle("nav-open"); $("#menu-btn").setAttribute("aria-expanded", String(open)); };
   $("#fund-sel").onchange = e => { if (dirty && !confirm("Switch fund and lose your unsaved changes?")) { e.target.value = S.fund; return; } dirty = false; setFund(e.target.value); };
   $("#main").addEventListener("input", e => { if (!e.target.closest("[data-nodirty]")) dirty = true; });
   updateChrome();
@@ -172,5 +202,5 @@ function updateChrome() {
   const fs = $("#fund-sel"); if (fs && fs.value !== S.fund) fs.value = S.fund;
   const active = NAV_OF[current?.name] || current?.name;
   $("#nav").innerHTML = navGroups().map(g => `${g.label ? `<div class="group">${esc(g.label)}</div>` : ""}${g.items.map(([k, l, c]) =>
-    `<a href="#/${k}" class="${active === k ? "active" : ""}">${esc(l)}${c ? `<span class="count">${c}</span>` : ""}</a>`).join("")}`).join("");
+    `<a href="#/${k}" class="${active === k ? "active" : ""}"${active === k ? ` aria-current="page"` : ""}>${navIcon(k)}<span class="lbl">${esc(l)}</span>${c ? `<span class="count" aria-label="${c} waiting">${c}</span>` : ""}</a>`).join("")}`).join("");
 }

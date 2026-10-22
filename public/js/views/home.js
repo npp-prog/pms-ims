@@ -45,6 +45,7 @@ export function dashboard(main) {
 
   const glance = r === "enduser" ? [
     ["My AIRs submitted", mine.filter(a => a.status !== "draft").length, "#/airs"],
+    ["Office AIRs (all encoders)", S.d.airs.filter(a => a.status !== "draft").length, "#/airs"],
     ["Waiting for GSO inspection", mine.filter(a => a.status === "submitted").length, "#/airs"],
     ["Approved, for issuance", mine.filter(a => a.status === "approved").length, "#/airs"],
     ["PAR / ICS / RIS issued to my AIRs", S.d.docs.filter(d => d.status !== "cancelled").length, "#/issuances"]
@@ -57,7 +58,7 @@ export function dashboard(main) {
     ["Posted in the registry", `${posting.filter(p => p.posting.posted).length} of ${posting.length}`, "#/posted"]
   ];
 
-  const recentAirs = (r === "enduser" ? mine : airs).filter(a => a.status !== "draft").sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)).slice(0, 6);
+  const recentAirs = (r === "enduser" ? S.d.airs : airs).filter(a => a.status !== "draft").sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)).slice(0, 6);
   const recentDocs = [...(r === "enduser" ? S.d.docs : docs)].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).slice(0, 6);
   const name = (S.account?.displayName || "").split(" ")[0];
 

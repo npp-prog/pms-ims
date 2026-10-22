@@ -14,10 +14,10 @@ const clean = () => window.dispatchEvent(new Event("app:clean"));
 /* ---------------- lists ---------------- */
 export function list(main) {
   const enduser = role() === "enduser";
-  const rows = (enduser ? S.d.airs.filter(a => a.endUserUid === S.user.uid) : fundAirs())
-    .filter(a => enduser || a.status !== "draft");
-  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "My Acceptance and Inspection Reports" : "Acceptance and Inspection Reports"}</h1>
-      <p>${enduser ? "Encode each delivery you received. The GSO inspects it, then issues the PAR, ICS or RIS." : `Every submitted AIR in the ${esc(fundName(S.fund))}. Drafts stay private to the End-User until submitted.`}</p></div>
+  const mine = a => a.endUserUid === S.user.uid, office = S.account?.office || "";
+  const rows = (enduser ? S.d.airs : fundAirs()).filter(a => enduser || a.status !== "draft");
+  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "Office AIRs" : "Acceptance and Inspection Reports"}</h1>
+      <p>${enduser ? `Every AIR of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received; the GSO inspects it, then issues the PAR, ICS or RIS. You can edit only your own drafts and returned AIRs.` : `Every submitted AIR in the ${esc(fundName(S.fund))}. Drafts stay private to the End-User until submitted.`}</p></div>
       <div class="btn-row">${can("encodeAir") ? `<a class="btn primary" href="#/airs/new">New AIR</a>` : ""}<button class="btn" id="csv">Download CSV</button></div></div>
     <div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
@@ -25,17 +25,18 @@ export function list(main) {
     searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.poNo} ${a.invNo} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
     searchPlaceholder: "AIR no., supplier, office, PO, item",
     filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || k !== "draft"), test: (a, v) => a.status === v },
-      ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v }] : [])],
+      ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v },
+        { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
       { label: "Date", render: a => fmtDate(a.date), sort: a => a.date || "" },
       { label: "AIR No.", render: a => `<b>${esc(a.airNo || "—")}</b>${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || "" },
       { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
-      { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>`, sort: a => a.office || "" },
+      { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${enduser && mine(a) ? "<b>You</b>" : esc(a.endUserName)}</div>`, sort: a => a.office || "" },
       { label: "Items", render: a => (a.lines || []).length, cls: "right" },
       { label: "Amount", render: a => money(a.total), sort: a => a.total || 0, cls: "right", headCls: "right" },
       { label: "Status", render: a => airBadge(a.status), sort: a => a.status }
     ],
-    empty: enduser ? "You have not encoded any AIR yet." : "No AIRs in this fund yet.",
+    empty: enduser ? "No AIR has been encoded for your office yet." : "No AIRs in this fund yet.",
     onRow: a => { location.hash = `#/airs/${a.id}`; }
   });
   $("#csv", main).onclick = () => downloadCSV(`AIR-${S.fund}`, ["Fund", "AIR No.", "Date", "Supplier", "PO No.", "Invoice No.", "Office", "End-User", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Category", "Account", "Issued Qty", "Status"],

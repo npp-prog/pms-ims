@@ -82,7 +82,9 @@ service cloud.firestore {
 
     // ---------------- Acceptance and Inspection Reports ----------------
     match /airs/{id} {
-      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
+      allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid)
+        // End-Users also see the submitted AIRs of their own office (not a colleague's drafts)
+        || (sameOffice(resource.data.office) && resource.data.status in ['submitted', 'returned', 'approved', 'issued']);
 
       allow create: if encoder()
         && request.resource.data.endUserUid == request.auth.uid

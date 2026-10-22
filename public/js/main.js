@@ -90,7 +90,7 @@ function navGroups() {
   const c = counts(), r = role();
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
-    g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "My AIRs", c.returned]] });
+    g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "Office AIRs", c.returned]] });
     g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
     g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"]] });

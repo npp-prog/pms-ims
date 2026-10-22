@@ -185,7 +185,7 @@ Trees) differ in the source data itself.
 
 | Role | Can do |
 | --- | --- |
-| **End-User** | Encode, submit and correct **their own** AIRs. See **Office Property** (every item held by their office, their own marked "You") and the PAR / ICS / RIS of their office. Record **repairs** of items under their own name. |
+| **End-User** | Encode, submit and correct **their own** AIRs, and see every submitted AIR of **their office** (colleagues' drafts stay private). See **Office Property** (every item held by their office, their own marked "You") and the PAR / ICS / RIS of their office. Record **repairs** of items under their own name. |
 | **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Add items by hand, PAR / ICS for register items, cards and QR tags. Registries and reports. |
 | **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Add items by hand, correct cost and opening balances, revalue, impairments and adjustments, reclassify, reactivate. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
@@ -197,7 +197,7 @@ document as posted.
 
 ### Screens
 
-Dashboard · Office Property · New AIR / My AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
+Dashboard · Office Property · New AIR / Office AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
 PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
 Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by

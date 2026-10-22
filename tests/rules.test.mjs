@@ -367,3 +367,21 @@ test("PAR / ICS for register items, editing a transfer's printed details, deprec
   await assertFails(setDoc(doc(ctx("acc"), "depreciation/GF_2026-02"), run), "only an administrator overrides the Trial Balance gate");
   await assertSucceeds(setDoc(doc(ctx("ad"), "depreciation/GF_2026-02"), run));
 });
+
+test("End-Users see the submitted AIRs of their office, never a colleague's draft, and edit only their own", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await updateDoc(doc(d, "users/eu"), { office: "MHO" });
+    await updateDoc(doc(d, "users/eu2"), { office: "MHO" });
+    await setDoc(doc(d, "airs/COL_SUB"), baseAir({ endUserUid: "eu2", office: "MHO", airNo: "2026-10-0010" }));
+    await setDoc(doc(d, "airs/COL_DRAFT"), baseAir({ endUserUid: "eu2", office: "MHO", airNo: "", status: "draft" }));
+    await setDoc(doc(d, "airs/OTHER_OFF"), baseAir({ endUserUid: "x", office: "MAO", airNo: "2026-10-0011" }));
+  });
+  const e = ctx("eu");
+  await assertSucceeds(getDocs(query(collection(e, "airs"), where("office", "==", "MHO"), where("status", "in", ["submitted", "returned", "approved", "issued"]))));
+  await assertSucceeds(getDoc(doc(e, "airs/COL_SUB")));
+  await assertFails(getDoc(doc(e, "airs/COL_DRAFT")), "a colleague's draft stays private");
+  await assertFails(getDocs(query(collection(e, "airs"), where("office", "==", "MHO"))), "the query must leave drafts out");
+  await assertFails(getDoc(doc(e, "airs/OTHER_OFF")));
+  await assertFails(updateDoc(doc(e, "airs/COL_SUB"), { supplier: "x" }), "only the encoder edits");
+});

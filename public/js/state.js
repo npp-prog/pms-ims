@@ -51,18 +51,21 @@ export function startAccount(uid) {
 }
 
 /** Listeners that depend on the role on the account record (the security rules enforce the same split). */
+/** AIRs a colleague in the same office may see — never someone else's draft. Must match firestore.rules. */
+const OFFICE_AIR_STATUSES = ["submitted", "returned", "approved", "issued"];
 export function startRole() {
   stop("r:");
   const uid = S.user.uid;
   if (role() === "enduser") {
-    live("r:airs", query(collection(db, "airs"), where("endUserUid", "==", uid)), v => { S.d.airs = v; });
-    // their own records, plus everything held by / issued to their office
+    // their own records (drafts included), plus everything of their office: submitted AIRs, documents issued and property held
     const office = S.account?.office || "";
-    const parts = { docs: [[], []], assets: [[], []] };
+    const parts = { airs: [[], []], docs: [[], []], assets: [[], []] };
     const merge = (key, i, v) => { parts[key][i] = v; const seen = new Map(); parts[key].flat().forEach(x => seen.set(x.id, x)); S.d[key] = [...seen.values()]; };
+    live("r:airs", query(collection(db, "airs"), where("endUserUid", "==", uid)), v => merge("airs", 0, v));
     live("r:docs", query(collection(db, "issuances"), where("endUserUid", "==", uid)), v => merge("docs", 0, v));
     live("r:assets", query(collection(db, "assets"), where("custodianUid", "==", uid)), v => merge("assets", 0, v));
     if (office) {
+      live("r:officeAirs", query(collection(db, "airs"), where("office", "==", office), where("status", "in", OFFICE_AIR_STATUSES)), v => merge("airs", 1, v));
       live("r:officeDocs", query(collection(db, "issuances"), where("recipient.office", "==", office)), v => merge("docs", 1, v));
       live("r:officeAssets", query(collection(db, "assets"), where("holder.office", "==", office)), v => merge("assets", 1, v));
     }

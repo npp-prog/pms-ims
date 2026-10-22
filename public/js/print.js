@@ -1,13 +1,16 @@
 // Printable official forms. Layouts follow the ones already used in PMS (PAR, ICS, PTR, ITR) and IMS
 // (AIR, RIS, Stock Card, Supplies Ledger Card, RSMI). No appendix / annex numbers are printed.
-import { $, esc, fmtDate, num, qty } from "./ui.js";
+import { $, esc, fmtDate, num, qty, toast } from "./ui.js";
 import { settings } from "./state.js";
 import { fundName, accountName } from "./core/catalog.js";
 import { specialGroup, COMPONENTS, propertyCardRows } from "./core/cards.js";
 
 export function printForm(html, orientation = "portrait") {
   const area = $("#print-area");
+  area.dataset.orient = orientation;
   area.innerHTML = `<style>@page { size: ${orientation === "tags" ? "A4 portrait" : `A4 ${orientation}`}; margin: 10mm; }</style>${html}`;
+  // Chrome and Edge follow the page size above; Safari and Firefox may not, so remind the user.
+  if (orientation === "landscape" && !window.chrome) toast("Set the layout to Landscape in the print dialog.");
   const qrs = area.querySelectorAll("[data-qr]");
   if (!qrs.length) return void setTimeout(() => window.print(), 200);
   loadQR().then(() => {

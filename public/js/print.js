@@ -5,12 +5,13 @@ import { settings } from "./state.js";
 import { fundName, accountName } from "./core/catalog.js";
 import { specialGroup, COMPONENTS, propertyCardRows } from "./core/cards.js";
 
+/** Every printed form and report is A4: portrait, landscape (cards, wide reports) or the A4 sheet of ID tags. */
 export function printForm(html, orientation = "portrait") {
   const area = $("#print-area");
   area.dataset.orient = orientation;
   area.innerHTML = `<style>@page { size: ${orientation === "tags" ? "A4 portrait" : `A4 ${orientation}`}; margin: 10mm; }</style>${html}`;
   // Chrome and Edge follow the page size above; Safari and Firefox may not, so remind the user.
-  if (orientation === "landscape" && !window.chrome) toast("Set the layout to Landscape in the print dialog.");
+  if (!window.chrome) toast(`In the print dialog, set the paper size to A4${orientation === "landscape" ? " and the layout to Landscape" : ""}.`);
   const qrs = area.querySelectorAll("[data-qr]");
   if (!qrs.length) return void setTimeout(() => window.print(), 200);
   loadQR().then(() => {

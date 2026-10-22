@@ -203,7 +203,10 @@ Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Su
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
 Account, AIR Monitoring, Accountability, Disposed / Retired) · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.
-Every list can be downloaded as a CSV, and every form prints on A4.
+Every list can be downloaded as a CSV. **Everything prints on A4**: forms such as the AIR, PAR, ICS, RIS, PTR and JEV
+in portrait; Ledger / Property / Stock / CIP cards and the wide reports in landscape; ID tags on an A4 sheet. Chrome and
+Edge pick A4 and the orientation automatically; Safari and Firefox show a reminder to choose A4 (and Landscape) in the
+print dialog.
 
 ---
 

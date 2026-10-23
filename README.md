@@ -124,9 +124,11 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 
 ### Property register (everything from PMS)
 
-- **Add an item by hand** (GSO or Accounting): property found at the station, donated, transferred
-  in, or acquired before the system, with DV No., remarks, photo and document links, and an
-  opening accumulated depreciation "as of" month (or a prior write-down for semi-expendable).
+- **No adding items directly in the registry.** Items enter it only from a PAR / ICS posted by
+  Accounting, from a completed CIP project, or in bulk through **Administration → Data Import**
+  (property found at the station, donated, transferred in, or acquired before the system). The
+  registry also has no "Issue PAR / ICS": everything in it is already covered by a PAR / ICS.
+  After an import, **Correct record** adds the DV No., acquisition, remarks, links and card details.
 - **Special card details** by account: Land (lot ID, classification, area, technical description),
   Road Network (road ID, type, length, width, thickness, and cost by component — the Road Lot is
   land, becomes the residual value and is never depreciated), Other Public Infrastructure,
@@ -136,7 +138,6 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 - **Accounting actions on each item:** Revalue, Ledger entry (adjustment or impairment loss),
   Reclassify (account and/or fund), Reactivate a disposed item. Each keeps a dated record shown
   under "Ledger changes".
-- **PAR / ICS for register items** that came from PMS or were added by hand (no AIR behind them).
 - **Printed cards**, one or in bulk from any filtered list: Equipment Ledger Card, Property Card,
   Semi-Expendable Property Ledger Card and Property Card, Land and Land Improvements, Local Road
   Network, Other Public Infrastructure and Buildings and Structures (ledger and property cards,
@@ -163,13 +164,13 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   outside it: the registry says how many are waiting, the item's page says which PAR / ICS it waits for, End-Users see
   them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
   reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
-  Items brought over from PMS, added by hand or completed from CIP are in the registry from the start.
+  Items brought in through Data Import or completed from CIP are in the registry from the start.
 - **RSMI, monthly by JEV date:** Reports → RSMI lists one RSMI per month (RSMI No. = the month, e.g. 2026-10), made
   automatically from the RIS that Accounting posted in that month — an RIS goes into the month of its JEV date,
   whatever date it was issued. RIS not yet posted are shown as waiting; they join the month they are posted.
 - **Posting by AIR:** For Posting shows one row per AIR. Posting it marks the AIR **and every PAR, ICS and RIS issued
   from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
-  posted the same way. Disposals and PAR / ICS for register items (no AIR) are posted on their own rows.
+  posted the same way. Disposals are posted on their own rows.
 
 ### Attachments (signed PAR / ICS / RIS and other documents)
 
@@ -219,8 +220,8 @@ Trees) differ in the source data itself.
 | Role | Can do |
 | --- | --- |
 | **End-User** | Encode, submit and correct **their own** AIRs, and see every submitted AIR of **their office** (colleagues' drafts stay private). See **Office Property** (every item held by their office, their own marked "You") and the PAR / ICS / RIS of their office. Record **repairs** of items under their own name. |
-| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Add items by hand, PAR / ICS for register items, cards and QR tags. Registries and reports. |
-| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Add items by hand, correct cost and opening balances, revalue, impairments and adjustments, reclassify, reactivate. |
+| **GSO** | See all AIRs. Inspect, approve or return. Issue and cancel PAR, ICS and RIS. Transfers, returns and disposals. Verify repairs. Encode SWAs. Correct records, cards and QR tags. Registries and reports. |
+| **Accounting** | See everything. Post and unpost documents and disposals. Depreciation. Trial Balance reconciliation. Construction in Progress (projects, billings, SWA matching, transfer to PPE). Correct cost and opening balances, revalue, impairments and adjustments, reclassify, reactivate. |
 | **Admin** | Everything above, plus approving users, assigning End-User, GSO and Accounting roles, settings and the audit trail. |
 | **Super Admin** | Everything, including assigning and removing **Admins**. |
 

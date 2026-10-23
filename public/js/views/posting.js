@@ -67,7 +67,7 @@ export function queue(main) {
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ["register", "PAR / ICS for register items"], ["movement", "Disposal / donation"]],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "Older PAR / ICS without an AIR"]] : []), ["movement", "Disposal / donation"]],
       test: (r, v) => v === "air" ? !!r.airId : v === "movement" ? r.items[0].kind === "movement" : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },

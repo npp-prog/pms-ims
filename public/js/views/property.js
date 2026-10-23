@@ -7,7 +7,7 @@ import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOS
 import { round2, numberingFor } from "../core/logic.js";
 import { saveMovement, cancelMovement, editMovementDetails } from "../data.js";
 import { printForm, movementHtml, tableReportHtml } from "../print.js";
-import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, registerIssueModal, printCards, activityLog } from "./assetforms.js";
+import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, printCards, activityLog } from "./assetforms.js";
 import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES } from "../core/cards.js";
 import { repairsOf, printHistory } from "./repairs.js";
 import { attachmentsCard, attachmentsOf } from "./attachments.js";
@@ -26,9 +26,9 @@ function registry(main, itemType) {
   const rows = fundAssets().filter(a => a.itemType === itemType && a.status !== "cancelled");
   const title = ppe ? "Property, Plant & Equipment" : "Semi-Expendable Property";
   const canMove = can("issue");
-  main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every ${ppe ? "PPE" : "semi-expendable"} record in the ${esc(fundName(S.fund))}: issued on a ${ppe ? "PAR" : "ICS"} or imported from PMS.${canMove ? " Tick items held by one person to transfer, return or dispose of them." : ""}</p></div>
-    <div class="btn-row">${can("issue") || can("post") ? `<button class="btn primary" id="add">Add item</button>` : ""}
-      ${canMove ? `<button class="btn" data-mv="transfer" disabled>Transfer (${ppe ? "PTR" : "ITR"})</button><button class="btn" data-mv="return" disabled>Return (${ppe ? "PRS" : "RRSP"})</button><button class="btn danger" data-mv="dispose" disabled>Dispose</button><button class="btn" data-mv="issue" disabled title="For register items without a ${ppe ? "PAR" : "ICS"}">Issue ${ppe ? "PAR" : "ICS"}</button>` : ""}</div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every ${ppe ? "PPE" : "semi-expendable"} record in the ${esc(fundName(S.fund))}: issued on a ${ppe ? "PAR" : "ICS"} and posted by Accounting, or brought in through Data Import.${canMove ? " Tick items held by one person to transfer, return or dispose of them." : ""}</p></div>
+    <div class="btn-row">
+      ${canMove ? `<button class="btn" data-mv="transfer" disabled>Transfer (${ppe ? "PTR" : "ITR"})</button><button class="btn" data-mv="return" disabled>Return (${ppe ? "PRS" : "RRSP"})</button><button class="btn danger" data-mv="dispose" disabled>Dispose</button>` : ""}</div></div>
     ${(() => { const w = awaitingPosting().filter(a => a.itemType === itemType); return w.length ? `<div class="notice info">${w.length} item${w.length === 1 ? "" : "s"} issued on ${ppe ? "PAR" : "ICS"} (${money(w.reduce((t, a) => t + a.cost, 0))}) ${w.length === 1 ? "is" : "are"} not in the registry yet — ${w.length === 1 ? "it enters" : "they enter"} once Accounting posts the ${ppe ? "PAR" : "ICS"}. ${can("post") ? `<a href="#/posting">Open For Posting</a>` : ""}</div>` : ""; })()}
     <div class="card" id="t"></div>
     <div class="btn-row end"><span class="small muted" style="align-self:center">Print the items listed (filters apply):</span><button class="btn sm" id="lc">Ledger Cards</button><button class="btn sm" id="pc">Property Cards</button><button class="btn sm" id="tg">ID tags (QR)</button><button class="btn sm" id="csv">CSV</button><button class="btn sm" id="pr">Register</button></div>`;
@@ -40,8 +40,7 @@ function registry(main, itemType) {
     filters: [
       { key: "s", label: "Status", options: [["onhand", "On hand"], ["active", "In use"], ["returned", "Returned to GSO"], ["disposed", "Disposed"]], value: "onhand", test: (a, v) => v === "onhand" ? ["active", "returned"].includes(a.status) : a.status === v },
       { key: "a", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
-      { key: "o", label: "Office", options: [...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort(), test: (a, v) => a.holder?.office === v },
-      { key: "p", label: ppe ? "PAR" : "ICS", options: [["with", `With ${ppe ? "PAR" : "ICS"}`], ["without", `No ${ppe ? "PAR" : "ICS"} yet`]], test: (a, v) => (v === "with") === !!(a.parIcs?.number || ["par", "ics"].includes(a.source?.kind)) }
+      { key: "o", label: "Office", options: [...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort(), test: (a, v) => a.holder?.office === v }
     ],
     columns: [
       ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),
@@ -60,8 +59,7 @@ function registry(main, itemType) {
   });
   const sync = () => $$("[data-mv]", main).forEach(b => { b.disabled = !sel.size; });
   $("#t", main).addEventListener("click", e => { const c = e.target.closest("[data-sel]"); if (!c) return; c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); sync(); });
-  $$("[data-mv]", main).forEach(b => b.onclick = () => { const list = [...sel].map(assetById).filter(Boolean); b.dataset.mv === "issue" ? registerIssueModal(list) : movementModal(b.dataset.mv, list); });
-  $("#add", main) && ($("#add", main).onclick = () => assetFormModal(null, { itemType }));
+  $$("[data-mv]", main).forEach(b => b.onclick = () => { const list = [...sel].map(assetById).filter(Boolean); movementModal(b.dataset.mv, list); });
   $("#lc", main).onclick = () => printCards(t.rows(), "ledger");
   $("#pc", main).onclick = () => printCards(t.rows(), "property");
   $("#tg", main).onclick = () => printCards(t.rows(), "tags");
@@ -138,8 +136,7 @@ export function detail(main, [id]) {
     <div class="card"><div class="btn-row">
       <button class="btn sm" id="lc">Print Ledger Card</button><button class="btn sm" id="pc">Print Property Card</button><button class="btn sm" id="tag">ID tag (QR)</button>
       ${(gso || acct) && a.status !== "cancelled" ? `<button class="btn sm" id="edit">Correct record</button>` : ""}
-      ${gso && onHand ? `<button class="btn sm" data-mv="transfer">Transfer</button>${a.status === "active" ? `<button class="btn sm" data-mv="return">Return to GSO</button>` : ""}<button class="btn sm danger" data-mv="dispose">Dispose</button>
-        ${!a.parIcs?.number && !["par", "ics"].includes(a.source?.kind) ? `<button class="btn sm" id="iss">Issue ${ppe ? "PAR" : "ICS"}</button>` : ""}` : ""}
+      ${gso && onHand ? `<button class="btn sm" data-mv="transfer">Transfer</button>${a.status === "active" ? `<button class="btn sm" data-mv="return">Return to GSO</button>` : ""}<button class="btn sm danger" data-mv="dispose">Dispose</button>` : ""}
       ${acct && a.status !== "cancelled" ? `${ppe && a.status !== "disposed" ? `<button class="btn sm" id="rv">Revalue</button>` : ""}<button class="btn sm" id="le">Ledger entry</button><button class="btn sm" id="rc">Reclassify</button>${a.status === "disposed" ? `<button class="btn sm" id="ra">Reactivate</button>` : ""}` : ""}
     </div></div>
     <div class="split"><div>
@@ -189,7 +186,6 @@ export function detail(main, [id]) {
   $$("[data-mv]", main).forEach(b => b.onclick = () => movementModal(b.dataset.mv, [a]));
   const on = (sel, fn) => { const b = $(sel, main); if (b) b.onclick = fn; };
   on("#edit", () => assetFormModal(a));
-  on("#iss", () => registerIssueModal([a]));
   on("#rv", () => revalueModal(a));
   on("#le", () => ledgerEntryModal(a));
   on("#rc", () => reclassModal(a));

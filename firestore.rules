@@ -193,12 +193,9 @@ service cloud.firestore {
         && request.resource.data.number is string && request.resource.data.number.size() > 0
         && request.resource.data.status == 'issued'
         && request.resource.data.posting.posted == false
-        && (
-          // PAR / ICS for items already in the register (no AIR behind them)
-          (request.resource.data.get('origin', '') == 'register' && request.resource.data.docType in ['par', 'ics'] && request.resource.data.airId == null)
-          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid));
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid;
 
       allow update: if
         // GSO cancels a document Accounting has not posted
@@ -215,9 +212,13 @@ service cloud.firestore {
     // One record per PAR / ICS line (created in the issuance transaction), per import row, or per split.
     match /assets/{id} {
       allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid) || sameOffice(resource.data.holder.office);
-      allow create: if (issuer() || (isAdmin() && request.resource.data.source.kind == 'import')
-          // Accounting adds items to the register by hand (found, donated, acquired before the system)
-          || (poster() && request.resource.data.source.kind == 'manual')
+      // Items come into the register only from a PAR / ICS (created with it, in the same transaction), a split of an
+      // existing item (part of a semi-expendable record moved), a completed CIP project, or Data Import — never by hand.
+      allow create: if ((issuer() && request.resource.data.source.kind in ['par', 'ics']
+            && getAfter(/databases/$(database)/documents/issuances/$(request.resource.data.source.docId)).data.docType == request.resource.data.source.kind)
+          || (issuer() && request.resource.data.get('splitFrom', '') is string && request.resource.data.get('splitFrom', '') != ''
+            && exists(/databases/$(database)/documents/assets/$(request.resource.data.splitFrom)))
+          || (isAdmin() && request.resource.data.source.kind == 'import')
           // Accounting closes a CIP project into a new PPE record, in the same transaction
           || (poster() && request.resource.data.source.kind == 'cip'
             && getAfter(/databases/$(database)/documents/cipProjects/$(request.resource.data.source.docId)).data.status == 'completed'

@@ -5,7 +5,7 @@ import {
 } from "./fb.js";
 import { S, settings, can } from "./state.js";
 import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/catalog.js";
-import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, checkManualAsset, hasPostedDepreciation } from "./core/assets.js";
+import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, hasPostedDepreciation } from "./core/assets.js";
 import { specialGroup } from "./core/cards.js";
 import {
   round2, lineAmount, linesTotal, validateAir, NUMBERED_DOCS, numberingFor, seriesKey, formatDocNo, cleanDocNo, validateInspection, checkIssue, sxClass,
@@ -489,7 +489,7 @@ export function saveMovement(kind, assetIds, h) {
           // the moved part becomes its own record; the rest stays where it is
           const nref = doc(collection(db, "assets")); targetId = nref.id;
           const rest = { ...a }; delete rest.id;
-          tx.set(nref, { ...rest, qty: q, cost, ...patch, createdAt: serverTimestamp() });
+          tx.set(nref, { ...rest, qty: q, cost, ...patch, splitFrom: a.id, createdAt: serverTimestamp() });
           tx.update(doc(db, "assets", a.id), { qty: a.qty - q, cost: round2(a.cost - cost), history: [...(a.history || []), stamp(`${q} ${a.unit} moved out on ${label}`)], updatedAt: serverTimestamp() });
         } else tx.update(doc(db, "assets", a.id), patch);
         lines.push({ assetId: targetId, propertyNo: a.propertyNo || "", parIcsNo: a.source?.number || "", description: a.description, dateAcquired: a.dateAcquired || "",
@@ -532,7 +532,7 @@ export function cancelMovement(id, reason) {
   });
 }
 
-/* ---------------- register maintenance (PMS): manual items, corrections, revaluation, ledger entries ---------------- */
+/* ---------------- register maintenance (PMS): corrections, revaluation, ledger entries ---------------- */
 const str = v => String(v ?? "").trim();
 const DESCRIPTIVE = ["propertyNo", "location", "condition", "estimatedLife", "description", "specs", "articleType", "remarks", "dvNo", "photoUrl", "docUrl", "unit"];
 const linkOk = v => !v || /^https:\/\//i.test(v);
@@ -545,35 +545,6 @@ function cleanComponents(v) {
 /** Residual value: 5% of cost (zero for infrastructure); for a road, the Road Lot value (land is never depreciated). */
 function residualOf(code, cost, components) {
   return specialGroup(code) === "road" && components?.lot ? round2(Math.min(cost, components.lot)) : residualFor(code, cost);
-}
-
-/** Adds an item straight to the register (found at the station, donated, or acquired before the system) — GSO or Accounting. */
-export function addAsset(f) {
-  return wrap(async () => {
-    const err = checkManualAsset(f); if (err) throw fail(err);
-    if (!linkOk(f.photoUrl) || !linkOk(f.docUrl)) throw fail("Photo and document links must start with https://");
-    const ppe = f.itemType === "ppe", cost = round2(f.cost), qty = Number(f.qty) || 1;
-    const life = ppe ? (f.usefulLifeYears === "" || f.usefulLifeYears == null ? defaultLife(f.accountCode) : Number(f.usefulLifeYears) || 0) : 0;
-    const components = cleanComponents(f.components);
-    const a = {
-      fund: f.fund, itemType: f.itemType, accountCode: f.accountCode || "", propertyNo: str(f.propertyNo), description: str(f.description), specs: str(f.specs), articleType: str(f.articleType),
-      unit: str(f.unit) || (ppe ? "unit" : "pc"), qty, unitCost: round2(f.unitCost || cost / qty), cost,
-      residualValue: ppe ? (f.residualValue === "" || f.residualValue == null ? residualOf(f.accountCode, cost, components) : round2(f.residualValue)) : 0,
-      usefulLifeYears: life, estimatedLife: ppe ? "" : str(f.estimatedLife), depreciable: ppe && !!ppeAccount(f.accountCode)?.depreciable && life > 0,
-      dateAcquired: f.dateAcquired, holder: { name: str(f.holderName), position: str(f.holderPosition), office: str(f.office) }, custodianUid: f.custodianUid || "",
-      location: str(f.location) || str(f.office), status: "active", condition: f.condition || "Serviceable",
-      acquisition: { type: f.acquisitionType || "purchased", source: str(f.acquisitionSource) }, dvNo: str(f.dvNo), remarks: str(f.remarks),
-      photoUrl: str(f.photoUrl), docUrl: str(f.docUrl), special: cleanSpecial(f.special), components,
-      depBaseline: ppe && Number(f.depBaseline?.amount) > 0 ? { period: f.depBaseline.period, amount: round2(f.depBaseline.amount) } : null,
-      priorAdjustment: ppe ? 0 : round2(f.priorAdjustment || 0),
-      source: { kind: "manual", by: me().name }, disposal: null, revaluations: [], adjustments: [],
-      history: [stamp("Added to the register", f.acquisitionType && f.acquisitionType !== "purchased" ? `${f.acquisitionType}${f.acquisitionSource ? ` — ${str(f.acquisitionSource)}` : ""}` : "")],
-      createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
-    };
-    const ref = await addDoc(collection(db, "assets"), a);
-    audit("asset_add", "asset", ref.id, { description: a.description, cost });
-    return ref.id;
-  });
 }
 
 /**
@@ -709,42 +680,6 @@ export function reactivateAsset(id, f) {
         history: [...(a.history || []), stamp("Reactivated", str(f.reason))], updatedAt: serverTimestamp() });
     });
     audit("asset_reactivate", "asset", id, f);
-  });
-}
-
-/** PAR / ICS for items already in the register (imported or added by hand) — no AIR behind them. The items are
- *  issued to the recipient and keep a link to the document. */
-export function issueForAssets(assetIds, header) {
-  return wrap(async () => {
-    if (!header.date) throw fail("Enter the date issued.");
-    if (!str(header.recipient?.name)) throw fail("Enter the end-user receiving the property.");
-    let out = null;
-    await runTransaction(db, async tx => {
-      const snaps = [];
-      for (const id of assetIds) snaps.push(await tx.get(doc(db, "assets", id)));
-      const assets = snaps.map(x => ({ id: x.id, ...x.data() }));
-      if (!assets.length) throw fail("Choose the items.");
-      if (assets.some(a => !["active", "returned"].includes(a.status))) throw fail("Disposed or cancelled items can't be issued.");
-      if (new Set(assets.map(a => a.itemType)).size > 1 || new Set(assets.map(a => a.fund)).size > 1) throw fail("Choose items of one kind (PPE or semi-expendable) and one fund.");
-      if (assets.some(a => a.parIcs?.number)) throw fail("Some items already have a PAR / ICS. Use a transfer (PTR / ITR) to change their accountable officer.");
-      const docType = assets[0].itemType === "ppe" ? "par" : "ics";
-      const cls = docType === "ics" ? sxClass(Math.max(...assets.map(a => Number(a.unitCost) || a.cost)), settings().thresholds) : "";
-      const c = await readCounter(tx, assets[0].fund, docType, header.date, cls, header.number);
-      const ref = doc(collection(db, "issuances"));
-      useNumber(tx, c, ref, docType);
-      const lines = assets.map(a => ({ assetId: a.id, description: a.description, specs: a.specs || "", unit: a.unit, qty: a.qty, unitCost: a.unitCost || a.cost, amount: a.cost,
-        accountCode: a.accountCode, stockNo: "", propertyNo: a.propertyNo || "", usefulLife: a.itemType === "ppe" ? `${a.usefulLifeYears || ""}` : a.estimatedLife || "", qtyRequested: a.qty }));
-      const r = header.recipient;
-      tx.set(ref, { docType, number: c.number, fund: assets[0].fund, date: header.date, sxClass: cls || null, airId: null, airNo: "", origin: "register",
-        endUserUid: r.uid || "", office: r.office || "", supplier: "", recipient: r, issuedBy: header.issuedBy || {}, approvedBy: {}, purpose: "",
-        lines, total: round2(lines.reduce((t, l) => t + l.amount, 0)), status: "issued", posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      for (const a of assets) tx.update(doc(db, "assets", a.id), {
-        holder: { name: str(r.name), position: str(r.position), office: str(r.office) }, custodianUid: r.uid || "", location: str(r.office) || a.location || "", status: "active",
-        parIcs: { docType, number: c.number, docId: ref.id, date: header.date }, history: [...(a.history || []), stamp(`${docType.toUpperCase()} ${c.number} issued to ${str(r.name)}`)], updatedAt: serverTimestamp() });
-      out = { id: ref.id, number: c.number, docType };
-    });
-    audit(`${out.docType}_register_issue`, "issuance", out.id, { number: out.number, items: assetIds.length });
-    return out;
   });
 }
 

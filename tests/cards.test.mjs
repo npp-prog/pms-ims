@@ -2,7 +2,7 @@
 // the Trial Balance gate on depreciation and the global search (no Firebase needed).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { accountAsOf, fundAsOf, costAsOf, impairmentAsOf, adjustedCostAsOf, carryingAmount, amountFor, depreciationFor, reconcile, costGate, checkManualAsset, hasPostedDepreciation } from "../public/js/core/assets.js";
+import { accountAsOf, fundAsOf, costAsOf, impairmentAsOf, adjustedCostAsOf, carryingAmount, amountFor, depreciationFor, reconcile, costGate, hasPostedDepreciation } from "../public/js/core/assets.js";
 import { assetTimeline, propertyCardRows, specialGroup, searchAll } from "../public/js/core/cards.js";
 
 const truck = { id: "T", fund: "GF", itemType: "ppe", accountCode: "10706010", cost: 1200000, residualValue: 60000, usefulLifeYears: 10, depreciable: true,
@@ -93,13 +93,7 @@ test("depreciation is held until the month before ties out on PPE cost", () => {
   assert.equal(costGate(assets, [], [{ fund: "GF", period: "2025-11", accounts: {} }], "GF", "2026-01").reason, "no-tb", "it must be the month right before");
 });
 
-test("manual items: required fields, opening accumulated depreciation, lock once depreciated", () => {
-  const f = { fund: "GF", itemType: "ppe", accountCode: "10705030", description: "Laptop", qty: 1, cost: 60000, dateAcquired: "2024-01-01" };
-  assert.equal(checkManualAsset(f), "");
-  assert.match(checkManualAsset({ ...f, accountCode: "10405020" }), /PPE account/);
-  assert.match(checkManualAsset({ ...f, depBaseline: { amount: 5000, period: "" } }), /as of/);
-  assert.match(checkManualAsset({ ...f, depBaseline: { amount: 70000, period: "2025-12" } }), /more than the cost/);
-  assert.equal(checkManualAsset({ ...f, itemType: "sx", accountCode: "" }), "", "a found item may wait for its account");
+test("cost and date lock once depreciation is posted for the item", () => {
   assert.equal(hasPostedDepreciation({ id: "T" }, [{ amounts: { X: 1 } }]), false);
   assert.equal(hasPostedDepreciation({ id: "T" }, [{ amounts: { T: 1 } }]), true);
 });

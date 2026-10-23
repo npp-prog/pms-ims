@@ -178,7 +178,7 @@ test("drafts deleted by their owner; settings and audit trail", async () => {
   await assertSucceeds(getDocs(collection(ctx("ad"), "auditLogs")));
 });
 
-const asset = (o = {}) => ({ fund: "GF", itemType: "ppe", accountCode: "10705030", cost: 60000, qty: 1, status: "active", custodianUid: "eu", holder: { name: "eu" }, source: { kind: "par" }, history: [], ...o });
+const asset = (o = {}) => ({ fund: "GF", itemType: "ppe", accountCode: "10705030", cost: 60000, qty: 1, status: "active", custodianUid: "eu", holder: { name: "eu" }, source: { kind: "par", docId: "D1" }, history: [], ...o });
 
 test("user directory: GSO and Accounting can read it, End-Users can't", async () => {
   await assertSucceeds(getDocs(collection(ctx("gso"), "users")));
@@ -338,9 +338,12 @@ test("PMS register maintenance: manual items, revaluation, ledger entries, recla
     await setDoc(doc(d, "assets/P1"), asset());
     await setDoc(doc(d, "assets/PX"), asset({ status: "disposed", disposal: { reason: "Lost" } }));
   });
-  // Accounting (and the GSO) add items by hand; Accounting can't pretend they came from a PAR
-  await assertSucceeds(setDoc(doc(ctx("acc"), "assets/M1"), asset({ source: { kind: "manual" } })));
-  await assertSucceeds(setDoc(doc(ctx("gso"), "assets/M2"), asset({ source: { kind: "manual" } })));
+  // nobody adds items by hand: they come from a PAR / ICS, a split, a completed CIP project or Data Import
+  await assertFails(setDoc(doc(ctx("acc"), "assets/M1"), asset({ source: { kind: "manual" } })));
+  await assertFails(setDoc(doc(ctx("gso"), "assets/M2"), asset({ source: { kind: "manual" } })));
+  await assertFails(setDoc(doc(ctx("gso"), "assets/M2b"), asset({ source: { kind: "par", docId: "NOPE" } })), "a PAR that doesn't exist");
+  await assertSucceeds(setDoc(doc(ctx("gso"), "assets/M2c"), asset({ source: { kind: "import" }, splitFrom: "P1" })), "part of an item moved");
+  await assertFails(setDoc(doc(ctx("gso"), "assets/M2d"), asset({ source: { kind: "import" }, splitFrom: "NOPE" })));
   await assertFails(setDoc(doc(ctx("acc"), "assets/M3"), asset({ source: { kind: "par" } })));
   await assertFails(setDoc(doc(ctx("eu"), "assets/M4"), asset({ source: { kind: "manual" } })));
   // Accounting: revalue, ledger entries, reclassify, fund transfer
@@ -359,9 +362,9 @@ test("PMS register maintenance: manual items, revaluation, ledger entries, recla
   await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { status: "returned" }));
 });
 
-test("PAR / ICS for register items, editing a transfer's printed details, depreciation override", async () => {
+test("no PAR / ICS without an AIR, editing a transfer's printed details, depreciation override", async () => {
   const reg = baseDoc({ airId: null, airNo: "", origin: "register", number: "2026-10-0005" });
-  await assertSucceeds(setDoc(doc(ctx("gso"), "issuances/R1"), reg));
+  await assertFails(setDoc(doc(ctx("gso"), "issuances/R1"), reg), "register items already have their PAR / ICS");
   await assertFails(setDoc(doc(ctx("gso"), "issuances/R2"), { ...reg, docType: "ris" }), "RIS always comes from an AIR");
   await assertFails(setDoc(doc(ctx("gso"), "issuances/R3"), { ...reg, origin: "", airId: "A_SUB" }), "otherwise the AIR must be approved");
   await assertFails(setDoc(doc(ctx("acc"), "issuances/R4"), reg));

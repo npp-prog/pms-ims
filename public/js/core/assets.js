@@ -373,20 +373,6 @@ export function costGate(assets, runs, tbList, fund, period, cipProjects = []) {
   return { ok: !flagged.length, reason: flagged.length ? "variance" : "", required, flagged };
 }
 
-/* ---------------- manual items, revaluation and reclassification (PMS register) ---------------- */
-/** Checks a manually added or edited register item; returns the first problem, or "". */
-export function checkManualAsset(f) {
-  if (!FUNDS.some(x => x.code === f.fund)) return "Choose the fund.";
-  if (!["ppe", "sx"].includes(f.itemType)) return "Choose PPE or semi-expendable.";
-  if (!String(f.description || "").trim()) return "Enter the description.";
-  if (f.itemType === "ppe" && !ppeAccount(f.accountCode)) return "Choose a PPE account.";
-  if (f.itemType === "sx" && f.accountCode && !isSxAccount(f.accountCode)) return "Choose a semi-expendable account.";
-  if (!(Number(f.qty) > 0)) return "Enter the quantity.";
-  if (!(Number(f.cost) >= 0)) return "Enter the cost.";
-  if (!f.dateAcquired) return "Enter the date acquired.";
-  if (f.depBaseline && f.depBaseline.amount > 0 && !isPeriod(f.depBaseline.period)) return "Enter the month the opening accumulated depreciation is as of.";
-  if (f.depBaseline && f.depBaseline.amount > (Number(f.cost) || 0)) return "Opening accumulated depreciation can't be more than the cost.";
-  return "";
-}
+/* ---------------- corrections, revaluation and reclassification (PMS register) ---------------- */
 /** The item's cost and date can't change once depreciation has been posted for it — use Revalue instead. */
 export const hasPostedDepreciation = (a, runs) => (runs || []).some(r => r.amounts?.[a.id]);

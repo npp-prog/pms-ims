@@ -1,6 +1,6 @@
 // Property register: PPE and semi-expendable records, their movements (PTR / ITR, PRS / RRSP, disposals)
 // and each record's property card with its depreciation.
-import { S, can, settings, fundAssets, assetById, activeUsers } from "../state.js";
+import { S, can, settings, fundAssets, assetById, activeUsers, inRegistry, awaitingPosting, docById } from "../state.js";
 import { officeSelect, $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, accountName, FUNDS } from "../core/catalog.js";
 import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType, impairmentAsOf, adjustedCostAsOf } from "../core/assets.js";
@@ -29,6 +29,7 @@ function registry(main, itemType) {
   main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every ${ppe ? "PPE" : "semi-expendable"} record in the ${esc(fundName(S.fund))}: issued on a ${ppe ? "PAR" : "ICS"} or imported from PMS.${canMove ? " Tick items held by one person to transfer, return or dispose of them." : ""}</p></div>
     <div class="btn-row">${can("issue") || can("post") ? `<button class="btn primary" id="add">Add item</button>` : ""}
       ${canMove ? `<button class="btn" data-mv="transfer" disabled>Transfer (${ppe ? "PTR" : "ITR"})</button><button class="btn" data-mv="return" disabled>Return (${ppe ? "PRS" : "RRSP"})</button><button class="btn danger" data-mv="dispose" disabled>Dispose</button><button class="btn" data-mv="issue" disabled title="For register items without a ${ppe ? "PAR" : "ICS"}">Issue ${ppe ? "PAR" : "ICS"}</button>` : ""}</div></div>
+    ${(() => { const w = awaitingPosting().filter(a => a.itemType === itemType); return w.length ? `<div class="notice info">${w.length} item${w.length === 1 ? "" : "s"} issued on ${ppe ? "PAR" : "ICS"} (${money(w.reduce((t, a) => t + a.cost, 0))}) ${w.length === 1 ? "is" : "are"} not in the registry yet — ${w.length === 1 ? "it enters" : "they enter"} once Accounting posts the ${ppe ? "PAR" : "ICS"}. ${can("post") ? `<a href="#/posting">Open For Posting</a>` : ""}</div>` : ""; })()}
     <div class="card" id="t"></div>
     <div class="btn-row end"><span class="small muted" style="align-self:center">Print the items listed (filters apply):</span><button class="btn sm" id="lc">Ledger Cards</button><button class="btn sm" id="pc">Property Cards</button><button class="btn sm" id="tg">ID tags (QR)</button><button class="btn sm" id="csv">CSV</button><button class="btn sm" id="pr">Register</button></div>`;
   const sel = new Set();
@@ -72,9 +73,9 @@ function registry(main, itemType) {
     t.rows().map(a => [a.propertyNo, a.description, a.accountCode, fmtDate(a.dateAcquired), `${qty(a.qty)} ${a.unit}`, num(a.cost), ...(ppe ? [num(accum(a, runs)), num(a.cost - accum(a, runs))] : []), a.holder?.name || ""])), "landscape");
 }
 export function ppe(main) { registry(main, "ppe"); }
-ppe.deps = ["r:assets", "r:depr", "r:attachments", "fund"];
+ppe.deps = ["r:assets", "r:docs", "r:depr", "r:attachments", "fund"];
 export function sx(main) { registry(main, "sx"); }
-sx.deps = ["r:assets", "r:attachments", "fund"];
+sx.deps = ["r:assets", "r:docs", "r:attachments", "fund"];
 /** The item, or the PAR / ICS it was issued on, has a document attached. */
 const hasFiles = a => attachmentsOf([{ type: "asset", id: a.id }, ...[a.source?.docId, a.parIcs?.docId].filter(Boolean).map(id => ({ type: "issuance", id }))]).length > 0;
 
@@ -94,7 +95,7 @@ export function mine(main) {
       { key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v }],
     columns: [
       { label: "Property / Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>`, sort: a => a.propertyNo || "" },
-      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(sourceText(a))}</div>`, sort: a => a.description },
+      { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${a.itemType === "ppe" ? "PPE" : "Semi-expendable"} · ${esc(sourceText(a))}</div>${inRegistry(a) ? "" : `<span class="badge b-warn">Awaiting Accounting posting</span>`}`, sort: a => a.description },
       { label: "Accountable officer", render: a => isMine(a) ? `<b>You</b>` : esc(a.holder?.name || "—"), sort: a => isMine(a) ? "" : a.holder?.name || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
       { label: "Cost", render: a => money(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
@@ -109,7 +110,7 @@ export function mine(main) {
     const h = e.target.closest("[data-hor]"); if (h) printHistory(rows.find(a => a.id === h.dataset.hor));
   });
 }
-mine.deps = ["r:assets", "r:repairs"];
+mine.deps = ["r:assets", "r:docs", "r:repairs"];
 
 /* ---------------- asset page ---------------- */
 function deprHistory(a, runs) {
@@ -128,10 +129,12 @@ export function detail(main, [id]) {
   const ppe = a.itemType === "ppe", runs = S.d.depr, per = nowPeriod();
   const dh = ppe ? deprHistory(a, runs) : [];
   const ad = ppe ? accumAsOf(a, per, runs) : 0, imp = impairmentAsOf(a, per);
-  const onHand = ["active", "returned"].includes(a.status), acct = can("post"), gso = can("issue");
+  const registered = inRegistry(a), srcDoc = registered ? null : docById(a.source?.docId);
+  const onHand = ["active", "returned"].includes(a.status) && registered, acct = can("post") && registered, gso = can("issue");
   const g = specialGroup(a.accountCode), log = activityLog(a);
   const link = (u, t) => u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(t)}</a>` : "";
   main.innerHTML = `<div class="page-head"><div><h1>${esc(a.description)}</h1><p>${ppe ? "Property No." : "Item No."} ${esc(a.propertyNo || "—")} · ${esc(fundName(a.fund))} · ${ppe ? "PPE" : "Semi-expendable"}</p></div><div class="btn-row">${statusBadge(a.status)}</div></div>
+    ${registered ? "" : `<div class="notice warn"><b>Not in the registry yet.</b> This item was issued on ${esc(a.source.kind.toUpperCase())} <a href="#/issuances/${esc(a.source.docId)}">${esc(a.source.number)}</a>${srcDoc?.status === "cancelled" ? ", which was cancelled" : ""}; it enters the ${ppe ? "PPE" : "Semi-Expendable"} Registry once Accounting posts that ${esc(a.source.kind.toUpperCase())}. Until then it can't be transferred, returned, disposed of, revalued or depreciated.</div>`}
     <div class="card"><div class="btn-row">
       <button class="btn sm" id="lc">Print Ledger Card</button><button class="btn sm" id="pc">Print Property Card</button><button class="btn sm" id="tag">ID tag (QR)</button>
       ${(gso || acct) && a.status !== "cancelled" ? `<button class="btn sm" id="edit">Correct record</button>` : ""}
@@ -192,7 +195,7 @@ export function detail(main, [id]) {
   on("#rc", () => reclassModal(a));
   on("#ra", () => reactivateModal(a));
 }
-detail.deps = ["r:assets", "r:depr", "r:repairs", "r:movements", "r:attachments"];
+detail.deps = ["r:assets", "r:docs", "r:depr", "r:repairs", "r:movements", "r:attachments"];
 
 function sourceHtml(a) {
   const k = a.source?.kind;

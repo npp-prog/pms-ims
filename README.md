@@ -161,6 +161,11 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   No. — received on AIRs (or brought over from IMS), issued on RIS, balance quantity and value, as of any date. Filter by
   type, account or balance; print the registry, or the Stock Cards / Supplies Ledger Cards of the items listed; open an
   item for its cards. PPE and semi-expendable property have their own registries.
+- **Items enter the PPE / Semi-Expendable Registry when Accounting posts their PAR / ICS.** Until then they wait
+  outside it: the registry says how many are waiting, the item's page says which PAR / ICS it waits for, End-Users see
+  them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
+  reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
+  Items brought over from PMS, added by hand or completed from CIP are in the registry from the start.
 - **Posting by AIR:** For Posting shows one row per AIR. Posting it marks the AIR **and every PAR, ICS and RIS issued
   from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
   posted the same way. Disposals and PAR / ICS for register items (no AIR) are posted on their own rows.

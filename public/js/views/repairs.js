@@ -1,5 +1,5 @@
 // History of Repair: End-Users record each job order on property under their name; the GSO verifies it.
-import { S, can, role, settings, fundAssets, assetById } from "../state.js";
+import { S, can, role, settings, assetById } from "../state.js";
 import { officeSelect, $, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, renderTable, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, FUNDS } from "../core/catalog.js";
 import { REPAIR_STATUS, repairTotal } from "../core/assets.js";
@@ -11,7 +11,7 @@ const badge = s => `<span class="badge ${{ submitted: "b-warn", returned: "b-bad
 const mine = r => r.endUserUid === S.user.uid;
 const canEdit = r => r.status !== "verified" && (mine(r) || can("issue"));
 /** Items the user may record a repair for: their own (End-User) or any on hand (GSO). */
-const repairable = () => (role() === "enduser" ? S.d.assets : fundAssets()).filter(a => ["active", "returned"].includes(a.status));
+const repairable = () => (role() === "enduser" ? S.d.assets : S.d.assets.filter(a => a.fund === S.fund)).filter(a => ["active", "returned"].includes(a.status));
 export const repairsOf = assetId => S.d.repairs.filter(r => r.assetId === assetId);
 export const printHistory = a => printForm(repairHistoryHtml(a, repairsOf(a.id)));
 

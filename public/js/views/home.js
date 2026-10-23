@@ -1,6 +1,6 @@
 // Dashboard — same layout as the TOSCAN Portal home: greeting, "Needs your attention" inbox,
 // "At a glance" figures and recent activity, with the content chosen by role.
-import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets } from "../state.js";
+import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets, registeredAssets } from "../state.js";
 import { $, esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
 import { fundName, ROLE_NAMES, ppeAccount, accountName } from "../core/catalog.js";
 import { searchAll } from "../core/cards.js";
@@ -116,9 +116,9 @@ function overview() {
   const awaiting = cip.filter(p => cipStatus(p) === "finished");
   const last = lastPosted(runs, S.fund);
   const tb = S.d.tb.filter(t => t.fund === S.fund).sort((a, b) => b.period.localeCompare(a.period))[0];
-  const rec = tb ? reconcile(S.d.assets, runs, {}, tb.accounts, S.fund, tb.period, S.d.cip).filter(r => ppeAccount(r.code) && (r.regCost || r.tbCost)) : [];
+  const rec = tb ? reconcile(registeredAssets(), runs, {}, tb.accounts, S.fund, tb.period, S.d.cip).filter(r => ppeAccount(r.code) && (r.regCost || r.tbCost)) : [];
   const flagged = rec.filter(r => !r.ok).length;
-  const next = last ? addMonths(last, 1) : null, gate = next && next < per ? costGate(S.d.assets, runs, S.d.tb, S.fund, next, S.d.cip) : null;
+  const next = last ? addMonths(last, 1) : null, gate = next && next < per ? costGate(registeredAssets(), runs, S.d.tb, S.fund, next, S.d.cip) : null;
   const byGroup = new Map();
   for (const a of ppe) { const g = ppeAccount(a.accountCode)?.group || accountName(a.accountCode) || "Other"; const e = byGroup.get(g) || { g, n: 0, cost: 0, carry: 0 }; e.n++; e.cost += a.cost; e.carry += a.cost - ad(a); byGroup.set(g, e); }
   return `<div class="card"><div class="card-head"><h3>Property overview</h3><span class="small muted">${esc(fundName(S.fund))} · as of ${fmtDate(manilaToday())}</span></div>

@@ -24,7 +24,7 @@ export function attachmentsCard(el, target, { also = [], defaultLabel = "Other",
         <div class="xs muted">${esc(a.name)}${a.size ? ` · ${size(a.size)}` : a.kind === "link" ? " · link" : ""} · ${fmtDateTime(a.at)} · ${esc(a.uploadedBy?.name || "")}</div></div>
         <div class="btn-row"><button class="btn sm" data-open>Open</button>${canAttach() ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`).join("")}</ul>`
       : `<p class="muted small" style="margin:0">${canAttach() ? "No documents attached yet — attach the signed copy once it comes back." : "No documents attached."}</p>`}
-    ${canAttach() ? `<form class="grid g3" data-af data-nodirty style="margin-top:1rem;align-items:end">
+    ${canAttach() ? `<form class="grid g3" data-af style="margin-top:1rem;align-items:end">
         <div><label>Document</label><select name="label">${opts(ATTACH_LABELS, defaultLabel)}</select></div>
         <div><label>File (PDF, JPG or PNG, up to 5 MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
         <div><label>…or a link</label><input name="url" placeholder="https://drive.google.com/…"></div>
@@ -34,7 +34,8 @@ export function attachmentsCard(el, target, { also = [], defaultLabel = "Other",
     e.preventDefault();
     const file = form.file.files[0], url = form.url.value.trim();
     if (!file && !url) return toast("Choose a file, or paste a link.", "err");
-    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file, url: file ? "" : url }); form.reset(); form.label.value = defaultLabel; }, "Attached.").catch(() => {});
+    // what is being typed here counts as unsaved, so a live update doesn't wipe it; attaching clears it
+    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file, url: file ? "" : url }); form.reset(); form.label.value = defaultLabel; window.dispatchEvent(new Event("app:clean")); }, "Attached.").catch(() => {});
   };
   $$("[data-open]", el).forEach(b => b.onclick = () => {
     const a = list.find(x => x.id === b.closest("li").dataset.id);

@@ -130,7 +130,13 @@ export const fundDocs = () => S.d.docs.filter(d => d.fund === S.fund);
 export const airById = id => S.d.airs.find(a => a.id === id) || null;
 export const docById = id => S.d.docs.find(d => d.id === id) || null;
 export const docsOfAir = id => S.d.docs.filter(d => d.airId === id);
-export const fundAssets = () => S.d.assets.filter(a => a.fund === S.fund);
+/** In the PPE / semi-expendable registry: brought over from PMS, added by hand or from CIP — or issued on a PAR / ICS
+ *  that Accounting has posted. Items on a PAR / ICS not yet posted wait outside the registry. */
+export const inRegistry = a => !["par", "ics"].includes(a.source?.kind) || !!docById(a.source.docId)?.posting?.posted;
+export const registeredAssets = () => S.d.assets.filter(inRegistry);
+export const fundAssets = () => S.d.assets.filter(a => a.fund === S.fund && inRegistry(a));
+/** Issued on a PAR / ICS in this fund, waiting for Accounting to post it. */
+export const awaitingPosting = () => S.d.assets.filter(a => a.fund === S.fund && a.status !== "cancelled" && !inRegistry(a));
 export const assetById = id => S.d.assets.find(a => a.id === id) || null;
 export const fundRuns = () => S.d.depr.filter(r => r.fund === S.fund);
 /** Active users for the "received by" pickers. */

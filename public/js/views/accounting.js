@@ -1,5 +1,5 @@
 // Accounting: monthly depreciation (straight-line, posted per period with its JEV) and Trial Balance reconciliation.
-import { S, can, isAdmin, fundRuns } from "../state.js";
+import { S, can, isAdmin, fundRuns, registeredAssets } from "../state.js";
 import { $, esc, busy, toast, money, num, fmtDate, fmtDateTime, manilaToday, confirmBox, downloadCSV, sheetAsText } from "../ui.js";
 import { fundName, accountName, CATEGORIES } from "../core/catalog.js";
 import { depreciationFor, lastPosted, checkPostPeriod, addMonths, periodOf, periodEnd, parseTrialBalance, reconcile, isPeriod, costGate } from "../core/assets.js";
@@ -15,9 +15,9 @@ export function depreciation(main) {
   const period = st.dep && isPeriod(st.dep) ? st.dep : last ? addMonths(last, 1) : addMonths(periodOf(manilaToday()), -1);
   const posted = runs.find(r => r.period === period);
   const preview = posted ? { rows: Object.entries(posted.amounts || {}).map(([id, amount]) => { const a = S.d.assets.find(x => x.id === id) || {}; return { id, amount, propertyNo: a.propertyNo, description: a.description || "(record not found)", accountCode: a.accountCode }; }), byAccount: posted.byAccount, total: posted.total }
-    : depreciationFor(S.d.assets, S.fund, period, S.d.depr);
+    : depreciationFor(registeredAssets(), S.fund, period, S.d.depr);
   const err = posted ? "" : checkPostPeriod(S.d.depr, S.fund, period, manilaToday());
-  const gate = posted || err ? null : costGate(S.d.assets, S.d.depr, S.d.tb, S.fund, period, S.d.cip);
+  const gate = posted || err ? null : costGate(registeredAssets(), S.d.depr, S.d.tb, S.fund, period, S.d.cip);
   const gateMsg = !gate || gate.ok ? "" : gate.reason === "no-tb"
     ? `Posting is on hold: enter the ${esc(gate.required)} Trial Balance in <a href="#/reconciliation">Reconciliation</a> first — the register's PPE cost must tie out to the month before.`
     : `Posting is on hold: ${gate.flagged.length} PPE cost account(s) don't tie out to the ${esc(gate.required)} Trial Balance (${gate.flagged.map(r => esc(r.code)).join(", ")}). Fix them in <a href="#/reconciliation">Reconciliation</a> first.`;
@@ -64,7 +64,7 @@ export function depreciation(main) {
     busy(e.target, () => unpostDepreciation(S.fund, period), "Unposted.").catch(() => {});
   });
 }
-depreciation.deps = ["r:depr", "r:assets", "r:tb", "r:cip", "fund"];
+depreciation.deps = ["r:depr", "r:assets", "r:docs", "r:tb", "r:cip", "fund"];
 
 /* ---------------- Trial Balance reconciliation ---------------- */
 export function reconciliation(main) {
@@ -73,7 +73,7 @@ export function reconciliation(main) {
   const tb = S.d.tb.find(t => t.fund === S.fund && t.period === period);
   const stock = {};
   for (const c of stockCards(S.d.airs, S.d.docs, S.fund, periodEnd(period))) stock[c.accountCode] = round2((stock[c.accountCode] || 0) + c.balValue);
-  const rows = reconcile(S.d.assets, S.d.depr, stock, tb?.accounts || null, S.fund, period, S.d.cip);
+  const rows = reconcile(registeredAssets(), S.d.depr, stock, tb?.accounts || null, S.fund, period, S.d.cip);
   const bad = rows.filter(r => !r.ok).length;
   // accumulated depreciation is complete up to the later of the last posted month and the imported PMS balance
   const covered = [last, ...S.d.assets.filter(a => a.fund === S.fund && a.depBaseline?.period).map(a => a.depBaseline.period)].filter(Boolean).sort().at(-1) || null;

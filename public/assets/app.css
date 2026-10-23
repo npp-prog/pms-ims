@@ -437,3 +437,4 @@ a.me:hover { background: rgba(255,255,255,.12); color: #fff; }
 .attach li + li { border-top: 1px solid var(--line); }
 .attach .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--green-soft); color: var(--green-3); display: grid; place-items: center; flex: none; }
 .attach .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+tr.sel td { background: var(--gold-soft) !important; }

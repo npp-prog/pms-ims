@@ -224,19 +224,41 @@ export function stockCards(airs, docs, fund, asOf = "") {
 }
 
 /** RSMI lines for RIS issued within [from, to], with the recap by stock number. */
-export function rsmi(docs, fund, from, to) {
+/**
+ * Report of Supplies and Materials Issued. Default: RIS dated from–to. With { byJev: true } the RIS are taken by the
+ * date of the JEV they were posted under (only posted RIS), so each month's RSMI holds what Accounting posted that month.
+ */
+export function rsmi(docs, fund, from, to, { byJev = false } = {}) {
   const lines = [];
   for (const d of docs || []) {
     if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
-    if ((from && d.date < from) || (to && d.date > to)) continue;
-    for (const l of d.lines || []) lines.push({ risNo: d.number, date: d.date, office: d.recipient?.office || "", stockNo: l.stockNo, description: l.description, unit: l.unit, qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, amount: lineAmount(l), accountCode: l.accountCode });
+    if (byJev && !d.posting?.posted) continue;
+    const when = byJev ? String(d.posting.date || "") : d.date;
+    if ((from && when < from) || (to && when > to)) continue;
+    for (const l of d.lines || []) lines.push({ risNo: d.number, date: d.date, jevNo: d.posting?.ref || "", jevDate: d.posting?.date || "", office: d.recipient?.office || "", stockNo: l.stockNo, description: l.description, unit: l.unit, qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, amount: lineAmount(l), accountCode: l.accountCode });
   }
-  lines.sort((a, b) => a.date.localeCompare(b.date) || a.risNo.localeCompare(b.risNo));
+  lines.sort((a, b) => (byJev ? a.jevDate.localeCompare(b.jevDate) : 0) || a.date.localeCompare(b.date) || a.risNo.localeCompare(b.risNo));
   const recap = new Map();
   for (const l of lines) {
     const k = `${l.stockNo}|${l.unitCost}`;
     const r = recap.get(k) || { stockNo: l.stockNo, unitCost: l.unitCost, qty: 0, amount: 0, accountCode: l.accountCode };
     r.qty = round2(r.qty + l.qty); r.amount = round2(r.amount + l.amount); recap.set(k, r);
   }
-  return { lines, recap: [...recap.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo)), total: round2(lines.reduce((t, l) => t + l.amount, 0)) };
+  return { lines, recap: [...recap.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo)), total: round2(lines.reduce((t, l) => t + l.amount, 0)),
+    jevs: [...new Set(lines.map(l => l.jevNo).filter(Boolean))] };
 }
+/** The monthly RSMIs of a fund: one per month in which RIS were posted (by JEV date), newest first. */
+export function rsmiMonths(docs, fund) {
+  const months = new Map();
+  for (const d of docs || []) {
+    if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled" || !d.posting?.posted) continue;
+    const p = String(d.posting.date || "").slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(p)) continue;
+    const m = months.get(p) || { period: p, ris: 0, total: 0, jevs: new Set() };
+    m.ris++; m.total = round2(m.total + (d.lines || []).reduce((t, l) => t + lineAmount(l), 0)); if (d.posting.ref) m.jevs.add(d.posting.ref);
+    months.set(p, m);
+  }
+  return [...months.values()].map(m => ({ ...m, jevs: [...m.jevs] })).sort((a, b) => b.period.localeCompare(a.period));
+}
+/** RIS issued but not yet posted: they go into the RSMI of the month Accounting posts them. */
+export const risAwaitingPosting = (docs, fund) => (docs || []).filter(d => d.fund === fund && d.docType === "ris" && d.status !== "cancelled" && !d.posting?.posted);

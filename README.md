@@ -149,9 +149,7 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 - **CIP completion** can split the cost by building or road component, or **add the project to an
   existing road** (dated "Addition — CIP transfer"). SWAs can be unmatched from the SWA page, and
   all CIP ledger cards printed at once.
-- **Dashboard:** search across property, PAR / ICS / RIS, transfers, repairs, AIRs and CIP, and a
-  property overview (PPE cost and carrying amount, semi-expendable, CIP, depreciation and
-  reconciliation status, PPE by group).
+- **Dashboard:** search across property, PAR / ICS / RIS, transfers, repairs, AIRs and CIP.
 - **Reports:** Accountability (by officer / office / account / status, with CSV and bulk cards)
   and Disposed / Retired. **Settings → Download full backup (JSON).**
 
@@ -166,6 +164,9 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
   reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
   Items brought over from PMS, added by hand or completed from CIP are in the registry from the start.
+- **RSMI, monthly by JEV date:** Reports → RSMI lists one RSMI per month (RSMI No. = the month, e.g. 2026-10), made
+  automatically from the RIS that Accounting posted in that month — an RIS goes into the month of its JEV date,
+  whatever date it was issued. RIS not yet posted are shown as waiting; they join the month they are posted.
 - **Posting by AIR:** For Posting shows one row per AIR. Posting it marks the AIR **and every PAR, ICS and RIS issued
   from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
   posted the same way. Disposals and PAR / ICS for register items (no AIR) are posted on their own rows.

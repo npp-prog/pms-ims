@@ -121,3 +121,22 @@ test("the Super Administrator email matches firestore.rules", () => {
   const rules = readFileSync(new URL("../firestore.rules", import.meta.url), "utf8");
   for (const e of SUPERADMIN_EMAILS) assert.ok(rules.includes(`'${e}'`), `${e} missing from firestore.rules`);
 });
+
+test("monthly RSMI by JEV date: an RIS goes into the month Accounting posted it", async () => {
+  const { rsmi: R, rsmiMonths, risAwaitingPosting } = await import("../public/js/core/logic.js");
+  const l = (q, c) => ({ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: q, unitCost: c, accountCode: "10404010" });
+  const docs = [
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-09-0007", date: "2026-09-28", recipient: { office: "MHO" }, lines: [l(2, 250)], posting: { posted: true, date: "2026-10-02", ref: "JEV-10-01" } },
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0001", date: "2026-10-05", recipient: { office: "MTO" }, lines: [l(4, 250)], posting: { posted: true, date: "2026-10-20", ref: "JEV-10-05" } },
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0002", date: "2026-10-30", lines: [l(1, 250)], posting: { posted: false } },
+    { fund: "GF", docType: "ris", status: "cancelled", number: "2026-10-0003", date: "2026-10-30", lines: [l(9, 1)], posting: { posted: true, date: "2026-10-30", ref: "X" } },
+    { fund: "SEF", docType: "ris", status: "issued", number: "2026-10-0001", date: "2026-10-05", lines: [l(1, 1)], posting: { posted: true, date: "2026-10-05", ref: "S" } }
+  ];
+  const oct = R(docs, "GF", "2026-10-01", "2026-10-31", { byJev: true });
+  assert.deepEqual(oct.lines.map(x => x.risNo), ["2026-09-0007", "2026-10-0001"], "the September RIS posted in October is in October's RSMI");
+  assert.equal(oct.total, 1500);
+  assert.deepEqual(oct.jevs, ["JEV-10-01", "JEV-10-05"]);
+  assert.equal(R(docs, "GF", "2026-09-01", "2026-09-30", { byJev: true }).lines.length, 0);
+  assert.deepEqual(rsmiMonths(docs, "GF").map(m => [m.period, m.ris, m.total]), [["2026-10", 2, 1500]]);
+  assert.deepEqual(risAwaitingPosting(docs, "GF").map(d => d.number), ["2026-10-0002"]);
+});

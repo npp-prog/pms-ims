@@ -1,13 +1,12 @@
 // Dashboard — same layout as the TOSCAN Portal home: greeting, "Needs your attention" inbox,
 // "At a glance" figures and recent activity, with the content chosen by role.
-import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets, registeredAssets } from "../state.js";
+import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets } from "../state.js";
 import { $, esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
-import { fundName, ROLE_NAMES, ppeAccount, accountName } from "../core/catalog.js";
+import { fundName, ROLE_NAMES } from "../core/catalog.js";
 import { searchAll } from "../core/cards.js";
 import { counts, postingItems } from "./common.js";
 import { stockCards } from "../core/logic.js";
-import { lastPosted, addMonths, periodOf, accumAsOf, impairmentAsOf, isDepreciable, cipTotal, cipStatus, reconcile, costGate } from "../core/assets.js";
-import { round2 } from "../core/logic.js";
+import { lastPosted, addMonths, periodOf, accumAsOf, isDepreciable } from "../core/assets.js";
 
 const I = {
   doc: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15l2 2 4-4"/></svg>`,
@@ -67,7 +66,6 @@ export function dashboard(main) {
       <p>${esc(ROLE_NAMES[r] || "")}${S.account?.office ? ` · ${esc(S.account.office)}` : ""} · ${esc(fundName(S.fund))}</p></div></div>
     ${can("viewAll") ? `<div class="card search-card" data-nodirty><input type="search" id="gs" placeholder="Search everything: property no., item, officer, PAR / ICS / RIS, PTR, job order, AIR, CIP…" value="${esc(srch.q)}" autocomplete="off"><div id="gsr" class="search-hits"></div></div>` : ""}
     <div class="steps">${flowSteps(r)}</div>
-    ${can("viewAll") ? overview() : ""}
     <div class="home">
       <div>
         <div class="card"><div class="card-head"><h3>Needs your attention</h3><span class="small muted">${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : ""}</span></div>
@@ -105,37 +103,6 @@ function hits(r) {
   return html || `<p class="muted small" style="margin:.6rem 0 0">Nothing found in ${esc(fundName(S.fund))}.</p>`;
 }
 
-/** Property overview (PMS dashboard): balances, depreciation and reconciliation status, CIP waiting for transfer, and PPE by group. */
-function overview() {
-  const per = periodOf(manilaToday()), runs = S.d.depr;
-  const assets = fundAssets().filter(a => ["active", "returned"].includes(a.status));
-  const ppe = assets.filter(a => a.itemType === "ppe"), sx = assets.filter(a => a.itemType === "sx");
-  const ad = a => accumAsOf(a, per, runs) + impairmentAsOf(a, per);
-  const ppeCost = round2(ppe.reduce((t, a) => t + a.cost, 0)), ppeCarry = round2(ppe.reduce((t, a) => t + a.cost - ad(a), 0));
-  const cip = S.d.cip.filter(p => p.fund === S.fund && p.status !== "completed");
-  const awaiting = cip.filter(p => cipStatus(p) === "finished");
-  const last = lastPosted(runs, S.fund);
-  const tb = S.d.tb.filter(t => t.fund === S.fund).sort((a, b) => b.period.localeCompare(a.period))[0];
-  const rec = tb ? reconcile(registeredAssets(), runs, {}, tb.accounts, S.fund, tb.period, S.d.cip).filter(r => ppeAccount(r.code) && (r.regCost || r.tbCost)) : [];
-  const flagged = rec.filter(r => !r.ok).length;
-  const next = last ? addMonths(last, 1) : null, gate = next && next < per ? costGate(registeredAssets(), runs, S.d.tb, S.fund, next, S.d.cip) : null;
-  const byGroup = new Map();
-  for (const a of ppe) { const g = ppeAccount(a.accountCode)?.group || accountName(a.accountCode) || "Other"; const e = byGroup.get(g) || { g, n: 0, cost: 0, carry: 0 }; e.n++; e.cost += a.cost; e.carry += a.cost - ad(a); byGroup.set(g, e); }
-  return `<div class="card"><div class="card-head"><h3>Property overview</h3><span class="small muted">${esc(fundName(S.fund))} · as of ${fmtDate(manilaToday())}</span></div>
-    <div class="stats">
-      <div class="stat"><span class="n">${money(ppeCost)}</span><span class="l">PPE cost (${ppe.length})</span></div>
-      <div class="stat"><span class="n">${money(ppeCarry)}</span><span class="l">PPE carrying amount</span></div>
-      <div class="stat"><span class="n">${money(sx.reduce((t, a) => t + a.cost, 0))}</span><span class="l">Semi-expendable (${sx.length})</span></div>
-      <div class="stat"><span class="n">${money(cip.reduce((t, p) => t + cipTotal(p), 0))}</span><span class="l">Construction in progress (${cip.length})</span></div></div>
-    <ul class="glance">
-      <li><a href="#/depreciation"><span>Depreciation</span></a><b>${last ? `posted to ${esc(last)}` : "none posted yet"}${gate && !gate.ok ? " · on hold (Trial Balance)" : ""}</b></li>
-      <li><a href="#/reconciliation"><span>Reconciliation</span></a><b>${tb ? `${esc(tb.period)}: ${flagged ? `${flagged} account(s) to check` : "PPE ties out"}` : "no Trial Balance yet"}</b></li>
-      <li><a href="#/cip"><span>CIP ready to transfer to PPE</span></a><b>${awaiting.length}</b></li>
-    </ul>
-    ${byGroup.size ? `<div class="table-wrap" style="margin-top:.6rem"><table><thead><tr><th>PPE group</th><th class="right">Items</th><th class="right">Cost</th><th class="right">Carrying amount</th></tr></thead>
-      <tbody>${[...byGroup.values()].sort((a, b) => b.cost - a.cost).map(e => `<tr><td>${esc(e.g)}</td><td class="right">${e.n}</td><td class="right">${money(e.cost)}</td><td class="right">${money(e.carry)}</td></tr>`).join("")}</tbody></table></div>` : ""}
-  </div>`;
-}
 
 const onHand = type => fundAssets().filter(a => a.itemType === type && ["active", "returned"].includes(a.status));
 /** For Accounting: the month that should be posted next, if it is already over. */

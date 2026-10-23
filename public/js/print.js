@@ -142,16 +142,19 @@ export function stockCardHtml(c, fund, ledger) {
     <div class="pf-foot">${ledger ? "For Accounting Office use" : "For Property/Supply Office use"}</div></div>`;
 }
 
-export function rsmiHtml(r, fund, from, to) {
+/** opts.month: "YYYY-MM" for the monthly RSMI (by JEV date) — it prints the RSMI No. and the JEVs covered. */
+export function rsmiHtml(r, fund, from, to, opts = {}) {
   const s = settings();
   const rows = r.lines.map(l => `<tr><td>${esc(l.risNo)}</td><td>${esc(l.office)}</td><td>${esc(l.stockNo)}</td><td>${esc(l.description)}</td><td>${esc(l.unit)}</td>
     <td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   const recap = r.recap.map(c => `<tr><td>${esc(c.stockNo)}</td><td class="r">${qty(c.qty)}</td><td class="r">${num(c.unitCost)}</td><td class="r">${num(c.amount)}</td><td>${esc(c.accountCode)}</td></tr>`).join("");
   return `<div class="pf">${head("REPORT OF SUPPLIES AND MATERIALS ISSUED")}
-    <div class="c" style="font-size:11px">For the period ${fmtDate(from)} to ${fmtDate(to)}</div>
-    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(fund))}</b></td></tr></table>
+    <div class="c" style="font-size:11px">${opts.month ? `For the month of ${esc(new Date(`${opts.month}-01T00:00:00`).toLocaleDateString("en-PH", { month: "long", year: "numeric" }))}` : `For the period ${fmtDate(from)} to ${fmtDate(to)}`}</div>
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(fund))}</b></td></tr>
+      ${opts.month ? `<tr><td>Serial No.: <b class="pf-num">${esc(opts.month)}</b></td><td>Date: <b>${fmtDate(to)}</b></td></tr>` : ""}</table>
     <table class="pt"><thead><tr><th>RIS No.</th><th>Responsibility Center</th><th>Stock No.</th><th>Item</th><th>Unit</th><th>Quantity Issued</th><th>Unit Cost</th><th>Amount</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="8" class="c">No issuances in this period</td></tr>`}<tr><td colspan="7" class="r"><b>TOTAL</b></td><td class="r"><b>${num(r.total)}</b></td></tr></tbody></table>
+    ${opts.month && r.jevs?.length ? `<div class="pf-ref">RIS posted under JEV No. ${r.jevs.map(esc).join(", ")}</div>` : ""}
     <div style="margin-top:8px;font-size:11px"><b>Recapitulation</b></div>
     <table class="pt"><thead><tr><th>Stock No.</th><th>Quantity</th><th>Unit Cost</th><th>Total Cost</th><th>UACS Object Code</th></tr></thead><tbody>${recap}</tbody></table>
     <div class="sig2">${sig("I hereby certify to the correctness of the above information.", s.signatories.propertyCustodian, "Signature over Printed Name of Supply and/or Property Custodian", s.signatories.propertyCustodianPosition, "Designation")}

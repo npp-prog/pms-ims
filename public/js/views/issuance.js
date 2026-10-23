@@ -9,6 +9,7 @@ import { remainingQty, sxClass, numberingFor } from "../core/logic.js";
 import { defaultLife } from "../core/assets.js";
 import { issueDocs, cancelDoc } from "../data.js";
 import { printForm, docHtml } from "../print.js";
+import { attachmentsCard, attachmentsOf } from "./attachments.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 const left = (a, cat) => (a.lines || []).filter(l => l.category === cat && remainingQty(l) > 0);
@@ -132,7 +133,7 @@ export function list(main) {
       { label: "Received by", render: d => `${esc(d.recipient?.name)}<div class="xs muted">${esc(d.recipient?.office)}</div>`, sort: d => d.recipient?.name || "" },
       { label: "Items", render: d => d.lines.length, cls: "right" },
       { label: "Amount", render: d => money(d.total), sort: d => d.total, cls: "right", headCls: "right" },
-      { label: "Status", render: d => docStatusBadge(d), sort: d => d.status + !!d.posting?.posted }
+      { label: "Status", render: d => `${docStatusBadge(d)}${attachmentsOf([{ type: "issuance", id: d.id }]).length ? ` <span class="badge b-ok" title="Signed copy / attachments on file">Attached</span>` : ""}`, sort: d => d.status + !!d.posting?.posted }
     ],
     empty: enduser ? "Nothing has been issued from your AIRs yet." : "No documents issued in this fund yet.",
     onRow: d => { location.hash = `#/issuances/${d.id}`; }
@@ -140,7 +141,7 @@ export function list(main) {
   $("#csv", main).onclick = () => downloadCSV(`PAR-ICS-RIS-${S.fund}`, ["Fund", "Type", "Number", "Date", "AIR No.", "Recipient", "Office", "Item", "Property/Stock No.", "Unit", "Qty", "Unit Cost", "Amount", "Account", "Status", "Posted Ref", "Posted Date"],
     t.rows().flatMap(d => d.lines.map(l => [d.fund, d.docType.toUpperCase(), d.number, d.date, d.airNo, d.recipient?.name, d.recipient?.office, l.description, l.propertyNo || l.stockNo, l.unit, l.qty, l.unitCost, l.amount, l.accountCode, d.status === "cancelled" ? "Cancelled" : d.posting?.posted ? "Posted" : "For posting", d.posting?.ref || "", d.posting?.date || ""])));
 }
-list.deps = ["r:docs", "fund"];
+list.deps = ["r:docs", "r:attachments", "fund"];
 
 export function detail(main, [id]) {
   const d = docById(id);
@@ -172,12 +173,15 @@ export function detail(main, [id]) {
         ${can("post") && d.status !== "cancelled" ? `<a class="btn sm" href="#/posting">Open posting</a>` : ""}</div>
       <div class="btn-row"><button class="btn primary" id="print">Print ${esc(t.short)}</button>
         ${can("issue") && d.status !== "cancelled" && !d.posting?.posted ? `<button class="btn danger" id="cancel">Cancel ${esc(t.short)}</button>` : ""}</div>
+      <div id="att" style="margin-top:1rem"></div>
     </div></div>`;
+  attachmentsCard($("#att", main), { type: "issuance", id: d.id, office: d.recipient?.office || d.office || "", fund: d.fund, label: `${t.short} ${d.number}` },
+    { defaultLabel: `Signed ${t.short}`, title: `Signed ${t.short} and other attachments` });
   $("#print", main).onclick = () => printForm(docHtml(d));
   $("#cancel", main) && ($("#cancel", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel ${t.short} ${d.number}?`, body: `${d.airId ? "The quantities return to the AIR so they can be issued again." : "The items stay in the register, without this document."} The number stays used and the document is kept as Cancelled.`, fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: `Cancel ${t.short}`, danger: true });
     if (v) busy(e.target, () => cancelDoc(d.id, v.reason), `${t.short} ${d.number} cancelled.`).catch(() => {});
   });
 }
-detail.deps = ["r:docs"];
+detail.deps = ["r:docs", "r:attachments"];
 

@@ -165,6 +165,15 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
   posted the same way. Disposals and PAR / ICS for register items (no AIR) are posted on their own rows.
 
+### Attachments (signed PAR / ICS / RIS and other documents)
+
+The GSO and Accounting can attach the signed copy — or any supporting document — to a **PAR, ICS or RIS**, a **PTR /
+ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 5 MB, or a link (e.g. Google
+Drive). An item's page also shows what is attached to its PAR / ICS and its transfers, and the registries and the
+PAR / ICS / RIS list mark what has an attachment. End-Users can open the attachments of their own office's documents
+and property. Files are kept in Firestore itself (split into 600 KB pieces), because Firebase Storage needs a paid plan;
+Firestore's free tier holds 1 GB.
+
 ### Trial Balance reconciliation
 
 Paste the Trial Balance from Excel or upload the file (account code, name, debit, credit). For the
@@ -366,6 +375,7 @@ The default is the PMS / IMS format: `2026-10-0001`, and `SPLV-` / `SPHV-2026-10
 | `repairs/{id}` | repair job order | item, job order, supplier, `parts[]`, total, status (submitted / returned / verified) |
 | `counters/{fund_TYPE_period}` | numbering series | per fund, document and month / year / running series; increases by one inside a transaction; the admin can set the next number |
 | `docNumbers/{fund_type_number}` | number used | claimed once, with the document, so no number is ever used twice |
+| `attachments/{id}` (+ `/chunks/{n}`) | attached document | label, file name, size, or link; the file in 600 KB pieces |
 | `invites/{email}` | person brought over from PMS | role, office, position; used on their first sign-in |
 | `settings/app` | — | entity, offices, thresholds, signatories |
 | `auditLogs/{id}` | action | append-only; readable by admins |

@@ -432,3 +432,8 @@ a.me:hover { background: rgba(255,255,255,.12); color: #fff; }
 @page pms-port { size: A4 portrait; margin: 10mm; }
 #print-area[data-orient=landscape] .pf { page: pms-land; }
 #print-area[data-orient=portrait] .pf, #print-area[data-orient=tags] .tags { page: pms-port; }
+.attach { list-style: none; margin: 0; padding: 0; }
+.attach li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; }
+.attach li + li { border-top: 1px solid var(--line); }
+.attach .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--green-soft); color: var(--green-3); display: grid; place-items: center; flex: none; }
+.attach .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }

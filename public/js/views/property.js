@@ -10,6 +10,7 @@ import { printForm, movementHtml, tableReportHtml } from "../print.js";
 import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, registerIssueModal, printCards, activityLog } from "./assetforms.js";
 import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES } from "../core/cards.js";
 import { repairsOf, printHistory } from "./repairs.js";
+import { attachmentsCard, attachmentsOf } from "./attachments.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 const today = () => manilaToday();
@@ -43,7 +44,7 @@ function registry(main, itemType) {
     ],
     columns: [
       ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),
-      { label: ppe ? "Property No." : "Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b><div class="xs muted">${esc(sourceText(a))}</div>`, sort: a => a.propertyNo || "" },
+      { label: ppe ? "Property No." : "Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>${hasFiles(a) ? ` <span class="badge b-ok" title="Signed PAR / ICS or other attachments on file">Attached</span>` : ""}<div class="xs muted">${esc(sourceText(a))}</div>`, sort: a => a.propertyNo || "" },
       { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</div>`, sort: a => a.description },
       { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
@@ -71,9 +72,11 @@ function registry(main, itemType) {
     t.rows().map(a => [a.propertyNo, a.description, a.accountCode, fmtDate(a.dateAcquired), `${qty(a.qty)} ${a.unit}`, num(a.cost), ...(ppe ? [num(accum(a, runs)), num(a.cost - accum(a, runs))] : []), a.holder?.name || ""])), "landscape");
 }
 export function ppe(main) { registry(main, "ppe"); }
-ppe.deps = ["r:assets", "r:depr", "fund"];
+ppe.deps = ["r:assets", "r:depr", "r:attachments", "fund"];
 export function sx(main) { registry(main, "sx"); }
-sx.deps = ["r:assets", "fund"];
+sx.deps = ["r:assets", "r:attachments", "fund"];
+/** The item, or the PAR / ICS it was issued on, has a document attached. */
+const hasFiles = a => attachmentsOf([{ type: "asset", id: a.id }, ...[a.source?.docId, a.parIcs?.docId].filter(Boolean).map(id => ({ type: "issuance", id }))]).length > 0;
 
 /* ---------------- End-User: my property ---------------- */
 export function mine(main) {
@@ -146,6 +149,7 @@ export function detail(main, [id]) {
         ${repairsOf(a.id).length ? `<div class="table-wrap"><table><thead><tr><th>JO date</th><th>Job Order No.</th><th>Nature / supplier</th><th class="right">Cost</th><th>Status</th></tr></thead>
         <tbody>${repairsOf(a.id).sort((x, y) => String(y.jobOrderDate).localeCompare(String(x.jobOrderDate))).map(r => `<tr class="click" onclick="location.hash='#/repairs/${esc(r.id)}'"><td>${fmtDate(r.jobOrderDate)}</td><td>${esc(r.jobOrderNo)}</td><td>${esc(r.nature || "—")}<div class="xs muted">${esc(r.supplier)}</div></td><td class="right">${num(r.totalCost)}</td><td>${esc(r.status)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="muted small">No repairs recorded.</p>`}
         <div class="btn-row" style="margin-top:.6rem">${onHand ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record a repair</a>` : ""}<button class="btn sm" id="hor">Print History of Repair</button></div></div>
+      <div id="att"></div>
       <div class="card"><h3>History</h3><ul class="timeline">${(a.history || []).slice().reverse().map(h => `<li class="done"><div>${esc(h.action)}${h.note ? ` — <i>${esc(h.note)}</i>` : ""}</div><div class="when">${fmtDateTime(h.at)} · ${esc(h.by)}</div></li>`).join("")}</ul></div>
     </div><div>
       <div class="card"><h3>Details</h3><dl class="kv">
@@ -171,6 +175,10 @@ export function detail(main, [id]) {
         ${a.disposal ? `<dt>Disposal</dt><dd>${esc(a.disposal.reason)}${a.disposal.date ? ` · ${fmtDate(a.disposal.date)}` : ""}${a.disposal.ref ? ` · ${esc(a.disposal.ref)}` : ""}</dd>` : ""}
       </dl></div>
     </div></div>`;
+  const docIds = [...new Set([["par", "ics"].includes(a.source?.kind) ? a.source.docId : "", a.parIcs?.docId].filter(Boolean))];
+  const moves = S.d.movements.filter(x => (x.lines || []).some(l => l.assetId === a.id)).map(x => ({ type: "movement", id: x.id }));
+  attachmentsCard($("#att", main), { type: "asset", id: a.id, office: a.holder?.office || "", fund: a.fund, label: a.propertyNo || a.description },
+    { also: [...docIds.map(id => ({ type: "issuance", id })), ...moves], defaultLabel: ppe ? "Signed PAR" : "Signed ICS", title: "Signed PAR / ICS and other attachments" });
   $("#lc", main).onclick = () => printCards([a], "ledger");
   $("#pc", main).onclick = () => printCards([a], "property");
   $("#tag", main).onclick = () => printCards([a], "tags");
@@ -184,7 +192,7 @@ export function detail(main, [id]) {
   on("#rc", () => reclassModal(a));
   on("#ra", () => reactivateModal(a));
 }
-detail.deps = ["r:assets", "r:depr", "r:repairs", "r:movements"];
+detail.deps = ["r:assets", "r:depr", "r:repairs", "r:movements", "r:attachments"];
 
 function sourceHtml(a) {
   const k = a.source?.kind;
@@ -280,8 +288,11 @@ export function movement(main, [id]) {
       ${x.mode ? `<dt>Mode</dt><dd>${esc(x.mode)}${x.ref ? ` · ${esc(x.ref)}` : ""}</dd>` : ""}
       ${x.reason ? `<dt>Reason</dt><dd>${esc(x.reason)}</dd>` : ""}
       ${x.needsPosting ? `<dt>Accounting</dt><dd>${x.posting?.posted ? `Posted · ${esc(x.posting.ref)} · ${fmtDate(x.posting.date)}` : "Not yet posted"}</dd>` : ""}</dl></div>
+    <div id="att"></div>
     <div class="card"><div class="table-wrap"><table><thead><tr><th>Property / Item No.</th><th>Description</th><th class="right">Qty</th><th class="right">Cost</th>${x.docType === "dsp" ? `<th class="right">Carrying</th>` : ""}<th>Condition</th></tr></thead>
       <tbody>${x.lines.map(l => `<tr class="click" onclick="location.hash='#/assets/${esc(l.assetId)}'"><td>${esc(l.propertyNo || "—")}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.amount)}</td>${x.docType === "dsp" ? `<td class="right">${num(l.carrying)}</td>` : ""}<td>${esc(l.condition)}</td></tr>`).join("")}</tbody></table></div></div>`;
+  attachmentsCard($("#att", main), { type: "movement", id: x.id, office: x.to?.office || x.from?.office || "", fund: x.fund, label: `${DOC_NAMES[x.docType]} ${x.number}` },
+    { defaultLabel: { ptr: "Signed PTR / ITR", itr: "Signed PTR / ITR", prs: "Signed PRS / RRSP", rrsp: "Signed PRS / RRSP", dsp: "Disposal / IIRUP document" }[x.docType], title: `Signed ${DOC_NAMES[x.docType]} and other attachments` });
   $("#print", main).onclick = () => printForm(movementHtml(x), x.docType === "dsp" ? "landscape" : "portrait");
   $("#ed", main) && ($("#ed", main).onclick = () => {
     const m = openModal(`<h2>Edit printed details</h2><p class="muted small">Signatories, reason and reference as they print on the ${esc(DOC_NAMES[x.docType])}. The items and their custody don't change.</p>
@@ -304,5 +315,5 @@ export function movement(main, [id]) {
     if (v) busy(e.target, () => cancelMovement(x.id, v.reason), "Cancelled.").catch(() => {});
   });
 }
-movement.deps = ["r:movements"];
+movement.deps = ["r:movements", "r:attachments"];
 

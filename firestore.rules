@@ -113,6 +113,23 @@ service cloud.firestore {
       allow write: if issuer() || isAdmin();
     }
 
+    // Attachments — signed PAR / ICS / RIS, PTR, photos — added by the GSO or Accounting. The file itself is split
+    // into chunks under the attachment. End-Users see the attachments of their own office's documents and property.
+    match /attachments/{id} {
+      allow read: if viewer() || sameOffice(resource.data.office);
+      allow create: if (issuer() || poster()) && request.resource.data.uploadedBy.uid == request.auth.uid
+        && request.resource.data.kind in ['file', 'link'] && request.resource.data.target.type in ['issuance', 'asset', 'movement']
+        && request.resource.data.size <= 5242880;
+      allow update: if false;
+      allow delete: if issuer() || poster();
+      match /chunks/{n} {
+        allow read: if viewer() || sameOffice(get(/databases/$(database)/documents/attachments/$(id)).data.office);
+        allow create: if (issuer() || poster()) && request.resource.data.data is string && request.resource.data.data.size() <= 900000;
+        allow update: if false;
+        allow delete: if issuer() || poster();
+      }
+    }
+
     match /docNumbers/{id} {
       allow read: if active();
       allow create: if active() && request.resource.data.by == request.auth.uid;

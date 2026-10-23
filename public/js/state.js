@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], attachments: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -71,6 +71,7 @@ export function startRole() {
       live("r:officeAssets", query(collection(db, "assets"), where("holder.office", "==", office)), v => merge("assets", 1, v));
     }
     live("r:repairs", query(collection(db, "repairs"), where("endUserUid", "==", uid)), v => { S.d.repairs = v; });
+    if (office) live("r:attachments", query(collection(db, "attachments"), where("office", "==", office)), v => { S.d.attachments = v; });
   } else {
     live("r:airs", collection(db, "airs"), v => { S.d.airs = v; });
     live("r:docs", collection(db, "issuances"), v => { S.d.docs = v; });
@@ -82,6 +83,7 @@ export function startRole() {
     live("r:swa", collection(db, "swa"), v => { S.d.swa = v; });
     live("r:repairs", collection(db, "repairs"), v => { S.d.repairs = v; });
     live("r:users", collection(db, "users"), v => { S.d.users = v; });
+    live("r:attachments", collection(db, "attachments"), v => { S.d.attachments = v; });
   }
   if (isAdmin()) {
     live("r:audit", query(collection(db, "auditLogs"), orderBy("at", "desc"), limit(300)), v => { S.d.audit = v; });

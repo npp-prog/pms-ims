@@ -279,6 +279,59 @@ export function postAirWithDocs(airIds, posting) {
   });
 }
 
+/* ---------------- attachments (signed PAR / ICS / RIS, PTR, photos…) ---------------- */
+// Firebase Storage needs a paid plan, so files are kept in Firestore itself: the attachment record, and the file
+// split into pieces of 600 KB (attachments/{id}/chunks/{n}). A link (e.g. Google Drive) can be attached instead.
+export const ATTACH_MAX = 5 * 1024 * 1024;
+export const ATTACH_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const CHUNK = 600 * 1024;
+const b64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
+/** target: { type: "issuance" | "asset" | "movement", id, office, fund, label } — f: { label, file } or { label, url } */
+export function addAttachment(target, f) {
+  return wrap(async () => {
+    const label = String(f.label || "").trim() || "Document";
+    const base = { target: { type: target.type, id: target.id }, office: target.office || "", fund: target.fund || "", label, about: target.label || "",
+      uploadedBy: me(), at: serverTimestamp() };
+    const ref = doc(collection(db, "attachments"));
+    if (f.url) {
+      const url = String(f.url).trim();
+      if (!/^https:\/\//i.test(url)) throw fail("The link must start with https://");
+      await setDoc(ref, { ...base, kind: "link", url, name: url.replace(/^https:\/\//i, "").slice(0, 80), size: 0, chunks: 0 });
+    } else {
+      const file = f.file;
+      if (!file) throw fail("Choose a file, or paste a link.");
+      if (!ATTACH_TYPES.includes(file.type)) throw fail("Attach a PDF, JPG or PNG file.");
+      if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is 5 MB. Scan at a lower resolution, or attach a Google Drive link instead.`);
+      const bytes = new Uint8Array(await file.arrayBuffer()), n = Math.ceil(bytes.length / CHUNK) || 1;
+      const { writeBatch } = await import("./fb.js");
+      const b = writeBatch(db);
+      for (let i = 0; i < n; i++) b.set(doc(db, "attachments", ref.id, "chunks", String(i)), { data: b64(bytes.subarray(i * CHUNK, (i + 1) * CHUNK)), by: S.user.uid });
+      b.set(ref, { ...base, kind: "file", name: file.name.slice(0, 120), mime: file.type, size: file.size, chunks: n }); // the record last: it only shows once the file is complete
+      await b.commit();
+    }
+    audit("attachment_add", target.type, target.id, { label });
+    return ref.id;
+  });
+}
+/** The file as a Blob URL (pieces put back together). */
+export async function attachmentUrl(a) {
+  if (a.kind === "link") return a.url;
+  const { getDocs, collection: col } = await import("./fb.js");
+  const snap = await getDocs(col(db, "attachments", a.id, "chunks"));
+  const parts = snap.docs.sort((x, y) => Number(x.id) - Number(y.id)).map(d => Uint8Array.from(atob(d.data().data), c => c.charCodeAt(0)));
+  return URL.createObjectURL(new Blob(parts, { type: a.mime || "application/octet-stream" }));
+}
+export function removeAttachment(a) {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    const b = writeBatch(db);
+    for (let i = 0; i < (a.chunks || 0); i++) b.delete(doc(db, "attachments", a.id, "chunks", String(i)));
+    b.delete(doc(db, "attachments", a.id));
+    await b.commit();
+    audit("attachment_remove", a.target?.type || "", a.target?.id || "", { label: a.label, name: a.name });
+  });
+}
+
 /* ---------------- Accounts and settings ---------------- */
 export const isBootstrapEmail = email => SUPERADMIN_EMAILS.includes(String(email || "").toLowerCase());
 

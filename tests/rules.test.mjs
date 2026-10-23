@@ -434,3 +434,23 @@ test("item list: everyone active reads it; the GSO and administrators keep it", 
   await assertSucceeds(getDoc(doc(ctx("eu"), "items/bond%20paper")));
   await assertFails(getDoc(doc(ctx("pend"), "items/bond%20paper")));
 });
+
+test("attachments: the GSO and Accounting attach; End-Users see their own office's; files are kept in chunks", async () => {
+  await env.withSecurityRulesDisabled(async c => { await updateDoc(doc(c.firestore(), "users/eu"), { office: "MHO" }); });
+  const att = (uid, o = {}) => ({ target: { type: "issuance", id: "D1" }, office: "MHO", fund: "GF", label: "Signed PAR", kind: "file", name: "par.pdf", size: 1000, chunks: 1, uploadedBy: { uid }, ...o });
+  await assertSucceeds(setDoc(doc(ctx("gso"), "attachments/A1/chunks/0"), { data: "JVBERi0=", by: "gso" }));
+  await assertSucceeds(setDoc(doc(ctx("gso"), "attachments/A1"), att("gso")));
+  await assertSucceeds(setDoc(doc(ctx("acc"), "attachments/A2"), att("acc", { kind: "link", url: "https://drive.google.com/x", size: 0, chunks: 0, office: "MAO" })));
+  await assertFails(setDoc(doc(ctx("eu"), "attachments/A3"), att("eu")), "End-Users don't attach");
+  await assertFails(setDoc(doc(ctx("gso"), "attachments/A4"), att("acc")), "not in someone else's name");
+  await assertFails(setDoc(doc(ctx("gso"), "attachments/A5"), att("gso", { size: 6 * 1024 * 1024 })), "5 MB at most");
+  await assertFails(setDoc(doc(ctx("gso"), "attachments/A6"), att("gso", { target: { type: "users", id: "x" } })));
+  await assertFails(setDoc(doc(ctx("gso"), "attachments/A1/chunks/1"), { data: "x".repeat(900001), by: "gso" }));
+  await assertSucceeds(getDoc(doc(ctx("eu"), "attachments/A1")));
+  await assertSucceeds(getDoc(doc(ctx("eu"), "attachments/A1/chunks/0")));
+  await assertFails(getDoc(doc(ctx("eu"), "attachments/A2")), "another office's");
+  await assertFails(updateDoc(doc(ctx("gso"), "attachments/A1"), { label: "x" }));
+  await assertFails(deleteDoc(doc(ctx("eu"), "attachments/A1")));
+  await assertSucceeds(deleteDoc(doc(ctx("acc"), "attachments/A1/chunks/0")));
+  await assertSucceeds(deleteDoc(doc(ctx("acc"), "attachments/A1")));
+});

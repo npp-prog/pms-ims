@@ -74,6 +74,32 @@ export function formatNumber(type, ym, prefix, seq) {
   return type === "ics" ? `${prefix}-${n}` : n;
 }
 
+/* ---------------- item list (what was already encoded and approved) ---------------- */
+/** Same item, however it was typed: case, spacing and punctuation don't matter. */
+export const itemKey = d => String(d || "").toLowerCase().replace(/[^a-z0-9ñ]+/g, " ").trim();
+/** One entry per item description: from the shared item list and from approved AIR lines (the most recent wins). */
+export function buildItemCatalog(items = [], airs = []) {
+  const map = new Map();
+  const put = (e, at) => {
+    const key = itemKey(e.description);
+    if (!key) return;
+    const cur = map.get(key);
+    if (cur && cur.at > at) return;
+    map.set(key, { key, description: String(e.description).trim(), unit: e.unit || cur?.unit || "", stockNo: e.stockNo || cur?.stockNo || "", category: e.category || cur?.category || "", accountCode: e.accountCode || cur?.accountCode || "", at });
+  };
+  for (const a of airs) if (["approved", "issued"].includes(a.status)) for (const l of a.lines || []) put(l, String(a.acceptance?.dateReceived || a.date || ""));
+  for (const it of items) put(it, String(it.at || ""));
+  return map;
+}
+/** The known item for what is being typed: same description, or (when only the number is typed) same Item No. */
+export function findItem(catalog, { description, stockNo } = {}) {
+  const k = itemKey(description);
+  if (k && catalog.has(k)) return catalog.get(k);
+  const n = String(stockNo || "").trim().toUpperCase();
+  if (n && !k) return [...catalog.values()].find(e => e.stockNo && e.stockNo.toUpperCase() === n) || null;
+  return null;
+}
+
 export const remainingQty = l => round2((Number(l.qty) || 0) - (Number(l.issuedQty) || 0));
 
 /** Workflow status of an AIR, as stored. "approved" AIRs are then described by issuance progress. */

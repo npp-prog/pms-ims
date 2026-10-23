@@ -107,6 +107,12 @@ service cloud.firestore {
 
     // Every document number used, per fund and type ("GF_par_2026-10-0001"): claimed once, in the same transaction
     // as the document, so a number — automatic or typed by hand — can never be used twice.
+    // Item list: every item already accepted, with its Item No. (stock no.), unit and account — offered when encoding an AIR
+    match /items/{id} {
+      allow read: if active();
+      allow write: if issuer() || isAdmin();
+    }
+
     match /docNumbers/{id} {
       allow read: if active();
       allow create: if active() && request.resource.data.by == request.auth.uid;

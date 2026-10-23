@@ -67,3 +67,20 @@ test("PMS users: backup user_roles, Auth export and pasted lines, merged by emai
   assert.equal(suggestRole({ tabs: { hor: "edit" } }), "gso");
   assert.match(parsePmsUsers(["{bad json"]).errors[0], /JSON/);
 });
+
+test("item list: a known description gives its Item No.; typing the Item No. gives the description", async () => {
+  const { buildItemCatalog, findItem, itemKey } = await import("../public/js/core/logic.js");
+  const airs = [
+    { status: "approved", date: "2026-01-10", lines: [{ description: "Bond paper, A4, 70gsm", unit: "ream", stockNo: "OS-0001", category: "cons" }] },
+    { status: "issued", date: "2026-03-01", lines: [{ description: "bond paper a4 70gsm", unit: "ream", stockNo: "OS-0009", category: "cons" }] },
+    { status: "draft", date: "2026-04-01", lines: [{ description: "Ballpen", stockNo: "XX" }] }
+  ];
+  const items = [{ description: "Laptop computer, 14-inch", unit: "unit", stockNo: "ICT-014", category: "ppe", at: "2026-02-01" }];
+  const cat = buildItemCatalog(items, airs);
+  assert.equal(itemKey("  BOND paper,  A4 - 70gsm "), "bond paper a4 70gsm");
+  assert.equal(findItem(cat, { description: "Bond Paper A4 70GSM" }).stockNo, "OS-0009", "the latest delivery wins");
+  assert.equal(findItem(cat, { description: "laptop computer 14 inch" }).stockNo, "ICT-014");
+  assert.equal(findItem(cat, { description: "Ballpen" }), null, "drafts don't count");
+  assert.equal(findItem(cat, { stockNo: "ict-014" }).description, "Laptop computer, 14-inch");
+  assert.equal(findItem(cat, { description: "Stapler" }), null);
+});

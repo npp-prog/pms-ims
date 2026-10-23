@@ -44,6 +44,14 @@ PPE always moves as a whole record.
 - **Supplies** go to inventory and are issued with a **RIS**. Accounts `10402xxx` are
   *Distribution* (for example, welfare goods); other accounts are *Consumption*.
 
+### Item No. filled in while encoding the AIR
+
+On a new AIR, typing an item's description that was accepted before fills its **Item No.** (stock no.), unit and type
+— the same item however it is typed (case, spaces and punctuation don't matter), using the latest delivery. Typing a
+known Item No. fills the description. Suggestions appear as you type. The list grows on its own each time the GSO
+approves an AIR (and when IMS supplies are imported); after updating, an administrator runs **Settings → Item list →
+Update the item list from approved AIRs** once to add the earlier ones. The GSO can still correct the Item No. at inspection.
+
 ### Construction in Progress and SWA (same rules as PMS)
 
 - **One project per CIP No.**, on one of the three CIP accounts (Land Improvements, Infrastructure,

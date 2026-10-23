@@ -4,7 +4,7 @@ import { S, isSuper, settings } from "../state.js";
 import { $, esc, busy, toast, fmtDate, fmtDateTime, opts, renderTable, openModal, userBadge, avatar } from "../ui.js";
 import { ROLES, ROLE_NAMES, FUNDS } from "../core/catalog.js";
 import { NUMBERED_DOCS, NUMBER_RESETS, numberingFor, seriesKey, formatDocNo, checkNumbering } from "../core/logic.js";
-import { setUserAccess, saveSettings, updateProfile, setNextNumber } from "../data.js";
+import { setUserAccess, saveSettings, updateProfile, setNextNumber, rebuildItemList } from "../data.js";
 
 const ROLE_HELP = {
   enduser: "Encodes AIRs for deliveries to their office; sees the PAR / ICS / RIS issued from them.",
@@ -77,8 +77,11 @@ export function settingsPage(main) {
       <div class="spanall btn-row end"><button class="btn primary" type="submit">Save settings</button></div></form>
     <div id="numbering"></div>
     <div class="card"><div class="card-head"><h3>Backup</h3></div><p class="small muted">Downloads everything this app holds — register, AIRs, PAR / ICS / RIS, transfers, depreciation, Trial Balances, CIP and SWA, repairs, users and settings — as one JSON file. Keep it somewhere safe; Firestore on the free plan has no automatic backups.</p>
-      <button class="btn" id="bk" type="button">Download full backup (JSON)</button></div>`;
+      <button class="btn" id="bk" type="button">Download full backup (JSON)</button></div>
+    <div class="card"><div class="card-head"><h3>Item list</h3><span class="small muted">${S.d.items.length} items</span></div><p class="small muted">When an End-User types an item on a new AIR, its Item No. (stock no.), unit and type fill in from items accepted before. The list grows by itself as the GSO approves AIRs; run this once to add the items of AIRs approved earlier.</p>
+      <button class="btn" id="items" type="button">Update the item list from approved AIRs</button></div>`;
   numberingCard($("#numbering", main));
+  $("#items", main).onclick = e => busy(e.target, async () => { const n = await rebuildItemList(); toast(`${n} items in the list.`, "ok"); }).catch(() => {});
   $("#bk", main).onclick = () => {
     const d = S.d, ts = new Date().toISOString();
     const data = { app: "PMS-IMS", exportedAt: ts, exportedBy: S.account?.email || S.user.email, settings: S.settings,

@@ -424,3 +424,13 @@ test("users brought over from PMS: invited by an administrator, activated with e
   await assertFails(getDoc(doc(other, "invites/liza@pms.ph")));
   await assertFails(setDoc(doc(other, "users/o"), { ...user("o"), email: "other@pms.ph" }));
 });
+
+test("item list: everyone active reads it; the GSO and administrators keep it", async () => {
+  const it = { description: "Bond paper", stockNo: "OS-0001", unit: "ream" };
+  await assertSucceeds(setDoc(doc(ctx("gso"), "items/bond%20paper"), it));
+  await assertSucceeds(setDoc(doc(ctx("ad"), "items/x"), it));
+  await assertFails(setDoc(doc(ctx("eu"), "items/y"), it));
+  await assertFails(setDoc(doc(ctx("acc"), "items/z"), it));
+  await assertSucceeds(getDoc(doc(ctx("eu"), "items/bond%20paper")));
+  await assertFails(getDoc(doc(ctx("pend"), "items/bond%20paper")));
+});

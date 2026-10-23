@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -56,6 +56,7 @@ const OFFICE_AIR_STATUSES = ["submitted", "returned", "approved", "issued"];
 export function startRole() {
   stop("r:");
   const uid = S.user.uid;
+  live("r:items", collection(db, "items"), v => { S.d.items = v; });
   if (role() === "enduser") {
     // their own records (drafts included), plus everything of their office: submitted AIRs, documents issued and property held
     const office = S.account?.office || "";

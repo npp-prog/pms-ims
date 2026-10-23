@@ -9,7 +9,7 @@ import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable
 import { specialGroup } from "./core/cards.js";
 import {
   round2, lineAmount, linesTotal, validateAir, NUMBERED_DOCS, numberingFor, seriesKey, formatDocNo, cleanDocNo, validateInspection, checkIssue, sxClass,
-  statusAfterIssue, remainingQty
+  statusAfterIssue, remainingQty, itemKey, buildItemCatalog
 } from "./core/logic.js";
 
 const me = () => ({ uid: S.user.uid, name: S.account?.displayName || S.user.displayName || S.user.email, email: S.user.email });
@@ -129,6 +129,9 @@ export function approveAir(id, insp) {
       const next = { ...old, lines, inspection: insp.inspection, acceptance: insp.acceptance };
       const errs = validateInspection(next);
       if (errs.length) throw fail(errs[0]);
+      // the shared item list, so the next AIR with the same item gets its Item No. as it is typed
+      const at = insp.acceptance?.dateReceived || old.date || "";
+      for (const l of lines) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
       tx.update(ref, { lines, inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
         approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), stamp("Inspected and approved by GSO", insp.remarks || "")], updatedAt: serverTimestamp() });
     });
@@ -731,6 +734,22 @@ export function importAssets(items, onProgress) {
 
 /** Supplies on hand come in as an approved "beginning balance" AIR per fund (up to 300 lines each), already
  *  posted, so the normal RIS issuance draws from them exactly like from a delivery. */
+const itemDocId = d => encodeURIComponent(itemKey(d)).slice(0, 700);
+const itemEntry = (l, at) => ({ description: String(l.description || "").trim(), unit: l.unit || "", stockNo: l.stockNo || "", category: l.category || "", accountCode: l.accountCode || "", at: String(at || ""), updatedAt: serverTimestamp() });
+/** Administrator: fills the item list from every approved AIR already in the system (run once after updating). */
+export function rebuildItemList() {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    const cat = [...buildItemCatalog([], S.d.airs).values()];
+    for (let i = 0; i < cat.length; i += 400) {
+      const b = writeBatch(db);
+      cat.slice(i, i + 400).forEach(e => b.set(doc(db, "items", itemDocId(e.description)), itemEntry(e, e.at)));
+      await b.commit();
+    }
+    audit("items_rebuild", "items", "-", { count: cat.length });
+    return cat.length;
+  });
+}
 export function importStock(items, asOf) {
   return wrap(async () => {
     const byFund = new Map();
@@ -749,6 +768,9 @@ export function importStock(items, asOf) {
           posting: { posted: true, date: asOf, ref: "Beginning balance", remarks: "Imported from IMS", by: me(), at: new Date().toISOString() },
           history: [stamp("Imported from IMS as a beginning balance")], approvedBy: me(), approvedAt: serverTimestamp(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
         });
+        const { writeBatch } = await import("./fb.js"), ib = writeBatch(db);
+        lines.forEach(l => ib.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, asOf)));
+        await ib.commit();
         n += part.length;
       }
     }

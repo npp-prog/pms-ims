@@ -5,7 +5,7 @@ import {
   renderTable, confirmBox, openModal, airBadge, catBadge, docStatusBadge, postBadge, downloadCSV
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
-import { numberingFor, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir } from "../core/logic.js";
+import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir } from "../core/logic.js";
 import { saveAir, deleteAir, approveAir, returnAir } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 
@@ -89,8 +89,8 @@ export function form(main, [id]) {
       </div>
       <h3 style="margin-top:1.4rem">Items delivered</h3>
       <p class="xs muted" style="margin-top:-.3rem">Choose <b>Equipment / furniture</b> for property (unit cost ₱${num(th.capitalization)} and up becomes PPE with a PAR; below that, Semi-Expendable with an ICS) or <b>Supplies</b> for consumable / distributable items (issued with a RIS). The GSO confirms the classification.</p>
-      <div class="table-wrap"><table class="lines"><thead><tr><th>Type</th><th>Description</th><th>Specifications</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Becomes</th><th></th></tr></thead><tbody id="lb"></tbody>
-        <tfoot><tr><td colspan="6" class="right">Total</td><td class="tot" id="ltot"></td><td colspan="2"></td></tr></tfoot></table></div>
+      <div class="table-wrap"><table class="lines"><thead><tr><th>Type</th><th>Description</th><th>Item No.</th><th>Specifications</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Becomes</th><th></th></tr></thead><tbody id="lb"></tbody>
+        <tfoot><tr><td colspan="7" class="right">Total</td><td class="tot" id="ltot"></td><td colspan="2"></td></tr></tfoot></table></div>
       <button type="button" class="btn sm" id="add" style="margin-top:.6rem">+ Add item</button>
       <div class="form-msg err" id="msg"></div>
       <div class="modal-actions">
@@ -100,11 +100,42 @@ export function form(main, [id]) {
         <button type="submit" class="btn primary">${a?.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>
       </div>
     </form>`;
+  // items already accepted before: typing a known description fills its Item No. (and unit / type when empty)
+  let catalog = null, catSrc = null;
+  const lists = () => {
+    if (catSrc?.[0] === S.d.items && catSrc?.[1] === S.d.airs) return catalog;
+    catalog = buildItemCatalog(S.d.items, S.d.airs); catSrc = [S.d.items, S.d.airs];
+    $("#itemlist", main)?.remove(); $("#itemnos", main)?.remove();
+    main.querySelector("#af").insertAdjacentHTML("beforeend", `<datalist id="itemlist">${[...catalog.values()].map(e => `<option value="${esc(e.description)}">${esc(e.stockNo ? `${e.stockNo} · ${e.unit}` : e.unit)}</option>`).join("")}</datalist>
+      <datalist id="itemnos">${[...catalog.values()].filter(e => e.stockNo).map(e => `<option value="${esc(e.stockNo)}">${esc(e.description)}</option>`).join("")}</datalist>`);
+    return catalog;
+  };
+  lists();
+  main.querySelector("#af").addEventListener("focusin", e => { if (e.target.matches?.("[data-k=description], [data-k=stockNo]")) lists(); });
+  const fillFromCatalog = (l, tr, typed) => {
+    const catalog = lists();
+    const hit = findItem(catalog, typed === "stockNo" ? { stockNo: l.stockNo } : { description: l.description });
+    const set = (k, v) => { l[k] = v; const el = $(`[data-k=${k}]`, tr); if (el) el.value = v; };
+    if (typed === "description") {
+      if (hit?.stockNo && (!l.stockNo || l.autoNo)) { set("stockNo", hit.stockNo); l.autoNo = true; }
+      else if (!hit && l.autoNo) { set("stockNo", ""); l.autoNo = false; }
+    } else if (typed === "stockNo") {
+      l.autoNo = false;
+      if (hit && !String(l.description || "").trim()) set("description", hit.description);
+    }
+    const h = hit || (typed === "stockNo" ? findItem(catalog, { description: l.description }) : null);
+    if (h) {
+      if (h.unit && (!l.unitTouched || !String(l.unit || "").trim())) set("unit", h.unit);
+      if (h.category && !l.kindTouched) set("kind", h.category === "cons" ? "supplies" : "equipment");
+    }
+    $("[data-hint]", tr).textContent = l.autoNo && l.stockNo ? "Item No. from earlier deliveries" : "";
+  };
   const lb = $("#lb", main);
   const draw = () => {
     lb.innerHTML = lines.map((l, i) => `<tr data-i="${i}">
       <td><select data-k="kind" class="w-sm">${opts([["equipment", "Equipment"], ["supplies", "Supplies"]], l.kind)}</select></td>
-      <td><input data-k="description" class="w-lg" value="${esc(l.description || "")}" placeholder="e.g. Laptop computer"></td>
+      <td><input data-k="description" class="w-lg" list="itemlist" autocomplete="off" value="${esc(l.description || "")}" placeholder="e.g. Laptop computer"><div class="xs muted" data-hint>${l.autoNo ? "Item No. from earlier deliveries" : ""}</div></td>
+      <td><input data-k="stockNo" class="w-sm" list="itemnos" autocomplete="off" value="${esc(l.stockNo || "")}" placeholder="auto"></td>
       <td><textarea data-k="specs" class="w-md" placeholder="Brand, model, serial…">${esc(l.specs || "")}</textarea></td>
       <td><input data-k="unit" class="w-xs" value="${esc(l.unit || "")}"></td>
       <td><input data-k="qty" type="number" min="0" step="any" class="w-xs" value="${esc(l.qty ?? "")}"></td>
@@ -118,6 +149,10 @@ export function form(main, [id]) {
   lb.addEventListener("input", e => {
     const tr = e.target.closest("tr"); const k = e.target.dataset.k; if (!tr || !k) return;
     const l = lines[+tr.dataset.i]; l[k] = e.target.value;
+    if (k === "kind") l.kindTouched = true;
+    if (k === "unit") l.unitTouched = true;
+    if (k === "description") { l.unitTouched = false; l.kindTouched = false; } // a different item: its own unit and type
+    if (k === "description" || k === "stockNo") fillFromCatalog(l, tr, k);
     $("[data-amt]", tr).textContent = num(lineAmount(l));
     $("[data-cat]", tr).innerHTML = catBadge(suggestCategory(l.kind, l.unitCost, th));
     $("#ltot", main).textContent = money(linesTotal(lines));

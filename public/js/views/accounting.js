@@ -105,7 +105,10 @@ export function reconciliation(main) {
   $("#tbt", main).oninput = count;
   $("#tbf", main).onchange = async e => {
     const f = e.target.files[0]; if (!f) return;
-    try { $("#tbt", main).value = await sheetAsText(f); $("#tbt", main).dataset.src = f.name; count(); } catch (err) { toast(err.message, "err"); }
+    try {
+      $("#tbt", main).value = await sheetAsText(f); $("#tbt", main).dataset.src = f.name; count();
+      $("#tbt", main).dispatchEvent(new Event("input", { bubbles: true })); // counts as unsaved, so a data refresh doesn't wipe it
+    } catch (err) { toast(err.message, "err"); }
   };
   $("#save", main).onclick = e => {
     const accounts = parseTrialBalance($("#tbt", main).value);

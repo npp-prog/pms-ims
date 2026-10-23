@@ -6,7 +6,7 @@ import { $, $$, esc, busy, toast, money, opts, accountOpts, openModal, officeSel
 import { FUNDS, PPE_ACCOUNTS, SX_ACCOUNTS, fundName, accountName } from "../core/catalog.js";
 import { defaultLife, hasPostedDepreciation } from "../core/assets.js";
 import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES, assetTimeline } from "../core/cards.js";
-import { round2 } from "../core/logic.js";
+import { round2, numberingFor } from "../core/logic.js";
 import { addAsset, updateAsset, revalueAsset, addLedgerEntry, reclassifyAsset, reactivateAsset, issueForAssets } from "../data.js";
 import { printForm, ledgerCardHtml, propertyCardHtml, idTagsHtml } from "../print.js";
 
@@ -175,14 +175,15 @@ export function registerIssueModal(assets) {
   if (has.length) return toast(`${has.length} item(s) already have a PAR / ICS — use a transfer (PTR / ITR) instead.`, "err");
   const s = settings(), users = activeUsers(), dt = assets[0].itemType === "ppe" ? "PAR" : "ICS";
   const m = simpleModal(`Issue ${dt} for ${assets.length} register item(s)`, `For property already in the register (imported from PMS or added by hand) that has no ${dt} yet. Total ${money(assets.reduce((t, a) => t + a.cost, 0))}.`,
-    `<div><label class="req">Date</label><input type="date" name="date" value="${today()}"></div><div></div>
+    `<div><label class="req">Date</label><input type="date" name="date" value="${today()}"></div>
+     ${numberingFor(S.settings, assets[0].itemType === "ppe" ? "par" : "ics").mode === "manual" ? `<div><label class="req">${dt} No.</label><input name="number" placeholder="as on the printed form"></div>` : "<div></div>"}
      <div><label class="req">Received by (end-user)</label><input name="name" list="ulist3" autocomplete="off" value="${esc(assets[0].holder?.name || "")}"></div>
      <div><label>Position</label><input name="position" value="${esc(assets[0].holder?.position || "")}"></div>
      <div class="spanall"><label>Office</label>${officeSelect("office", assets[0].holder?.office || "", s.offices)}</div>
      <datalist id="ulist3">${users.map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>`, `Issue ${dt}`,
     async v => {
       const u = users.find(x => x.displayName === v.name);
-      const out = await issueForAssets(assets.map(a => a.id), { date: v.date, recipient: { name: v.name, position: v.position || "", office: v.office || "", uid: u?.id || "" },
+      const out = await issueForAssets(assets.map(a => a.id), { date: v.date, number: v.number || "", recipient: { name: v.name, position: v.position || "", office: v.office || "", uid: u?.id || "" },
         issuedBy: { name: s.signatories.propertyCustodian, position: s.signatories.propertyCustodianPosition } });
       toast(`${out.docType.toUpperCase()} ${out.number} issued.`, "ok"); location.hash = `#/issuances/${out.id}`;
     });

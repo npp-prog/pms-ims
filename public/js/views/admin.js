@@ -1,9 +1,10 @@
 // Administration: users and roles, settings, audit trail — and every user's own profile.
-import { auth, updatePassword, EmailAuthProvider, reauthenticateWithCredential, authError } from "../fb.js";
+import { auth, updatePassword, EmailAuthProvider, reauthenticateWithCredential, authError, db, doc, getDoc } from "../fb.js";
 import { S, isSuper, settings } from "../state.js";
 import { $, esc, busy, toast, fmtDate, fmtDateTime, opts, renderTable, openModal, userBadge, avatar } from "../ui.js";
-import { ROLES, ROLE_NAMES } from "../core/catalog.js";
-import { setUserAccess, saveSettings, updateProfile } from "../data.js";
+import { ROLES, ROLE_NAMES, FUNDS } from "../core/catalog.js";
+import { NUMBERED_DOCS, NUMBER_RESETS, numberingFor, seriesKey, formatDocNo, checkNumbering } from "../core/logic.js";
+import { setUserAccess, saveSettings, updateProfile, setNextNumber } from "../data.js";
 
 const ROLE_HELP = {
   enduser: "Encodes AIRs for deliveries to their office; sees the PAR / ICS / RIS issued from them.",
@@ -74,8 +75,10 @@ export function settingsPage(main) {
         ${f("approver", "RIS approved by", sg.approver)}${f("approverPosition", "Position", sg.approverPosition)}
         ${f("accountant", "Accounting (RSMI posted by)", sg.accountant)}${f("accountantPosition", "Position", sg.accountantPosition)}</div></fieldset>
       <div class="spanall btn-row end"><button class="btn primary" type="submit">Save settings</button></div></form>
+    <div id="numbering"></div>
     <div class="card"><div class="card-head"><h3>Backup</h3></div><p class="small muted">Downloads everything this app holds — register, AIRs, PAR / ICS / RIS, transfers, depreciation, Trial Balances, CIP and SWA, repairs, users and settings — as one JSON file. Keep it somewhere safe; Firestore on the free plan has no automatic backups.</p>
       <button class="btn" id="bk" type="button">Download full backup (JSON)</button></div>`;
+  numberingCard($("#numbering", main));
   $("#bk", main).onclick = () => {
     const d = S.d, ts = new Date().toISOString();
     const data = { app: "PMS-IMS", exportedAt: ts, exportedBy: S.account?.email || S.user.email, settings: S.settings,
@@ -157,3 +160,70 @@ export function profile(main) {
   });
 }
 profile.deps = ["account"];
+
+/* ---------------- document numbering ---------------- */
+const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10);
+const SERIES = NUMBERED_DOCS.flatMap(([t, l]) => t === "ics" ? [[t, "low", "ICS — low value (SPLV)"], [t, "high", "ICS — high value (SPHV)"]] : [[t, "", l.split(" — ")[0]]]);
+
+/** How each document is numbered: automatic (format, restart, starting number) or typed by hand; and the next number of each series. */
+function numberingCard(el) {
+  const cfg = Object.fromEntries(NUMBERED_DOCS.map(([t]) => [t, numberingFor(S.settings, t)]));
+  const ex = (t, c) => c.mode === "manual" ? "typed when the document is saved" : formatDocNo(c.format, { date: today(), fund: "GF", cls: "low", seq: c.start });
+  el.innerHTML = `<div class="card"><div class="card-head"><h3>Document numbering</h3></div>
+    <p class="small muted">For each document, choose <b>Automatic</b> (the app gives the next number) or <b>Manual</b> (whoever saves it types the number, e.g. from a pre-numbered form). Every number is checked so it is never used twice in a fund.
+      Format parts: <code>{YYYY}</code> year, <code>{YY}</code> 2-digit year, <code>{MM}</code> month (from the document date), <code>{FUND}</code> GF / SEF / TF, <code>{CLASS}</code> SPLV / SPHV (ICS),
+      <code>{####}</code> the sequence with as many digits as #. Anything else is printed as typed, e.g. <code>AIR-{YYYY}-{#####}</code>. Each fund has its own series.</p>
+    <form id="nf"><div class="table-wrap"><table class="lines"><thead><tr><th>Document</th><th>Numbering</th><th>Format</th><th>Numbers restart</th><th>Start at</th><th>Example</th></tr></thead>
+      <tbody>${NUMBERED_DOCS.map(([t, l]) => { const c = cfg[t]; return `<tr data-t="${t}">
+        <td><b>${esc(l.split(" — ")[0])}</b><div class="xs muted">${esc(l.split(" — ")[1] || "")}</div></td>
+        <td><select name="${t}_mode" class="w-md">${opts([["auto", "Automatic"], ["manual", "Manual"]], c.mode)}</select></td>
+        <td><input name="${t}_format" value="${esc(c.format)}" class="w-lg" style="min-width:210px"></td>
+        <td><select name="${t}_reset" class="w-md">${opts(NUMBER_RESETS, c.reset)}</select></td>
+        <td><input type="number" min="1" step="1" name="${t}_start" value="${c.start}" class="w-sm"></td>
+        <td class="small" data-ex>${esc(ex(t, c))}</td></tr>`; }).join("")}</tbody></table></div>
+      <p class="xs muted" style="margin:.6rem 0 0">"Start at" is the first number of every new series (each new month or year, or the first one ever). To continue from a number already reached — for example the last PAR issued in PMS — set the next number below.</p>
+      <div class="form-msg err" id="nm"></div>
+      <div class="btn-row end" style="margin-top:.8rem"><button class="btn primary" type="submit">Save numbering</button></div></form>
+    <h3 style="margin-top:1.4rem">Next number of each series</h3>
+    <div class="table-tools" data-nodirty><div><label>Fund</label><select id="nfund">${opts(FUNDS.map(f => [f.code, f.name]), S.fund)}</select></div>
+      <div><label>As of date</label><input type="date" id="ndate" value="${today()}"></div><div class="grow small muted" style="align-self:center">Automatic series only. The series is the one this date falls in (its month, year, or the running series).</div></div>
+    <div id="next"></div></div>`;
+  const f = $("#nf", el);
+  const read = t => ({ mode: f[`${t}_mode`].value, format: f[`${t}_format`].value.trim(), reset: f[`${t}_reset`].value, start: Math.floor(Number(f[`${t}_start`].value) || 0) });
+  f.addEventListener("input", e => { const tr = e.target.closest("tr[data-t]"); if (tr) $("[data-ex]", tr).textContent = ex(tr.dataset.t, read(tr.dataset.t)); });
+  f.addEventListener("change", e => { const tr = e.target.closest("tr[data-t]"); if (tr) $("[data-ex]", tr).textContent = ex(tr.dataset.t, read(tr.dataset.t)); });
+  f.onsubmit = e => {
+    e.preventDefault();
+    const numbering = {};
+    for (const [t, l] of NUMBERED_DOCS) {
+      const c = read(t), err = checkNumbering(t, c);
+      if (err) { $("#nm", el).textContent = `${l.split(" — ")[0]}: ${err}`; return; }
+      numbering[t] = c;
+    }
+    $("#nm", el).textContent = "";
+    busy(e.submitter, async () => { await saveSettings({ numbering }); window.dispatchEvent(new Event("app:clean")); drawNext(); }, "Numbering saved.").catch(() => {});
+  };
+  const drawNext = async () => {
+    const fund = $("#nfund", el).value, date = $("#ndate", el).value || today(), box = $("#next", el);
+    box.innerHTML = `<div class="loading">Reading counters…</div>`;
+    const rows = [];
+    for (const [t, cls, label] of SERIES) {
+      const c = numberingFor(S.settings, t);
+      if (c.mode === "manual") { rows.push(`<tr><td>${esc(label)}</td><td colspan="3" class="muted small">Manual — typed when saved</td></tr>`); continue; }
+      const { key } = seriesKey(c, fund, t, date, cls);
+      const snap = await getDoc(doc(db, "counters", key)).catch(() => null);
+      const next = snap?.exists() ? (Number(snap.data().seq) || 0) + 1 : c.start;
+      rows.push(`<tr data-k="${t}|${cls}"><td>${esc(label)}</td><td><b>${esc(formatDocNo(c.format, { date, fund, cls, seq: next }))}</b><div class="xs muted">${snap?.exists() ? `${(Number(snap.data().seq) || 0)} used in this series` : "series not started"}</div></td>
+        <td><input type="number" min="1" step="1" value="${next}" class="w-sm" data-nodirty></td><td><button type="button" class="btn sm" data-set>Set next</button></td></tr>`);
+    }
+    box.innerHTML = `<div class="table-wrap"><table class="lines"><thead><tr><th>Series</th><th>Next number</th><th>Set next to</th><th></th></tr></thead><tbody>${rows.join("")}</tbody></table></div>`;
+  };
+  $("#next", el).addEventListener("click", async e => {
+    const b = e.target.closest("[data-set]"); if (!b) return;
+    const tr = b.closest("tr"), [t, cls] = tr.dataset.k.split("|"), n = $("input", tr).value;
+    const fund = $("#nfund", el).value, date = $("#ndate", el).value || today();
+    busy(b, async () => { const no = await setNextNumber(fund, t, date, cls, n); toast(`The next number will be ${no}.`, "ok"); drawNext(); }).catch(() => {});
+  });
+  $("#nfund", el).onchange = drawNext; $("#ndate", el).onchange = drawNext;
+  drawNext();
+}

@@ -17,14 +17,57 @@ export function sxClass(unitCost, thresholds = DEFAULT_THRESHOLDS) {
   return (Number(unitCost) || 0) > thresholds.sxHighValue ? "high" : "low";
 }
 
-/** Counter key and the formatted number for a new document.
- *  AIR, PAR and RIS: YYYY-MM-NNNN (per fund and month, as in PMS/IMS).
- *  ICS: SPHV-YYYY-MM-NNNN or SPLV-YYYY-MM-NNNN (separate sequences, as in PMS). */
+/* ---------------- document numbering (set by the administrator in Settings) ---------------- */
+/** Every numbered document. ICS keeps two series (SPLV / SPHV) by value class. */
+export const NUMBERED_DOCS = [
+  ["air", "AIR — Acceptance and Inspection Report"], ["par", "PAR — Property Acknowledgment Receipt"], ["ics", "ICS — Inventory Custodian Slip"],
+  ["ris", "RIS — Requisition and Issue Slip"], ["ptr", "PTR — Property Transfer Report"], ["itr", "ITR — Inventory Transfer Report"],
+  ["prs", "PRS — Property Return Slip"], ["rrsp", "RRSP — Receipt of Returned Semi-Expendable Property"], ["dsp", "Disposal report"]
+];
+export const NUMBER_RESETS = [["monthly", "Every month"], ["yearly", "Every year"], ["never", "Never (one running series)"]];
+export const numberingDefault = type => ({ mode: "auto", format: type === "ics" ? "{CLASS}-{YYYY}-{MM}-{####}" : "{YYYY}-{MM}-{####}", reset: "monthly", start: 1 });
+/** The numbering in effect for a document type: the saved setting over the default. */
+export function numberingFor(settings, type) {
+  const c = { ...numberingDefault(type), ...(settings?.numbering?.[type] || {}) };
+  c.start = Math.max(1, Math.floor(Number(c.start) || 1));
+  return c;
+}
+const icsPrefix = cls => (cls === "low" ? "SPLV" : "SPHV");
+/** The counter a number comes from: one series per fund (and ICS class), restarting by month, year or never.
+ *  Monthly series keep the original key (GF_PAR_2026-10), so counters already in use carry on. */
+export function seriesKey(cfg, fund, type, date, cls = "") {
+  const d = String(date || "");
+  if (!/^\d{4}-\d{2}/.test(d)) throw new Error("A valid date is required for numbering.");
+  const period = cfg.reset === "yearly" ? d.slice(0, 4) : cfg.reset === "never" ? "ALL" : d.slice(0, 7);
+  const prefix = type === "ics" ? icsPrefix(cls) : type.toUpperCase();
+  return { key: `${fund}_${prefix}_${period}`, period, prefix };
+}
+/** Fills a format: {YYYY} {YY} {MM} year and month of the document date, {FUND} GF / SEF / TF, {CLASS} SPLV / SPHV (ICS),
+ *  and {###…} the sequence padded to as many digits as there are #. Anything else is printed as typed. */
+export function formatDocNo(format, { date, fund = "", cls = "", seq }) {
+  const d = String(date || "");
+  return String(format || "").replace(/\{(YYYY|YY|MM|FUND|CLASS|#+)\}/g, (_, t) =>
+    t === "YYYY" ? d.slice(0, 4) : t === "YY" ? d.slice(2, 4) : t === "MM" ? d.slice(5, 7) : t === "FUND" ? fund : t === "CLASS" ? (cls ? icsPrefix(cls) : "") : String(seq).padStart(t.length, "0"));
+}
+/** Problems with a numbering setting, or "" when it can be saved. */
+export function checkNumbering(type, c) {
+  if (c.mode === "manual") return "";
+  const f = String(c.format || "");
+  if (!/\{#+\}/.test(f)) return "The format needs a sequence number: {####}.";
+  if (/\{(?!(YYYY|YY|MM|FUND|CLASS|#+)\})[^}]*\}/.test(f)) return "Unknown part in the format. Use {YYYY}, {YY}, {MM}, {FUND}, {CLASS} or {####}.";
+  if (c.reset === "monthly" && !(/\{MM\}/.test(f) && /\{YY(YY)?\}/.test(f))) return "Numbers restart every month, so the format needs {YYYY} (or {YY}) and {MM} — otherwise numbers would repeat.";
+  if (c.reset === "yearly" && !/\{YY(YY)?\}/.test(f)) return "Numbers restart every year, so the format needs {YYYY} (or {YY}) — otherwise numbers would repeat.";
+  if (type === "ics" && !/\{CLASS\}/.test(f)) return "Low- and high-value ICS have separate series, so the format needs {CLASS} (SPLV / SPHV).";
+  if (!(Number(c.start) >= 1)) return "The starting number must be 1 or more.";
+  return "";
+}
+/** A number typed by hand (manual numbering): trimmed, at most 40 characters. */
+export const cleanDocNo = v => String(v ?? "").trim().replace(/\s+/g, " ").slice(0, 40);
+
+/** Counter key and number with the original PMS / IMS formats (monthly series). */
 export function counterKey(fund, type, date, cls = "") {
-  const ym = String(date || "").slice(0, 7);
-  if (!/^\d{4}-\d{2}$/.test(ym)) throw new Error("A valid date is required for numbering.");
-  const prefix = type === "ics" ? (cls === "low" ? "SPLV" : "SPHV") : type.toUpperCase();
-  return { key: `${fund}_${prefix}_${ym}`, ym, prefix };
+  const { key, period } = seriesKey(numberingDefault(type), fund, type, date, cls);
+  return { key, ym: period, prefix: type === "ics" ? icsPrefix(cls) : type.toUpperCase() };
 }
 export function formatNumber(type, ym, prefix, seq) {
   const n = `${ym}-${String(seq).padStart(4, "0")}`;

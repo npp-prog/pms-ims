@@ -5,7 +5,7 @@ import {
   renderTable, confirmBox, openModal, airBadge, catBadge, docStatusBadge, postBadge, downloadCSV
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
-import { AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir } from "../core/logic.js";
+import { numberingFor, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir } from "../core/logic.js";
 import { saveAir, deleteAir, approveAir, returnAir } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 
@@ -77,6 +77,7 @@ export function form(main, [id]) {
       <div class="grid g4">
         <div><label class="req">Fund</label><select name="fund" ${a?.airNo ? "disabled title=\"The AIR number already belongs to this fund\"" : ""}>${opts(FUNDS.map(f => [f.code, f.name]), a?.fund || S.fund)}</select></div>
         <div><label class="req">AIR date</label><input type="date" name="date" value="${esc(a?.date || manilaToday())}"></div>
+        ${!a?.airNo && numberingFor(S.settings, "air").mode === "manual" ? `<div><label class="req">AIR No.</label><input name="airNo" placeholder="as on the printed AIR"><div class="xs muted">Needed when you submit.</div></div>` : ""}
         <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", a?.office ?? S.account?.office ?? "", settings().offices)}</div>
         <div class="span2"><label class="req">Supplier</label><input name="supplier" value="${esc(a?.supplier || "")}"></div>
         <div><label>PO No.</label><input name="poNo" value="${esc(a?.poNo || "")}"></div>
@@ -128,6 +129,7 @@ export function form(main, [id]) {
     const data = collect();
     $("#msg", main).textContent = "";
     if (submit) { const errs = validateAir({ ...data, lines: data.lines.map(l => ({ ...l, qty: Number(l.qty), unitCost: l.unitCost === "" ? "" : Number(l.unitCost) })) }); if (errs.length) { $("#msg", main).textContent = errs[0]; return; } }
+    if (submit && "airNo" in data && !String(data.airNo).trim()) { $("#msg", main).textContent = "Enter the AIR No. — numbering is set to manual."; return; }
     busy(btn, async () => {
       const newId = await saveAir(a?.id, data, submit);
       clean(); toast(submit ? "AIR submitted to the GSO for inspection." : "Draft saved.", "ok");

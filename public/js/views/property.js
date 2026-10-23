@@ -4,7 +4,7 @@ import { S, can, settings, fundAssets, assetById, activeUsers } from "../state.j
 import { officeSelect, $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, accountName, FUNDS } from "../core/catalog.js";
 import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType, impairmentAsOf, adjustedCostAsOf } from "../core/assets.js";
-import { round2 } from "../core/logic.js";
+import { round2, numberingFor } from "../core/logic.js";
 import { saveMovement, cancelMovement, editMovementDetails } from "../data.js";
 import { printForm, movementHtml, tableReportHtml } from "../print.js";
 import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, registerIssueModal, printCards, activityLog } from "./assetforms.js";
@@ -212,6 +212,7 @@ function movementModal(kind, assets) {
       ${kind === "dispose" ? `<td class="right">${num(carrying(a))}</td>` : ""}</tr>`).join("")}</tbody></table></div>
     <form class="grid g2" id="mf" style="margin-top:1rem">
       <div><label class="req">Date</label><input type="date" name="date" value="${today()}"></div>
+      ${numberingFor(S.settings, dt).mode === "manual" ? `<div><label class="req">${esc(DOC_NAMES[dt])} No.</label><input name="number" placeholder="as on the printed form"></div>` : ""}
       ${kind === "transfer" ? `<div><label>Transfer type</label><select name="transferType">${opts(TRANSFER_TYPES, "reassignment")}</select></div>
         <div><label class="req">To (accountable officer)</label><input name="toName" list="ulist" autocomplete="off"></div>
         <div><label>Position</label><input name="toPos"></div>
@@ -234,7 +235,7 @@ function movementModal(kind, assets) {
     const lines = {};
     $$("tbody tr[data-id]", m).forEach(tr => { const a = assets.find(x => x.id === tr.dataset.id); lines[a.id] = { condition: $("[data-c]", tr).value, qty: $("[data-q]", tr) ? Number($("[data-q]", tr).value) : a.qty, carrying: carrying(a) }; });
     const u = users.find(x => x.displayName === v.toName);
-    const h = { date: v.date, reason: v.reason || "", lines, transferType: v.transferType, typeOther: v.typeOther || "", mode: v.mode || "", ref: v.ref || "",
+    const h = { date: v.date, number: v.number || "", reason: v.reason || "", lines, transferType: v.transferType, typeOther: v.typeOther || "", mode: v.mode || "", ref: v.ref || "",
       to: kind === "transfer" ? { name: v.toName || "", position: v.toPos || "", office: v.toOffice || "", uid: u?.id || "" } : null,
       approvedBy: { name: v.aName || "", position: v.aPos || "" }, issuedBy: { name: s.signatories.propertyCustodian, position: s.signatories.propertyCustodianPosition } };
     $("#mm", m).textContent = "";

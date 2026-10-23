@@ -8,7 +8,7 @@ import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/ca
 import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, checkManualAsset, hasPostedDepreciation } from "./core/assets.js";
 import { specialGroup } from "./core/cards.js";
 import {
-  round2, lineAmount, linesTotal, counterKey, formatNumber, validateAir, validateInspection, checkIssue, sxClass,
+  round2, lineAmount, linesTotal, validateAir, NUMBERED_DOCS, numberingFor, seriesKey, formatDocNo, cleanDocNo, validateInspection, checkIssue, sxClass,
   statusAfterIssue, remainingQty
 } from "./core/logic.js";
 
@@ -22,13 +22,42 @@ export function audit(action, targetType, targetId, details = {}) {
     .catch(e => console.warn("audit:", e.code || e.message));
 }
 
-/** Reads and advances a counter inside a transaction. Reads must happen before any write. */
-async function readCounter(tx, fund, type, date, cls) {
-  const { key, ym, prefix } = counterKey(fund, type, date, cls);
-  const ref = doc(db, "counters", key);
-  const snap = await tx.get(ref);
-  const seq = (snap.exists() ? snap.data().seq || 0 : 0) + 1;
-  return { ref, seq, number: formatNumber(type, ym, prefix, seq) };
+const DOC_LABEL = Object.fromEntries(NUMBERED_DOCS.map(([k, l]) => [k, l.split(" — ")[0]]));
+/** Numbers already on documents loaded in this session (they predate the number register below). */
+function numberTaken(fund, type, number) {
+  const n = number.toLowerCase(), same = x => x.fund === fund && String(x.number ?? x.airNo ?? "").toLowerCase() === n;
+  if (type === "air") return S.d.airs.some(a => a.fund === fund && String(a.airNo || "").toLowerCase() === n);
+  if (["par", "ics", "ris"].includes(type)) return S.d.docs.some(d => d.docType === type && same(d));
+  return S.d.movements.some(m => m.docType === type && same(m));
+}
+/**
+ * The number for a new document, inside a transaction (reads happen before any write). Automatic numbering takes the
+ * next number of its series (starting from the administrator's starting number); manual numbering takes the number typed.
+ * Either way the number is claimed in docNumbers/{fund}_{type}_{number}, so it can never be used twice in a fund.
+ */
+async function readCounter(tx, fund, type, date, cls = "", manual = "") {
+  const cfg = numberingFor(S.settings, type);
+  let out;
+  if (cfg.mode === "manual") {
+    const number = cleanDocNo(manual);
+    if (!number) throw fail(`Enter the ${DOC_LABEL[type]}${type === "ics" ? ` (${cls === "low" ? "low value, SPLV" : "high value, SPHV"})` : ""} number — numbering is set to manual.`);
+    out = { number };
+  } else {
+    const { key } = seriesKey(cfg, fund, type, date, cls);
+    const ref = doc(db, "counters", key);
+    const snap = await tx.get(ref);
+    const seq = snap.exists() ? (Number(snap.data().seq) || 0) + 1 : cfg.start;
+    out = { ref, seq, number: formatDocNo(cfg.format, { date, fund, cls, seq }) };
+  }
+  out.claim = doc(db, "docNumbers", `${fund}_${type}_${encodeURIComponent(out.number)}`);
+  if ((await tx.get(out.claim)).exists() || numberTaken(fund, type, out.number))
+    throw fail(`${DOC_LABEL[type]} No. ${out.number} is already used in this fund.${cfg.mode === "auto" ? " Ask the administrator to check the next number in Settings → Document numbering." : ""}`);
+  return out;
+}
+/** Writes the counter (automatic numbering) and the claim on the number. */
+function useNumber(tx, c, docRef, type) {
+  if (c.ref) tx.set(c.ref, { seq: c.seq, type, updatedAt: serverTimestamp() });
+  tx.set(c.claim, { number: c.number, type, path: docRef.path, by: S.user.uid, at: serverTimestamp() });
 }
 
 /* ---------------- AIR (end-user) ---------------- */
@@ -60,8 +89,8 @@ export function saveAir(id, form, submit) {
       const old = cur?.data();
       if (old && !["draft", "returned"].includes(old.status)) throw fail("This AIR was already submitted and can no longer be edited.");
       let airNo = old?.airNo || "";
-      const counter = submit && !airNo ? await readCounter(tx, fields.fund, "air", fields.date) : null;
-      if (counter) { airNo = counter.number; tx.set(counter.ref, { seq: counter.seq, updatedAt: serverTimestamp() }); }
+      const counter = submit && !airNo ? await readCounter(tx, fields.fund, "air", fields.date, "", form.airNo) : null;
+      if (counter) { airNo = counter.number; useNumber(tx, counter, ref, "air"); }
       const history = [...(old?.history || []), stamp(submit ? (old?.status === "returned" ? "Resubmitted to GSO" : "Submitted to GSO") : "Saved as draft")];
       const data = { ...fields, airNo, status: submit ? "submitted" : "draft", history, updatedAt: serverTimestamp(), ...(submit ? { submittedAt: serverTimestamp() } : {}) };
       if (old) tx.update(ref, data);
@@ -128,11 +157,12 @@ export function issueDocs(airId, docType, picks, header) {
       const groups = new Map();
       for (const l of lines) { const k = docType === "ics" ? sxClass(l.unitCost, th) : ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
       const counters = [];
-      for (const k of groups.keys()) counters.push(await readCounter(tx, air.fund, docType, header.date, k));
+      for (const k of groups.keys()) counters.push(await readCounter(tx, air.fund, docType, header.date, k, header.numbers?.[k || "main"]));
+      if (counters.length > 1 && counters[0].number === counters[1].number) throw fail("The low- and high-value ICS need different numbers.");
       [...groups.entries()].forEach(([cls, gl], i) => {
         const c = counters[i];
-        tx.set(c.ref, { seq: c.seq, updatedAt: serverTimestamp() });
         const ref = doc(collection(db, "issuances"));
+        useNumber(tx, c, ref, docType);
         const docLines = gl.map(l => {
           const info = header.lineInfo?.[l.id] || {};
           const assetRef = docType === "ris" ? null : doc(collection(db, "assets"));
@@ -234,6 +264,59 @@ export function register(data) {
     role: "enduser", status: "pending", createdAt: serverTimestamp(), updatedAt: serverTimestamp()
   }));
 }
+/* ---------------- users brought over from PMS ---------------- */
+const emailKey = e => String(e || "").trim().toLowerCase();
+/**
+ * Administrator: PMS users become invitations (invites/{email}) with their role and office. Someone who already
+ * registered here with that email is approved right away instead. rows: [{ email, name, role, office, position }]
+ */
+export function importUsers(rows) {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    let invited = 0, activated = 0, skipped = 0;
+    const byEmail = new Map(S.d.users.map(u => [emailKey(u.email), u]));
+    const b = writeBatch(db);
+    for (const r of rows) {
+      const email = emailKey(r.email), u = byEmail.get(email);
+      const office = String(r.office || "").trim(), role = r.role;
+      if (u) {
+        if (u.status === "active" || u.id === S.user.uid) { skipped++; continue; }
+        b.update(doc(db, "users", u.id), { role, status: "active", office: office || u.office || "", note: "Brought over from PMS", reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+        activated++;
+      } else {
+        b.set(doc(db, "invites", email), { email, displayName: String(r.name || "").trim(), role, office, position: String(r.position || "").trim(), source: "pms", createdBy: me(), createdAt: serverTimestamp() });
+        invited++;
+      }
+    }
+    await b.commit();
+    audit("users_import", "user", "-", { invited, activated, skipped });
+    return { invited, activated, skipped };
+  });
+}
+export const deleteInvite = email => wrap(async () => { await deleteDoc(doc(db, "invites", emailKey(email))); audit("invite_delete", "user", emailKey(email), {}); });
+/** The invitation waiting for the signed-in person, if any. */
+export async function myInvite() {
+  const { getDoc } = await import("./fb.js");
+  try { const s = await getDoc(doc(db, "invites", emailKey(S.user.email))); return s.exists() ? s.data() : null; } catch { return null; }
+}
+/** An invited PMS user activates their account: role and office come from the invitation. */
+export function acceptInvite(data, invite) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const iref = doc(db, "invites", emailKey(S.user.email));
+      const inv = await tx.get(iref);
+      if (!inv.exists()) throw fail("The invitation is no longer there. Ask an administrator.");
+      const i = inv.data();
+      tx.set(doc(db, "users", S.user.uid), {
+        uid: S.user.uid, email: S.user.email, displayName: String(data.displayName || i.displayName || "").trim(), office: i.office, position: String(data.position || i.position || "").trim(),
+        contact: String(data.contact || "").trim(), photoURL: S.user.photoURL || "", role: i.role, status: "active", note: "Brought over from PMS",
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      tx.update(iref, { acceptedUid: S.user.uid, acceptedAt: serverTimestamp() });
+    });
+    audit("invite_accept", "user", S.user.uid, { role: invite?.role });
+  });
+}
 export function claimSuperadmin(data) {
   return wrap(() => setDoc(doc(db, "users", S.user.uid), {
     uid: S.user.uid, email: S.user.email, displayName: String(data.displayName || S.user.displayName || S.user.email).trim(),
@@ -251,6 +334,17 @@ export function setUserAccess(uid, { role, status, note = "", office }) {
   return wrap(async () => {
     await updateDoc(doc(db, "users", uid), { role, status, note, ...(office ? { office } : {}), reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
     audit("user_access", "user", uid, { role, status, office: office || "" });
+  });
+}
+/** Administrator: the next automatic number of a series (fund, document type, ICS class, period of `date`). */
+export function setNextNumber(fund, type, date, cls, next) {
+  return wrap(async () => {
+    const n = Math.floor(Number(next));
+    if (!(n >= 1)) throw fail("The next number must be 1 or more.");
+    const cfg = numberingFor(S.settings, type), { key } = seriesKey(cfg, fund, type, date, cls);
+    await setDoc(doc(db, "counters", key), { seq: n - 1, updatedAt: serverTimestamp(), setBy: me() });
+    audit("numbering_next", "counter", key, { next: n });
+    return formatDocNo(cfg.format, { date, fund, cls, seq: n });
   });
 }
 export function saveSettings(patch) {
@@ -282,9 +376,9 @@ export function saveMovement(kind, assetIds, h) {
       const assets = snaps.map(x => ({ id: x.id, ...x.data() }));
       const err = checkMovement(assets, kind === "dispose" ? "dispose" : kind); if (err) throw fail(err);
       const itemType = assets[0].itemType, docType = movementDocType(kind, itemType);
-      const c = await readCounter(tx, assets[0].fund, docType, h.date);
-      tx.set(c.ref, { seq: c.seq, updatedAt: serverTimestamp() });
+      const c = await readCounter(tx, assets[0].fund, docType, h.date, "", h.number);
       const mref = doc(collection(db, "movements"));
+      useNumber(tx, c, mref, docType);
       const donation = kind === "transfer" && h.transferType === "donation";
       const custody = { name: sg.propertyCustodian || "GSO — Property Custodian", position: sg.propertyCustodianPosition, office: "General Services Office", uid: "" };
       const to = kind === "return" ? custody : kind === "transfer" ? { name: h.to.name.trim(), position: h.to.position || "", office: h.to.office || "", uid: h.to.uid || "" } : null;
@@ -556,9 +650,9 @@ export function issueForAssets(assetIds, header) {
       if (assets.some(a => a.parIcs?.number)) throw fail("Some items already have a PAR / ICS. Use a transfer (PTR / ITR) to change their accountable officer.");
       const docType = assets[0].itemType === "ppe" ? "par" : "ics";
       const cls = docType === "ics" ? sxClass(Math.max(...assets.map(a => Number(a.unitCost) || a.cost)), settings().thresholds) : "";
-      const c = await readCounter(tx, assets[0].fund, docType, header.date, cls);
-      tx.set(c.ref, { seq: c.seq, updatedAt: serverTimestamp() });
+      const c = await readCounter(tx, assets[0].fund, docType, header.date, cls, header.number);
       const ref = doc(collection(db, "issuances"));
+      useNumber(tx, c, ref, docType);
       const lines = assets.map(a => ({ assetId: a.id, description: a.description, specs: a.specs || "", unit: a.unit, qty: a.qty, unitCost: a.unitCost || a.cost, amount: a.cost,
         accountCode: a.accountCode, stockNo: "", propertyNo: a.propertyNo || "", usefulLife: a.itemType === "ppe" ? `${a.usefulLifeYears || ""}` : a.estimatedLife || "", qtyRequested: a.qty }));
       const r = header.recipient;

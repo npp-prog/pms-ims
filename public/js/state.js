@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -84,6 +84,7 @@ export function startRole() {
   }
   if (isAdmin()) {
     live("r:audit", query(collection(db, "auditLogs"), orderBy("at", "desc"), limit(300)), v => { S.d.audit = v; });
+    live("r:invites", collection(db, "invites"), v => { S.d.invites = v; });
   }
 }
 

@@ -385,3 +385,42 @@ test("End-Users see the submitted AIRs of their office, never a colleague's draf
   await assertFails(getDoc(doc(e, "airs/OTHER_OFF")));
   await assertFails(updateDoc(doc(e, "airs/COL_SUB"), { supplier: "x" }), "only the encoder edits");
 });
+
+test("numbering: series start at 1 or at the administrator's starting number; numbers are claimed once; admins set the next number", async () => {
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "settings/app"), { entityName: "Candoni", numbering: { par: { start: 151 } } }); });
+  const g = ctx("gso");
+  await assertSucceeds(setDoc(doc(g, "counters/GF_PAR_2026-12"), { seq: 151, type: "par" }));
+  await assertFails(setDoc(doc(g, "counters/GF_RIS_2026-12"), { seq: 151, type: "ris" }), "RIS has no starting number set");
+  await assertSucceeds(setDoc(doc(g, "counters/GF_RIS_2026-12"), { seq: 1, type: "ris" }));
+  await assertFails(updateDoc(doc(g, "counters/GF_PAR_2026-12"), { seq: 200 }));
+  await assertSucceeds(updateDoc(doc(ctx("ad"), "counters/GF_PAR_2026-12"), { seq: 199 }), "an administrator sets the next number");
+  await assertSucceeds(setDoc(doc(ctx("ad"), "counters/GF_AIR_2027"), { seq: 0 }));
+  await assertSucceeds(setDoc(doc(g, "docNumbers/GF_par_2026-12-0151"), { number: "2026-12-0151", by: "gso" }));
+  await assertFails(setDoc(doc(g, "docNumbers/GF_par_2026-12-0151"), { number: "2026-12-0151", by: "gso" }), "a number is used once");
+  await assertFails(deleteDoc(doc(ctx("ad"), "docNumbers/GF_par_2026-12-0151")));
+  await assertFails(setDoc(doc(ctx("pend"), "docNumbers/GF_air_X"), { number: "X", by: "pend" }));
+});
+
+test("users brought over from PMS: invited by an administrator, activated with exactly that role and office", async () => {
+  const inv = { email: "liza@pms.ph", role: "accounting", office: "Municipal Accounting Office", displayName: "Liza" };
+  await assertFails(setDoc(doc(ctx("gso"), "invites/liza@pms.ph"), inv));
+  await assertSucceeds(setDoc(doc(ctx("ad"), "invites/liza@pms.ph"), inv));
+  await assertFails(setDoc(doc(ctx("ad"), "invites/boss@pms.ph"), { ...inv, email: "boss@pms.ph", role: "admin" }), "only the Super Administrator invites an Admin");
+  await assertSucceeds(setDoc(doc(ctx("sa"), "invites/boss@pms.ph"), { ...inv, email: "boss@pms.ph", role: "admin" }));
+  await assertFails(setDoc(doc(ctx("sa"), "invites/x@pms.ph"), { ...inv, email: "x@pms.ph", role: "superadmin" }));
+  const user = (uid, o = {}) => ({ uid, email: "liza@pms.ph", role: "accounting", status: "active", office: "Municipal Accounting Office", ...o });
+  // the invited person, with a verified email
+  const liza = env.authenticatedContext("liza", { email: "liza@pms.ph", email_verified: true }).firestore();
+  await assertSucceeds(getDoc(doc(liza, "invites/liza@pms.ph")));
+  await assertFails(setDoc(doc(liza, "users/liza"), user("liza", { role: "admin" })), "not a role they weren't given");
+  await assertFails(setDoc(doc(liza, "users/liza"), user("liza", { office: "Municipal Health Office" })), "not another office");
+  const unverified = env.authenticatedContext("liza2", { email: "liza@pms.ph", email_verified: false }).firestore();
+  await assertFails(setDoc(doc(unverified, "users/liza2"), user("liza2")), "an unconfirmed email can't claim it");
+  await assertSucceeds(setDoc(doc(liza, "users/liza"), user("liza")));
+  await assertSucceeds(updateDoc(doc(liza, "invites/liza@pms.ph"), { acceptedUid: "liza", acceptedAt: 1 }));
+  await assertFails(updateDoc(doc(liza, "invites/liza@pms.ph"), { role: "admin" }));
+  // someone else can't read or use it
+  const other = env.authenticatedContext("o", { email: "other@pms.ph", email_verified: true }).firestore();
+  await assertFails(getDoc(doc(other, "invites/liza@pms.ph")));
+  await assertFails(setDoc(doc(other, "users/o"), { ...user("o"), email: "other@pms.ph" }));
+});

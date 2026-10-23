@@ -1,16 +1,18 @@
 // Administration → Data Import: brings over the existing PMS property register and IMS supplies on hand.
-import { S, settings } from "../state.js";
+import { S, settings, isSuper } from "../state.js";
 import { $, $$, esc, busy, toast, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
 import { FUNDS, fundName, accountName } from "../core/catalog.js";
 import { normalizeAssets, normalizeStock, normalizeCip, isPeriod, cipTotal } from "../core/assets.js";
-import { importAssets, importStock, importCip } from "../data.js";
+import { importAssets, importStock, importCip, importUsers, deleteInvite } from "../data.js";
+import { parsePmsUsers, IMPORT_ROLES } from "../core/users.js";
+import { ROLE_NAMES } from "../core/catalog.js";
 
 const st = { tab: "assets", fund: "GF", baseline: "2025-12", asOf: "", parsed: null, file: "" };
 
 export function importPage(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Data Import</h1><p>One-time transfer of your existing records into this system. Nothing is saved until you review the preview and click Import.</p></div></div>
-    <div class="tabs">${[["assets", "Property from PMS"], ["cip", "CIP from PMS"], ["stock", "Supplies from IMS"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
-    <div class="card" data-nodirty>
+    <div class="tabs">${[["assets", "Property from PMS"], ["cip", "CIP from PMS"], ["stock", "Supplies from IMS"], ["users", "Users from PMS"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
+    ${st.tab === "users" ? `<div id="users"></div>` : `<div class="card" data-nodirty>
       ${st.tab === "assets" ? `<p class="small">Use the <b>PMS Asset Register → Export CSV</b> file (one per fund, or one with a Fund column), the PMS <code>data/seed_assets.json</code> file, or the template. PPE and semi-expendable items are recognised by their account. Items marked <i>retired</i> come in as disposed, so they stay in the history but not in the totals.</p>
         <p class="small"><b>Accumulated depreciation:</b> the "Accum. Depr." column is taken as the balance at the end of the month below, normally the <b>last month posted in PMS</b>. Depreciation here continues from the following month. Post nothing in PMS after you export.</p>`
       : st.tab === "cip" ? `<p class="small">Use the file you load into PMS with <b>Bulk import CIP billings</b> (one billing per row: account_code, cip_code, project_name, location, contractor, date, ref, by_contract, admin_materials, admin_labor, admin_overhead, admin_consultancy, admin_others, transfers_adjustments, remarks — with that header row), or the PMS <b>CIP Projects → Export CSV</b> file, which brings each project's total billed to date as one "balance brought forward" billing. Projects PMS shows as <i>Transferred</i> are skipped — they are already in the property register.</p>`
@@ -23,8 +25,9 @@ export function importPage(main) {
         <div style="align-self:flex-end"><button class="btn" id="tpl">Download template</button></div>
       </div>
       <div id="out"></div>
-    </div>`;
+    </div>`}`;
   $$(".tabs [data-t]", main).forEach(b => b.onclick = () => { st.tab = b.dataset.t; st.parsed = null; importPage(main); });
+  if (st.tab === "users") return usersImport($("#users", main));
   $("#fund", main).onchange = e => { st.fund = e.target.value; reparse(main); };
   $("#bp", main) && ($("#bp", main).onchange = e => { st.baseline = e.target.value; reparse(main); });
   $("#asof", main) && ($("#asof", main).onchange = e => { st.asOf = e.target.value; st.tab === "cip" ? reparse(main) : draw(main); });
@@ -42,7 +45,7 @@ export function importPage(main) {
   };
   draw(main);
 }
-importPage.deps = [];
+importPage.deps = ["r:users", "r:invites"];
 
 function reparse(main) {
   if (!st.raw) return draw(main);
@@ -119,3 +122,72 @@ function draw(main) {
 
 const problems = errors => errors.length ? `<details class="notice warn"><summary>${errors.length} row${errors.length === 1 ? "" : "s"} can't be imported — show</summary>
   <ul class="small">${errors.slice(0, 200).map(e => `<li>Row ${e.line}${e.description ? ` (${esc(e.description)})` : ""}: ${esc(e.problem)}</li>`).join("")}</ul></details>` : "";
+
+/* ---------------- users from PMS ---------------- */
+const us = { rows: null, sources: [] };
+function usersImport(el) {
+  const offices = settings().offices, roles = IMPORT_ROLES.filter(r => r !== "admin" || isSuper());
+  const known = new Map(S.d.users.map(u => [String(u.email).toLowerCase(), u]));
+  const invited = new Map(S.d.invites.map(i => [i.email, i]));
+  const state = r => { const u = known.get(r.email); return u ? (u.status === "active" ? ["Already active here", "b-ok"] : ["Registered here — will be approved", "b-info"]) : invited.has(r.email) ? (invited.get(r.email).acceptedUid ? ["Signed in already", "b-ok"] : ["Invited — will be updated", "b-gold"]) : ["New — invited", ""]; };
+  el.innerHTML = `<div class="card" data-nodirty>
+      <p class="small">Brings the people who use PMS into PMS-IMS with a role and an office. Load any of these (several at once is fine — they are merged by email):</p>
+      <ul class="small" style="margin-top:0">
+        <li><b>The PMS backup</b> <code>firestore-export.json</code> (the PMS daily backup — it holds <code>user_roles</code>: who is approved, Admin, and which tabs each person can edit).</li>
+        <li><b>The PMS sign-in accounts</b>, exported by the Firebase project owner with <code>firebase auth:export pms-users.json --project mgo-candoni-ppe</code> — this also includes PMS email/password accounts that have no role record.</li>
+        <li>Or paste one person per line: <code>email, name, role, office, position</code> (role: enduser, gso, accounting${isSuper() ? ", admin" : ""}).</li></ul>
+      <p class="small">Each person gets an <b>invitation</b>: when they first sign in here with that email (Google, or email and password once their email is confirmed), their account opens straight away with the role and office you set — no approval wait. Someone who already registered here is approved immediately. Nobody gets the Super Administrator role this way.</p>
+      <div class="table-tools"><div class="grow"><label>Files (.json, .csv, .txt)</label><input type="file" id="uf" multiple accept=".json,.csv,.txt"></div></div>
+      <div><label>Or paste</label><textarea id="up" rows="3" placeholder="juan.delacruz@gmail.com, Juan Dela Cruz, accounting, Municipal Accounting Office, Accounting Clerk"></textarea></div>
+      <div class="btn-row" style="margin-top:.6rem"><button class="btn" id="ur">Read</button></div>
+      <div id="uout" style="margin-top:1rem"></div></div>
+    <div class="card"><div class="card-head"><h3>Invitations</h3><span class="small muted">${S.d.invites.length}</span></div>
+      ${S.d.invites.length ? `<div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th><th>Role</th><th>Office</th><th>Status</th><th></th></tr></thead><tbody>
+        ${S.d.invites.slice().sort((a, b) => a.email.localeCompare(b.email)).map(i => `<tr><td>${esc(i.email)}</td><td>${esc(i.displayName || "—")}</td><td>${esc(ROLE_NAMES[i.role] || i.role)}</td><td>${esc(i.office || "—")}</td>
+          <td>${i.acceptedUid ? `<span class="badge b-ok">Signed in</span>` : `<span class="badge b-warn">Not signed in yet</span>`}</td><td>${i.acceptedUid ? "" : `<button class="btn sm danger" data-del="${esc(i.email)}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>`
+        : `<p class="muted small">No invitations yet.</p>`}</div>`;
+  const draw = () => {
+    const out = $("#uout", el);
+    if (!us.rows) { out.innerHTML = ""; return; }
+    if (us.errors?.length) { out.innerHTML = `<div class="notice warn">${us.errors.map(esc).join("<br>")}</div>`; if (!us.rows.length) return; }
+    const n = us.rows.filter(r => r.include).length;
+    out.innerHTML = `${us.errors?.length ? out.innerHTML : ""}
+      <div class="stats"><div class="stat"><span class="n">${us.rows.length}</span><span class="l">people found</span></div><div class="stat"><span class="n">${n}</span><span class="l">to bring over</span></div>
+        <div class="stat"><span class="n">${us.rows.filter(r => r.include && !r.office).length}</span><span class="l">without an office yet</span></div></div>
+      <p class="small muted">Check each person's role and office. Suggested roles come from their PMS access: PMS Admin → Admin${isSuper() ? "" : " (only the Super Administrator can give the Admin role, so these are set to Accounting)"}; edit rights on the register, depreciation, reconciliation or CIP → Accounting; on PAR / ICS or PTR / ITR only → GSO; view-only → End-User.</p>
+      <div class="table-wrap"><table class="lines"><thead><tr><th><input type="checkbox" id="uall" ${n === us.rows.length ? "checked" : ""}></th><th>Email</th><th>Name</th><th>In PMS</th><th>Role here</th><th>Office</th><th>Position</th><th>Here</th></tr></thead>
+      <tbody>${us.rows.map((r, i) => { const [t, c] = state(r); return `<tr data-i="${i}"><td><input type="checkbox" data-k="include" ${r.include ? "checked" : ""}></td><td>${esc(r.email)}</td>
+        <td><input data-k="name" value="${esc(r.name)}" class="w-md"></td><td class="xs">${esc(r.pmsAccess || "—")}${r.note ? `<div class="muted">${esc(r.note)}</div>` : ""}</td>
+        <td><select data-k="role" class="w-md">${opts(roles.map(x => [x, ROLE_NAMES[x]]), r.role)}</select></td>
+        <td><select data-k="office" class="w-lg">${opts(r.office && !offices.includes(r.office) ? [r.office, ...offices] : offices, r.office, "Choose office")}</select></td>
+        <td><input data-k="position" value="${esc(r.position || "")}" class="w-md"></td><td><span class="badge ${c}">${esc(t)}</span></td></tr>`; }).join("")}</tbody></table></div>
+      <div class="btn-row end" style="margin-top:.8rem"><button class="btn primary" id="ugo" ${n ? "" : "disabled"}>Bring over ${n} ${n === 1 ? "person" : "people"}</button></div>`;
+    $("#uall", out).onchange = e => { us.rows.forEach(r => { r.include = e.target.checked; }); draw(); };
+    out.querySelector("tbody").addEventListener("change", e => {
+      const tr = e.target.closest("tr[data-i]"), k = e.target.dataset.k; if (!tr || !k) return;
+      const r = us.rows[+tr.dataset.i]; r[k] = k === "include" ? e.target.checked : e.target.value;
+      if (k === "include") draw();
+    });
+    $("#ugo", out).onclick = e => {
+      const rows = us.rows.filter(r => r.include);
+      const noOffice = rows.filter(r => !r.office && r.role === "enduser");
+      if (noOffice.length) return toast(`Choose the office of ${noOffice.length} End-User(s) — it decides which property they see.`, "err");
+      busy(e.target, async () => {
+        const res = await importUsers(rows.filter(r => !(known.get(r.email)?.status === "active")));
+        us.rows = null; us.sources = [];
+        toast(`${res.invited} invited, ${res.activated} approved${res.skipped ? `, ${res.skipped} already active` : ""}.`, "ok");
+      }).catch(() => {});
+    };
+  };
+  $("#uf", el).onchange = async e => { us.sources = await Promise.all([...e.target.files].map(f => f.text())); };
+  $("#ur", el).onclick = () => {
+    const parsed = parsePmsUsers([...us.sources, $("#up", el).value]);
+    if (!isSuper()) parsed.users.forEach(r => { if (r.role === "admin") r.role = "accounting"; });
+    us.rows = parsed.users; us.errors = parsed.errors; draw();
+  };
+  el.addEventListener("click", async e => {
+    const b = e.target.closest("[data-del]"); if (!b) return;
+    busy(b, () => deleteInvite(b.dataset.del), "Invitation removed.").catch(() => {});
+  });
+  draw();
+}

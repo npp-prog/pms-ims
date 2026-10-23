@@ -301,6 +301,37 @@ Then check the result in **TB Reconciliation** against the Trial Balance of that
 
 ---
 
+### 7. Bring over the PMS users and set the document numbers
+
+**Users.** PMS runs on its own Firebase project (`mgo-candoni-ppe`), so its users are brought over from its files:
+1. Get the PMS user list — either the PMS daily backup `firestore-export.json` (it holds `user_roles`), and/or the
+   sign-in accounts, exported by the PMS project owner:
+   `npx firebase auth:export pms-users.json --format=json --project mgo-candoni-ppe`.
+2. In **Data Import → Users from PMS**, load the file(s) (or paste `email, name, role, office, position` lines), check
+   each person's suggested role and office, and click **Bring over**. PMS Admins become Admin (only the Super
+   Administrator can give that), PMS staff who edit the register / depreciation / reconciliation / CIP become
+   Accounting, those who edit only PAR / ICS / PTR / ITR become GSO, view-only users start as End-User. Requests that
+   were never approved in PMS are left unticked.
+3. Each person gets an invitation. The first time they sign in here with that email — Google, or email and password
+   once the email is confirmed — their account opens straight away with that role and office.
+
+People keep their own Google sign-in. Email/password users create a password here the first time ("Create an account"
+with the same email). To carry the PMS passwords over too, the Firebase project owner can run
+`npx firebase auth:import pms-users.json --hash-algo=SCRYPT --rounds=8 --mem-cost=14 --hash-key=… --salt-separator=…
+--project candoni-pms-ims`, using the password-hash parameters shown in the PMS project's Firebase console
+(Authentication → Users → ⋮ → Password hash parameters).
+
+**Document numbers.** In **Settings → Document numbering**, each document (AIR, PAR, ICS, RIS, PTR, ITR, PRS, RRSP,
+disposal report) is either:
+- **Automatic** — with its own format (`{YYYY}` `{YY}` `{MM}` `{FUND}` `{CLASS}` and `{####}` for the sequence, e.g.
+  `PAR-{YYYY}-{#####}`), when the numbers restart (every month, every year, or never) and the starting number of each
+  new series. Under it, **Next number of each series** lets you continue from the last number used in PMS (for
+  example, set the next PAR to 58); or
+- **Manual** — the person saving the document types the number (e.g. from a pre-numbered form).
+
+Each fund has its own series, and every number — automatic or typed — is checked so it is never used twice in a fund.
+The default is the PMS / IMS format: `2026-10-0001`, and `SPLV-` / `SPHV-2026-10-0001` for ICS.
+
 ## Data model (Firestore)
 
 | Collection | One document per | Notes |
@@ -315,7 +346,9 @@ Then check the result in **TB Reconciliation** against the Trial Balance of that
 | `cipProjects/{id}` | CIP project | `billings[]` (by contract / by administration, matched SWA), status, `completed` (transfer to PPE) |
 | `swa/{id}` | Statement of Work Accomplished | SWA No., CIP No., cost, % done, document link, `matched` |
 | `repairs/{id}` | repair job order | item, job order, supplier, `parts[]`, total, status (submitted / returned / verified) |
-| `counters/{fund_TYPE_YYYY-MM}` | numbering sequence | increases by exactly one, inside a transaction |
+| `counters/{fund_TYPE_period}` | numbering series | per fund, document and month / year / running series; increases by one inside a transaction; the admin can set the next number |
+| `docNumbers/{fund_type_number}` | number used | claimed once, with the document, so no number is ever used twice |
+| `invites/{email}` | person brought over from PMS | role, office, position; used on their first sign-in |
 | `settings/app` | — | entity, offices, thresholds, signatories |
 | `auditLogs/{id}` | action | append-only; readable by admins |
 

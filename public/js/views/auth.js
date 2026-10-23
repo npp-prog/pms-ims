@@ -4,7 +4,8 @@ import {
   sendPasswordResetEmail, sendEmailVerification, signOut, authError
 } from "../fb.js";
 import { $, esc, toast, busy, fmtDate, officeSelect } from "../ui.js";
-import { register, claimSuperadmin, isBootstrapEmail } from "../data.js";
+import { register, claimSuperadmin, isBootstrapEmail, myInvite, acceptInvite } from "../data.js";
+import { ROLE_NAMES } from "../core/catalog.js";
 import { settings } from "../state.js";
 
 const G = `<svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>`;
@@ -112,6 +113,7 @@ function renderRegister(root, acc) {
   const offices = settings().offices;
   root.innerHTML = `<div class="center-screen"><div class="card auth-box wide">
     <div class="card-head"><div><h2>${acc ? "Update your registration" : "Complete your registration"}</h2><p class="muted small" style="margin:0">Signed in as <b>${esc(u.email)}</b></p></div><img src="assets/municipal-seal.png" alt="" width="54" height="54"></div>
+    <div id="inv"></div>
     ${boot && !acc ? `<div class="notice info">This email is the system's designated <b>Super Administrator</b>. ${u.emailVerified ? "Fill in your details and claim access." : "Verify your email address first (check your inbox), then reload this page."}</div>` : ""}
     <form id="rf" class="grid g2" novalidate>
       <div class="spanall"><label class="req">Full name</label><input type="text" name="displayName" value="${esc(acc?.displayName || u.displayName || "")}" required placeholder="e.g. Juan A. Dela Cruz"></div>
@@ -124,18 +126,33 @@ function renderRegister(root, acc) {
     </form></div></div>`;
   const form = $("#rf");
   form.addEventListener("input", () => { form.dataset.touched = "1"; });
+  // Someone brought over from PMS: their role and office are already decided
+  let invite = null;
+  if (!acc && !boot) myInvite().then(inv => {
+    if (!inv || inv.acceptedUid || !form.isConnected) return;
+    invite = inv;
+    $("#inv").innerHTML = `<div class="notice ok">Welcome — your PMS access was brought over: <b>${esc(ROLE_NAMES[inv.role] || inv.role)}</b>${inv.office ? `, <b>${esc(inv.office)}</b>` : ""}. Confirm your details and your account opens right away.</div>
+      ${u.emailVerified ? "" : `<div class="notice warn">First confirm your email address with the link sent to <b>${esc(u.email)}</b>, then reload this page. <button class="link" type="button" id="iv">Send the link</button></div>`}`;
+    if (!form.dataset.touched) { if (inv.displayName && !form.displayName.value) form.displayName.value = inv.displayName; if (inv.position) form.position.value = inv.position; }
+    form.office.value = inv.office || ""; form.office.disabled = true; form.office.required = false;
+    form.querySelector("[type=submit]").textContent = "Open my account";
+    $("#iv") && ($("#iv").onclick = () => sendEmailVerification(u).then(() => toast("Verification email sent.", "ok")));
+  });
   $("#cancel").onclick = () => acc ? renderAccountState(root, acc) : signOut(auth);
   form.onsubmit = ev => {
     ev.preventDefault();
     const data = Object.fromEntries(new FormData(form).entries());
-    if (!data.displayName?.trim() || !data.office?.trim() || !data.position?.trim()) { $("#rmsg").textContent = "Fill in your name, office and position."; return; }
+    if (!data.displayName?.trim() || (!invite && !data.office?.trim()) || !data.position?.trim()) { $("#rmsg").textContent = "Fill in your name, office and position."; return; }
     busy(form.querySelector("[type=submit]"), async () => {
       try {
         if (boot && !acc) {
           if (!u.emailVerified) throw new Error("Verify your email address first, then reload this page.");
           await claimSuperadmin(data);
+        } else if (invite) {
+          if (!u.emailVerified) throw new Error("Confirm your email address first (check your inbox), then reload this page.");
+          await acceptInvite(data, invite);
         } else await register(data);
-        toast(boot && !acc ? "Super Administrator access granted." : "Registration submitted.", "ok");
+        toast(boot && !acc ? "Super Administrator access granted." : invite ? "Welcome! Your account is ready." : "Registration submitted.", "ok");
       } catch (e) { $("#rmsg").textContent = e.message; throw e; }
     }).catch(() => {});
   };

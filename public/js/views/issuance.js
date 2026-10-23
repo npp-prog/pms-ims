@@ -5,7 +5,7 @@ import {
   docStatusBadge, downloadCSV, officeSelect
 } from "../ui.js";
 import { fundName, DOC_TYPES, CATEGORIES, accountName, FUNDS, isDistributionAccount } from "../core/catalog.js";
-import { remainingQty, sxClass } from "../core/logic.js";
+import { remainingQty, sxClass, numberingFor } from "../core/logic.js";
 import { defaultLife } from "../core/assets.js";
 import { issueDocs, cancelDoc } from "../data.js";
 import { printForm, docHtml } from "../print.js";
@@ -64,6 +64,9 @@ function issuePanel(main, airId) {
         ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || "")}"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
     <div class="grid g3" style="margin-top:1rem">
       <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
+      ${numberingFor(S.settings, t).mode === "manual" ? (t === "ics"
+        ? `<div><label>ICS No. — low value (SPLV)</label><input name="no_low" placeholder="if any SPLV item"></div><div><label>ICS No. — high value (SPHV)</label><input name="no_high" placeholder="if any SPHV item"></div>`
+        : `<div><label class="req">${DOC_TYPES[t].short} No.</label><input name="no_main" placeholder="as on the printed form"></div>`) : ""}
       <div><label class="req">${t === "ris" ? "Requested / received by" : "Received by (End-User)"}</label><input name="rname" list="ulist" autocomplete="off" value="${esc(a.endUserName || "")}"></div>
       <datalist id="ulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
       <div><label>Position / designation</label><input name="rpos" value="${esc(activeUsers().find(u => u.id === a.endUserUid)?.position || "")}"></div>
@@ -88,7 +91,7 @@ function issuePanel(main, airId) {
       lineInfo[tr.dataset.id] = prop ? { propertyNo: $("[data-pn]", tr).value, usefulLife: $("[data-ul]", tr).value } : { qtyRequested: Number($("[data-rq]", tr).value) || 0 };
     });
     const header = {
-      date: fd.date, purpose: fd.purpose || "", lineInfo,
+      date: fd.date, purpose: fd.purpose || "", lineInfo, numbers: { main: fd.no_main, low: fd.no_low, high: fd.no_high },
       // property shows as "You" in Office Property of the registered user who receives it (none if not a system user)
       recipient: { uid: activeUsers().find(u => u.displayName === fd.rname.trim())?.id || (fd.rname.trim() === a.endUserName ? a.endUserUid : ""), name: fd.rname.trim(), position: fd.rpos.trim(), office: fd.roffice.trim(), rcc: (fd.rcc || "").trim() },
       issuedBy: { name: fd.iname.trim(), position: fd.ipos.trim() },

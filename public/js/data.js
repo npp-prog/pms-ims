@@ -257,6 +257,28 @@ export function setPosting(kind, id, posting) {
   });
 }
 
+/** Posts an AIR together with every PAR / ICS / RIS issued from it that is not posted yet — one JEV for all. */
+export function postAirWithDocs(airIds, posting) {
+  return wrap(async () => {
+    if (!posting?.date) throw fail("Enter the posting date.");
+    const ref = String(posting.ref || "").trim();
+    if (!ref) throw fail("Enter the JEV / reference number.");
+    const { writeBatch } = await import("./fb.js");
+    const data = { posted: true, date: posting.date, ref, remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() };
+    const b = writeBatch(db); let n = 0;
+    for (const id of [].concat(airIds)) {
+      const a = S.d.airs.find(x => x.id === id);
+      if (!a) continue;
+      if (!a.posting?.posted) { b.update(doc(db, "airs", id), { posting: data, history: arrayUnion(stamp("AIR posted by Accounting", ref)), updatedAt: serverTimestamp() }); n++; }
+      for (const d of S.d.docs) if (d.airId === id && d.status === "issued" && !d.posting?.posted) { b.update(doc(db, "issuances", d.id), { posting: data, updatedAt: serverTimestamp() }); n++; }
+    }
+    if (!n) throw fail("Everything here is already posted.");
+    await b.commit();
+    audit("post_air", "air", [].concat(airIds).join(","), { ref, count: n });
+    return n;
+  });
+}
+
 /* ---------------- Accounts and settings ---------------- */
 export const isBootstrapEmail = email => SUPERADMIN_EMAILS.includes(String(email || "").toLowerCase());
 

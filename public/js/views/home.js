@@ -40,7 +40,7 @@ export function dashboard(main) {
     c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: AIR ${oldestInspect.airNo} from ${oldestInspect.office}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
     deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),
-    c.post && row(I.book, "green", "Documents for posting", "PAR / ICS / RIS and supply receipts not yet posted in the registry", c.post, "#/posting")
+    c.post && row(I.book, "green", "For posting", "AIRs with their PAR / ICS / RIS, and disposals, not yet posted in the registry", c.post, "#/posting")
   ].filter(Boolean);
 
   const glance = r === "enduser" ? [

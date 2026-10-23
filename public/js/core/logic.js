@@ -118,7 +118,8 @@ export function statusAfterIssue(lines) {
 export function postingSummary(air, docs) {
   const live = (docs || []).filter(d => d.airId === air.id && d.status !== "cancelled");
   const items = [];
-  if ((air.lines || []).some(l => l.category === "cons")) items.push({ kind: "air", posted: !!air.posting?.posted });
+  // Accounting posts the AIR (everything received), then each PAR / ICS / RIS issued from it
+  items.push({ kind: "air", posted: !!air.posting?.posted });
   live.forEach(d => items.push({ kind: d.docType, posted: !!d.posting?.posted }));
   const posted = items.filter(i => i.posted).length;
   const unissued = (air.lines || []).some(l => remainingQty(l) > 0 && l.category !== "cons");

@@ -95,7 +95,7 @@ function navGroups() {
   } else {
     g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
-    g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs], ["registry/stock", "Supplies Stock Cards"]] });
+    g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs], ["registry/stock", "Inventory Registry"]] });
     g.push({ label: "Construction in Progress", items: [["cip", "CIP Projects"], ["swa", "SWA"]] });
     g.push({ label: "Accounting", items: [can("post") && ["posting", "For Posting", c.post], ["posted", "Posting Status"], ["depreciation", "Depreciation"], ["reconciliation", "TB Reconciliation"], ["reports", "Reports"]] });
   }

@@ -155,6 +155,16 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 - **Reports:** Accountability (by officer / office / account / status, with CSV and bulk cards)
   and Disposed / Retired. **Settings → Download full backup (JSON).**
 
+### Inventory Registry and posting by AIR
+
+- **Inventory Registry** (Property → Inventory Registry): every consumable and for-distribution item, one row per Stock
+  No. — received on AIRs (or brought over from IMS), issued on RIS, balance quantity and value, as of any date. Filter by
+  type, account or balance; print the registry, or the Stock Cards / Supplies Ledger Cards of the items listed; open an
+  item for its cards. PPE and semi-expendable property have their own registries.
+- **Posting by AIR:** For Posting shows one row per AIR. Posting it marks the AIR **and every PAR, ICS and RIS issued
+  from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
+  posted the same way. Disposals and PAR / ICS for register items (no AIR) are posted on their own rows.
+
 ### Trial Balance reconciliation
 
 Paste the Trial Balance from Excel or upload the file (account code, name, debit, credit). For the
@@ -207,7 +217,7 @@ document as posted.
 
 Dashboard · Office Property · New AIR / Office AIRs / All AIRs · For Inspection · For Issuance · PAR / ICS / RIS ·
 PPE Registry · Semi-Expendable Registry · asset page (Property Card, history, depreciation) ·
-Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Supplies Stock Cards (Stock Card + Supplies Ledger Card) ·
+Transfers, Returns & Disposals · History of Repair · CIP Projects · SWA · Inventory Registry of supplies — consumable and for distribution (Stock Card + Supplies Ledger Card) ·
 For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (RSMI, Summary by
 Account, AIR Monitoring, Accountability, Disposed / Retired) · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.

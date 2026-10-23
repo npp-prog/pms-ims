@@ -3,12 +3,12 @@ import { S, can, fundAirs, docsOfAir } from "../state.js";
 import { $, $$, esc, busy, money, fmtDate, manilaToday, renderTable, openModal, confirmBox, postBadge, downloadCSV } from "../ui.js";
 import { fundName, DOC_TYPES } from "../core/catalog.js";
 import { postingSummary, POSTING_STATE } from "../core/logic.js";
-import { setPosting } from "../data.js";
+import { setPosting, postAirWithDocs } from "../data.js";
 import { postingItems } from "./common.js";
 
-const REGISTRY = { air: "Supplies Ledger Card (receipt)", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
+const REGISTRY = { air: "AIR — everything received", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
   dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
-const itemLabel = i => i.kind === "air" ? `AIR ${i.number} — supply receipt` : `${i.label} ${i.number}`;
+const itemLabel = i => i.kind === "air" ? `AIR ${i.number}` : `${i.label} ${i.number}`;
 const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
 function postModal(items) {
@@ -37,36 +37,84 @@ async function unpost(i, btn) {
 }
 
 /* ---------------- For Posting ---------------- */
+/** One row per AIR (the AIR and every PAR / ICS / RIS issued from it, posted together), plus disposals and
+ *  PAR / ICS for register items, which have no AIR. */
+function queueRows() {
+  const open = postingItems().filter(i => !i.posting.posted), rows = [], byAir = new Map();
+  for (const i of open) {
+    if (!i.airId) { rows.push({ key: `${i.kind}:${i.id}`, items: [i], date: i.date, title: itemLabel(i), sub: regOf(i), office: i.office, recipient: i.recipient, amount: i.amount }); continue; }
+    if (!byAir.has(i.airId)) {
+      const a = S.d.airs.find(x => x.id === i.airId) || {};
+      const r = { key: `air:${i.airId}`, airId: i.airId, items: [], date: a.acceptance?.dateReceived || a.date || i.date, title: `AIR ${a.airNo || i.airNo}`, office: a.office || i.office, amount: Number(a.total) || 0, air: a };
+      byAir.set(i.airId, r); rows.push(r);
+    }
+    byAir.get(i.airId).items.push(i);
+  }
+  for (const r of byAir.values()) {
+    const airOpen = r.items.some(i => i.kind === "air");
+    r.sub = airOpen ? "AIR and its PAR / ICS / RIS" : "Issued after the AIR was posted";
+    if (!airOpen) r.amount = r.items.reduce((t, i) => t + i.amount, 0);
+  }
+  return rows;
+}
+const chip = i => `<span class="badge ${i.kind === "air" ? "b-gold" : "b-warn"}">${esc(i.kind === "air" ? "AIR" : `${i.label} ${i.number}`)}</span>`;
+
 export function queue(main) {
-  const rows = postingItems().filter(i => !i.posting.posted);
-  main.innerHTML = `<div class="page-head"><div><h1>For Posting</h1><p>Supply receipts and PAR / ICS / RIS in the ${esc(fundName(S.fund))} that Accounting has not yet posted in the registry. Select several to post them under one JEV.</p></div>
+  const rows = queueRows();
+  main.innerHTML = `<div class="page-head"><div><h1>For Posting</h1><p>What Accounting has not yet posted in the ${esc(fundName(S.fund))}. Posting an <b>AIR</b> also posts every PAR, ICS and RIS issued from it, under one JEV; documents issued later from an AIR already posted appear here to be posted the same way. Select several rows to post them together.</p></div>
     <button class="btn primary" id="bulk" disabled>Post selected</button></div><div class="card" id="t"></div>`;
   const sel = new Set();
-  const t = renderTable($("#t", main), {
+  renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
-    searchText: i => `${i.number} ${i.airNo} ${i.office} ${i.recipient || ""}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIR receipt"], ["par", "PAR"], ["ics", "ICS"], ["ris", "RIS"], ["movement", "Disposal / donation"]], test: (i, v) => v === "movement" ? i.kind === "movement" : (i.kind === "air" ? "air" : i.docType) === v }],
+    searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ["register", "PAR / ICS for register items"], ["movement", "Disposal / donation"]],
+      test: (r, v) => v === "air" ? !!r.airId : v === "movement" ? r.items[0].kind === "movement" : !r.airId && r.items[0].kind === "doc" }],
     columns: [
-      { label: "", render: i => `<input type="checkbox" data-nodirty data-sel="${esc(i.kind + ":" + i.id)}" ${sel.has(i.kind + ":" + i.id) ? "checked" : ""}>` },
-      { label: "Date", render: i => fmtDate(i.date), sort: i => i.date || "" },
-      { label: "Document", render: i => `<b>${esc(itemLabel(i))}</b><div class="xs muted">${esc(regOf(i))}</div>`, sort: i => i.number },
-      { label: "AIR No.", render: i => i.airId ? `<a href="#/airs/${i.airId}">${esc(i.airNo)}</a>` : i.kind === "movement" ? `<a href="#/movements/${i.id}">open</a>` : `<a href="#/issuances/${i.id}">register items</a>`, sort: i => i.airNo },
-      { label: "Office / recipient", render: i => `${esc(i.office)}${i.recipient ? `<div class="xs muted">${esc(i.recipient)}</div>` : ""}` },
-      { label: "Amount", render: i => money(i.amount), sort: i => i.amount, cls: "right", headCls: "right" },
-      { label: "", render: i => `<button class="btn sm primary" data-post="${esc(i.kind + ":" + i.id)}">Post</button>` }
+      { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },
+      { label: "Date", render: r => fmtDate(r.date), sort: r => r.date || "" },
+      { label: "AIR / document", render: r => `<b>${r.airId ? `<a href="#/airs/${esc(r.airId)}">${esc(r.title)}</a>` : esc(r.title)}</b><div class="xs muted">${esc(r.sub)}</div>`, sort: r => r.title },
+      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
+      { label: "Office / recipient", render: r => `${esc(r.office)}${r.recipient ? `<div class="xs muted">${esc(r.recipient)}</div>` : ""}` },
+      { label: "Amount", render: r => money(r.amount), sort: r => r.amount, cls: "right", headCls: "right" },
+      { label: "", render: r => `<button class="btn sm primary" data-post="${esc(r.key)}">${r.items.length > 1 ? `Post all (${r.items.length})` : "Post"}</button>` }
     ],
     empty: "Everything in this fund is posted.",
-    footer: list => `<tr><td colspan="5" class="right">Total</td><td class="right">${money(list.reduce((t, i) => t + i.amount, 0))}</td><td></td></tr>`
+    footer: list => `<tr><td colspan="5" class="right">Total</td><td class="right">${money(list.reduce((t, r) => t + r.amount, 0))}</td><td></td></tr>`
   });
-  const find = k => rows.find(i => i.kind + ":" + i.id === k);
+  const find = k => rows.find(r => r.key === k);
   $("#t", main).addEventListener("click", e => {
-    const b = e.target.closest("[data-post]"); if (b) return postModal([find(b.dataset.post)]);
+    const b = e.target.closest("[data-post]"); if (b) return postRows([find(b.dataset.post)]);
     const c = e.target.closest("[data-sel]"); if (c) { c.checked ? sel.add(c.dataset.sel) : sel.delete(c.dataset.sel); $("#bulk", main).disabled = !sel.size; $("#bulk", main).textContent = sel.size ? `Post selected (${sel.size})` : "Post selected"; }
   });
-  $("#bulk", main).onclick = () => postModal([...sel].map(find).filter(Boolean));
-  void t;
+  $("#bulk", main).onclick = () => postRows([...sel].map(find).filter(Boolean));
 }
 queue.deps = ["r:airs", "r:docs", "r:movements", "fund"];
+
+/** Posting form for queue rows: AIR rows post the AIR and its documents together; other rows post one document. */
+function postRows(rows) {
+  const n = rows.reduce((t, r) => t + r.items.length, 0);
+  const m = openModal(`<h2>Post ${rows.length === 1 ? esc(rows[0].title) : `${rows.length} rows`}</h2>
+    <p class="muted small">${n} document${n === 1 ? "" : "s"} will be marked as posted in the registry under one JEV:</p>
+    <div class="chips" style="margin-bottom:.8rem">${rows.flatMap(r => r.items.map(i => r.airId ? chip(i).replace("AIR</span>", `${esc(r.title)}</span>`) : `<span class="badge b-warn">${esc(itemLabel(i))}</span>`)).join("")}</div>
+    <form class="grid g2" id="pf">
+      <div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
+      <div><label class="req">JEV / reference no.</label><input name="ref" placeholder="e.g. JEV 2026-10-0123"></div>
+      <div class="spanall"><label>Remarks</label><input name="remarks"></div>
+      <div class="spanall form-msg err" id="pm"></div>
+      <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Post ${n === 1 ? "" : `all ${n}`}</button></div></form>`, { size: "narrow" });
+  $("[data-x]", m).onclick = () => m.close();
+  $("#pf", m).onsubmit = e => {
+    e.preventDefault();
+    const v = Object.fromEntries(new FormData(e.target).entries());
+    if (!v.date || !v.ref.trim()) { $("#pm", m).textContent = "Enter the posting date and the JEV / reference number."; return; }
+    busy(e.submitter, async () => {
+      const airIds = rows.filter(r => r.airId).map(r => r.airId);
+      if (airIds.length) await postAirWithDocs(airIds, v);
+      for (const r of rows.filter(r => !r.airId)) await setPosting(r.items[0].kind, r.items[0].id, v);
+      m.close();
+    }, n === 1 ? "Posted." : `${n} documents posted.`).catch(err => { $("#pm", m).textContent = err.message; });
+  };
+}
 
 /* ---------------- Posting Status (per AIR) ---------------- */
 export function status(main) {
@@ -103,8 +151,9 @@ function airModal(a) {
     ${items.map((i, n) => `<div class="post-row ${i.posting.posted ? "posted" : ""}"><div><b>${esc(itemLabel(i))}</b> · ${money(i.amount)}<div class="xs muted">${esc(regOf(i))}</div>
       ${i.posting.posted ? `<div class="xs">Posted ${fmtDate(i.posting.date)} · ${esc(i.posting.ref)} · ${esc(i.posting.by?.name)}</div>` : ""}</div>
       <div>${can("post") ? (i.posting.posted ? `<button class="btn sm danger" data-un="${n}">Unpost</button>` : `<button class="btn sm primary" data-po="${n}">Post</button>`) : ""}</div></div>`).join("") || `<p class="muted">Nothing to post yet.</p>`}
-    <div class="modal-actions"><a class="btn" href="#/airs/${a.id}">Open AIR</a><button class="btn" data-x>Close</button></div>`);
+    <div class="modal-actions"><a class="btn" href="#/airs/${a.id}">Open AIR</a>${can("post") && items.some(i => !i.posting.posted) ? `<button class="btn primary" id="pall">Post AIR and all its documents</button>` : ""}<button class="btn" data-x>Close</button></div>`);
   $("[data-x]", m).onclick = () => m.close();
+  $("#pall", m) && ($("#pall", m).onclick = () => { m.close(); postRows([{ key: `air:${a.id}`, airId: a.id, title: `AIR ${a.airNo}`, items: items.filter(i => !i.posting.posted) }]); });
   $$("[data-po]", m).forEach(b => b.onclick = () => { m.close(); postModal([items[+b.dataset.po]]); });
   $$("[data-un]", m).forEach(b => b.onclick = () => { m.close(); unpost(items[+b.dataset.un], b); });
 }

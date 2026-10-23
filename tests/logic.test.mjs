@@ -85,7 +85,7 @@ test("posting summary covers the supply receipt and every live document", () => 
   assert.deepEqual(postingSummary(issued, docs), { total: 3, posted: 1, state: "partial", unissued: false });
   const all = postingSummary({ ...issued, posting: { posted: true } }, docs.map(d => ({ ...d, posting: { posted: true } })));
   assert.equal(all.state, "posted");
-  assert.equal(postingSummary({ ...air, lines: [air.lines[0]] }, []).state, "none");
+  assert.equal(postingSummary({ ...air, lines: [air.lines[0]] }, []).state, "unposted", "the AIR itself is posted first");
   // everything issued so far is posted, but PPE is still waiting to be issued -> partial
   assert.equal(postingSummary({ ...air, lines: [air.lines[0]] }, [{ airId: "A1", docType: "par", status: "issued", posting: { posted: true } }]).state, "partial");
 });

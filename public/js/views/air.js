@@ -29,7 +29,7 @@ export function list(main) {
         { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
       { label: "Date", render: a => fmtDate(a.date), sort: a => a.date || "" },
-      { label: "AIR No.", render: a => `<b>${esc(a.airNo || "—")}</b>${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || "" },
+      { label: "AIR No.", render: a => `<b>${esc(a.airNo || (a.status === "draft" ? "Draft" : "—"))}</b>${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || "" },
       { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${enduser && mine(a) ? "<b>You</b>" : esc(a.endUserName)}</div>`, sort: a => a.office || "" },
       { label: "Items", render: a => (a.lines || []).length, cls: "right" },
@@ -52,7 +52,7 @@ export function inspectQueue(main) {
     searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.endUserName}`,
     columns: [
       { label: "Submitted", render: a => fmtDateTime(a.submittedAt), sort: a => a.submittedAt?.seconds || 0 },
-      { label: "AIR No.", render: a => `<b>${esc(a.airNo)}</b>`, sort: a => a.airNo },
+      { label: "AIR No.", render: a => a.airNo ? `<b>${esc(a.airNo)}</b>` : `<span class="muted small">on approval</span>`, sort: a => a.airNo },
       { label: "Supplier", render: a => esc(a.supplier) },
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>` },
       { label: "Amount", render: a => money(a.total), cls: "right", headCls: "right" }
@@ -71,13 +71,12 @@ export function form(main, [id]) {
   const th = settings().thresholds;
   let lines = a ? a.lines.map(l => ({ ...l })) : [{ id: uid(), kind: "equipment", unit: "unit", qty: 1 }];
   main.innerHTML = `<div class="page-head"><div><h1>${a ? `Edit AIR ${esc(a.airNo || "(draft)")}` : "New Acceptance and Inspection Report"}</h1>
-      <p>Encode the delivery exactly as on the supplier's invoice / delivery receipt. The AIR number is assigned when you submit it to the GSO.</p></div></div>
+      <p>Encode the delivery exactly as on the supplier's invoice / delivery receipt. The GSO gives the AIR its number when inspecting and approving it.</p></div></div>
     ${a?.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
     <form id="af" class="card" novalidate>
       <div class="grid g4">
         <div><label class="req">Fund</label><select name="fund" ${a?.airNo ? "disabled title=\"The AIR number already belongs to this fund\"" : ""}>${opts(FUNDS.map(f => [f.code, f.name]), a?.fund || S.fund)}</select></div>
         <div><label class="req">AIR date</label><input type="date" name="date" value="${esc(a?.date || manilaToday())}"></div>
-        ${!a?.airNo && numberingFor(S.settings, "air").mode === "manual" ? `<div><label class="req">AIR No.</label><input name="airNo" placeholder="as on the printed AIR"><div class="xs muted">Needed when you submit.</div></div>` : ""}
         <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", a?.office ?? S.account?.office ?? "", settings().offices)}</div>
         <div class="span2"><label class="req">Supplier</label><input name="supplier" value="${esc(a?.supplier || "")}"></div>
         <div><label>PO No.</label><input name="poNo" value="${esc(a?.poNo || "")}"></div>
@@ -164,7 +163,6 @@ export function form(main, [id]) {
     const data = collect();
     $("#msg", main).textContent = "";
     if (submit) { const errs = validateAir({ ...data, lines: data.lines.map(l => ({ ...l, qty: Number(l.qty), unitCost: l.unitCost === "" ? "" : Number(l.unitCost) })) }); if (errs.length) { $("#msg", main).textContent = errs[0]; return; } }
-    if (submit && "airNo" in data && !String(data.airNo).trim()) { $("#msg", main).textContent = "Enter the AIR No. — numbering is set to manual."; return; }
     busy(btn, async () => {
       const newId = await saveAir(a?.id, data, submit);
       clean(); toast(submit ? "AIR submitted to the GSO for inspection." : "Draft saved.", "ok");
@@ -194,7 +192,7 @@ export function detail(main, [id]) {
     ["Issuance", a.status === "issued" ? "done" : a.status === "approved" ? "now" : "", `${docs.filter(d => d.status !== "cancelled").length} document(s)`],
     ["Accounting posting", ps.state === "posted" ? "done" : issuedStage && ps.total ? "now" : "", `${ps.posted} of ${ps.total} posted`]
   ];
-  main.innerHTML = `<div class="page-head"><div><h1>AIR ${esc(a.airNo || "(draft)")}</h1><p>${esc(fundName(a.fund))} · ${esc(a.office)} · encoded by ${esc(a.endUserName)}</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>AIR ${esc(a.airNo || (a.status === "draft" ? "(draft)" : "— number on approval"))}</h1><p>${esc(fundName(a.fund))} · ${esc(a.office)} · encoded by ${esc(a.endUserName)}</p></div>
       <div class="btn-row">${airBadge(a.status)} ${issuedStage ? postBadge(ps.state) : ""}</div></div>
     <div class="steps">${steps.map(([t, c, s]) => `<div class="${c}"><b>${esc(t)}</b>${esc(s || "")}</div>`).join("")}</div>
     ${a.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
@@ -246,7 +244,9 @@ function inspectModal(a) {
   const known = stockCards(S.d.airs, S.d.docs, a.fund);
   const lines = a.lines.map(l => ({ ...l, category: l.category || suggestCategory(l.kind, l.unitCost, th),
     stockNo: l.stockNo || (known.find(c => c.description.toLowerCase() === String(l.description).toLowerCase())?.stockNo || "") }));
-  const m = openModal(`<h2>Inspect and approve AIR ${esc(a.airNo)}</h2>
+  const airManual = !a.airNo && numberingFor(S.settings, "air").mode === "manual";
+  const m = openModal(`<h2>Inspect and approve ${a.airNo ? `AIR ${esc(a.airNo)}` : "the AIR"}</h2>
+    ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
     <p class="muted small">Confirm the classification of each item: it decides which document is issued (PAR for PPE, ICS for Semi-Expendable, RIS for supplies) and the account Accounting posts to.</p>
     <div class="table-wrap"><table class="lines"><thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th>Classification</th><th>Account</th><th>Stock No. / Property No.</th><th>Useful life</th></tr></thead><tbody id="il"></tbody></table></div>
     ${datalist("stocknos", known.map(c => c.stockNo))}
@@ -286,8 +286,10 @@ function inspectModal(a) {
       lines: lines.map(l => ({ id: l.id, category: l.category, accountCode: l.accountCode, stockNo: l.stockNo || "", propertyNo: l.propertyNo || "", usefulLife: l.usefulLife || "" })),
       inspection: { dateInspected: $("#di", m).value, inspectorName: $("#iname", m).value.trim(), inspectedOk: $("#iok", m).checked },
       acceptance: { dateReceived: $("#dr", m).value, status: $("#acc", m).value, partialNote: $("#pn", m).value.trim(), custodianName: $("#cust", m).value.trim() },
-      remarks: $("#rem", m).value.trim()
+      remarks: $("#rem", m).value.trim(),
+      airNo: $("#airno", m)?.value.trim() || ""
     };
+    if (airManual && !insp.airNo) { $("#im", m).textContent = "Enter the AIR No. — numbering is set to manual."; return; }
     $("#im", m).textContent = "";
     busy(e.target, async () => {
       try { await approveAir(a.id, insp); m.close(); }

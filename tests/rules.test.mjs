@@ -87,10 +87,12 @@ test("end-user encodes, submits and edits only drafts or returned AIRs", async (
   await assertSucceeds(setDoc(doc(d, "airs/N1"), baseAir({ airNo: "", status: "draft" })));
   await assertFails(setDoc(doc(d, "airs/N2"), baseAir({ endUserUid: "eu2", airNo: "", status: "draft" })));
   await assertFails(setDoc(doc(d, "airs/N3"), baseAir({ status: "approved" })));
-  await assertFails(setDoc(doc(d, "airs/N4"), baseAir({ airNo: "", status: "submitted" })));
+  await assertSucceeds(setDoc(doc(d, "airs/N4"), baseAir({ airNo: "", status: "submitted" })), "submitted without a number: the GSO gives it");
+  await assertFails(setDoc(doc(d, "airs/N4b"), baseAir({ airNo: "2026-10-0050", status: "submitted" })), "End-Users don't number AIRs");
   await assertFails(setDoc(doc(d, "airs/N5"), baseAir({ status: "submitted", inspection: { inspectedOk: true } })));
   await assertFails(setDoc(doc(d, "airs/N6"), baseAir({ fund: "XX", airNo: "", status: "draft" })));
-  await assertSucceeds(updateDoc(doc(d, "airs/A_DRAFT"), { airNo: "2026-10-0004", status: "submitted" }));
+  await assertFails(updateDoc(doc(d, "airs/A_DRAFT"), { airNo: "2026-10-0004", status: "submitted" }));
+  await assertSucceeds(updateDoc(doc(d, "airs/A_DRAFT"), { status: "submitted" }));
   await assertFails(updateDoc(doc(d, "airs/A_SUB"), { supplier: "Changed" }));
   await assertFails(updateDoc(doc(d, "airs/A_APPR"), { status: "submitted" }));
   await assertFails(setDoc(doc(ctx("gso"), "airs/N7"), baseAir({ endUserUid: "gso", airNo: "", status: "draft" })));
@@ -105,7 +107,12 @@ test("a submitted or returned AIR keeps its number and fund", async () => {
 });
 
 test("only the GSO (or admins) inspect, approve or return", async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), "airs/A_NEW"), baseAir({ airNo: "" })));
   const insp = { status: "approved", inspection: { inspectedOk: true }, acceptance: { status: "complete" } };
+  await assertFails(updateDoc(doc(ctx("gso"), "airs/A_NEW"), insp), "an AIR is approved with its number");
+  await assertFails(updateDoc(doc(ctx("gso"), "airs/A_NEW"), { status: "returned", airNo: "2026-10-0007" }), "a returned AIR gets no number");
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "airs/A_NEW"), { ...insp, airNo: "2026-10-0007" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "airs/A_SUB"), { ...insp, airNo: "2026-10-0099" }), "an AIR numbered before keeps its number");
   await assertFails(updateDoc(doc(ctx("eu"), "airs/A_SUB"), insp));
   await assertFails(updateDoc(doc(ctx("acc"), "airs/A_SUB"), insp));
   await assertFails(updateDoc(doc(ctx("gso"), "airs/A_SUB"), { ...insp, supplier: "x" }));

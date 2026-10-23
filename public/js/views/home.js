@@ -37,7 +37,7 @@ export function dashboard(main) {
     c.drafts && row(I.doc, "", "Draft AIRs", "Not yet submitted to the GSO", c.drafts, "#/airs"),
     c.repairsReturned && row(I.back, "red", "Repairs returned to you", "Correct the repair record and send it again", c.repairsReturned, "#/repairs"),
     c.repairs && row(I.check, "blue", "Repairs to verify", "History of Repair records sent by End-Users", c.repairs, "#/repairs"),
-    c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: AIR ${oldestInspect.airNo} from ${oldestInspect.office}` : "", c.inspect, "#/inspect"),
+    c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: from ${oldestInspect.office}, ${oldestInspect.supplier}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
     deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),
     c.post && row(I.book, "green", "For posting", "AIRs with their PAR / ICS / RIS, and disposals, not yet posted in the registry", c.post, "#/posting")
@@ -73,7 +73,7 @@ export function dashboard(main) {
         <div class="card"><div class="card-head"><h3>Needs your attention</h3><span class="small muted">${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : ""}</span></div>
           <ul class="inbox">${items.join("") || `<li><span class="ic green">${I.check}</span><span class="t"><b>You're all caught up</b><span>Nothing is waiting for you in ${esc(fundName(S.fund))}.</span></span></li>`}</ul></div>
         <div class="card"><div class="card-head"><h3>Recent AIRs</h3><a class="btn sm" href="#/airs">Open list</a></div>
-          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo || "Draft")}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
+          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo || (a.status === "draft" ? "Draft" : "For inspection"))}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
       </div>
       <div>
         <div class="card"><div class="card-head"><h3>At a glance</h3><span class="small muted">${esc(fmtDate(new Date()))}</span></div>

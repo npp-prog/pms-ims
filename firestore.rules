@@ -147,7 +147,8 @@ service cloud.firestore {
         && validFund(request.resource.data.fund)
         && request.resource.data.lines is list
         && request.resource.data.status in ['draft', 'submitted']
-        && (request.resource.data.status == 'draft' || request.resource.data.airNo.size() > 0)
+        // the AIR number is given by the GSO when approving, never by the End-User
+        && request.resource.data.airNo == ''
         && !request.resource.data.keys().hasAny(['inspection', 'acceptance', 'posting', 'approvedBy', 'approvedAt'])
         // or: supplies on hand imported from IMS as an approved, already-posted beginning-balance AIR
         || (isAdmin() && request.resource.data.imported == true && request.resource.data.status == 'approved'
@@ -158,14 +159,17 @@ service cloud.firestore {
         (encoder() && resource.data.endUserUid == request.auth.uid
           && resource.data.status in ['draft', 'returned']
           && request.resource.data.status in ['draft', 'submitted']
-          && (request.resource.data.status == 'draft' || request.resource.data.airNo.size() > 0)
-          && (resource.data.airNo == '' || (request.resource.data.airNo == resource.data.airNo && request.resource.data.fund == resource.data.fund))
+          && (resource.data.airNo == '' || request.resource.data.fund == resource.data.fund)
           && validFund(request.resource.data.fund)
-          && onlyChanged(['fund', 'date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total', 'airNo', 'status', 'history', 'updatedAt', 'submittedAt']))
-        // GSO inspects: approves or returns a submitted AIR
+          && onlyChanged(['fund', 'date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total', 'status', 'history', 'updatedAt', 'submittedAt']))
+        // GSO inspects: approves (giving the AIR its number) or returns a submitted AIR
         || (issuer() && resource.data.status == 'submitted'
           && request.resource.data.status in ['approved', 'returned']
-          && onlyChanged(['lines', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
+          // returned: no number; approved: it has one — the one given now, or the one it already had
+          && ((request.resource.data.status == 'returned' && request.resource.data.airNo == resource.data.airNo)
+            || (request.resource.data.status == 'approved' && request.resource.data.airNo is string && request.resource.data.airNo.size() > 0
+              && (resource.data.airNo == '' || request.resource.data.airNo == resource.data.airNo)))
+          && onlyChanged(['airNo', 'lines', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
         // GSO issues or cancels documents: issued quantities and the resulting status
         || (issuer() && resource.data.status in ['approved', 'issued']
           && request.resource.data.status in ['approved', 'issued']

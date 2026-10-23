@@ -17,8 +17,8 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 
 | Step | Who | What happens | Status |
 | --- | --- | --- | --- |
-| 1 | **End-User** | Encodes the AIR: fund, supplier, PO and invoice, and each item delivered with its unit, quantity and unit cost. Saves it as a draft, then **submits it to the GSO**. The AIR number is assigned on submission. | Draft → *For GSO Inspection* |
-| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian). Confirms each item's **classification** and **account code**, then **approves**. Or **returns** the AIR to the End-User with remarks; they correct it and resubmit. | *For Issuance* or *Returned* |
+| 1 | **End-User** | Encodes the AIR: fund, supplier, PO and invoice, and each item delivered with its unit, quantity and unit cost. Saves it as a draft, then **submits it to the GSO**. End-Users never number an AIR. | Draft → *For GSO Inspection* |
+| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian). Confirms each item's **classification** and **account code**, then **approves** — which gives the AIR its **number**. Or **returns** the AIR to the End-User with remarks; they correct it and resubmit. | *For Issuance* or *Returned* |
 | 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** for PPE<br>• **ICS** for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
 | 4 | **Accounting** | Marks each item as **posted in the registry**, with the posting date and JEV / reference number. One item per document: the **AIR supply receipt** (into the Supplies Ledger Card) and every **PAR, ICS and RIS**. Several can be posted at once under one JEV. | *Not posted* → *Partially posted* → *Fully posted* |
 
@@ -354,7 +354,8 @@ disposal report) is either:
   `PAR-{YYYY}-{#####}`), when the numbers restart (every month, every year, or never) and the starting number of each
   new series. Under it, **Next number of each series** lets you continue from the last number used in PMS (for
   example, set the next PAR to 58); or
-- **Manual** — the person saving the document types the number (e.g. from a pre-numbered form).
+- **Manual** — the person saving the document types the number (e.g. from a pre-numbered form). The AIR number is always
+  given by the GSO when approving the AIR — the next in the series, or typed by the GSO when AIR numbering is manual.
 
 Each fund has its own series, and every number — automatic or typed — is checked so it is never used twice in a fund.
 The default is the PMS / IMS format: `2026-10-0001`, and `SPLV-` / `SPHV-2026-10-0001` for ICS.

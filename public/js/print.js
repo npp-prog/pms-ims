@@ -51,7 +51,7 @@ export function airHtml(a) {
     <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   return `<div class="pf">${head("ACCEPTANCE AND INSPECTION REPORT")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(a.fund))}</b></td></tr>
-      <tr><td>Supplier: <b>${esc(a.supplier)}</b></td><td>AIR No.: <b>${esc(a.airNo || "(draft)")}</b></td></tr>
+      <tr><td>Supplier: <b>${esc(a.supplier)}</b></td><td>AIR No.: <b>${esc(a.airNo || "")}</b></td></tr>
       <tr><td>PO No./Date: <b>${esc(a.poNo)}${a.poDate ? " / " + fmtDate(a.poDate) : ""}</b></td><td>Date: <b>${fmtDate(a.date)}</b></td></tr>
       <tr><td>Requisitioning Office/Dept.: <b>${esc(a.office)}</b></td><td>Invoice No./Date: <b>${esc(a.invNo)}${a.invDate ? " / " + fmtDate(a.invDate) : ""}</b></td></tr></table>
     <table class="pt"><thead><tr><th style="width:15%">Stock/Property No.</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>

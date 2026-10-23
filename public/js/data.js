@@ -88,9 +88,7 @@ export function saveAir(id, form, submit) {
       if (id && !cur.exists()) throw fail("This AIR no longer exists.");
       const old = cur?.data();
       if (old && !["draft", "returned"].includes(old.status)) throw fail("This AIR was already submitted and can no longer be edited.");
-      let airNo = old?.airNo || "";
-      const counter = submit && !airNo ? await readCounter(tx, fields.fund, "air", fields.date, "", form.airNo) : null;
-      if (counter) { airNo = counter.number; useNumber(tx, counter, ref, "air"); }
+      const airNo = old?.airNo || ""; // the GSO gives the AIR its number when approving it
       const history = [...(old?.history || []), stamp(submit ? (old?.status === "returned" ? "Resubmitted to GSO" : "Submitted to GSO") : "Saved as draft")];
       const data = { ...fields, airNo, status: submit ? "submitted" : "draft", history, updatedAt: serverTimestamp(), ...(submit ? { submittedAt: serverTimestamp() } : {}) };
       if (old) tx.update(ref, data);
@@ -129,11 +127,14 @@ export function approveAir(id, insp) {
       const next = { ...old, lines, inspection: insp.inspection, acceptance: insp.acceptance };
       const errs = validateInspection(next);
       if (errs.length) throw fail(errs[0]);
+      // the AIR number: given now by the GSO (the next in the series, or typed when numbering is manual)
+      let airNo = old.airNo || "";
+      if (!airNo) { const c = await readCounter(tx, old.fund, "air", old.date, "", insp.airNo); airNo = c.number; useNumber(tx, c, ref, "air"); }
       // the shared item list, so the next AIR with the same item gets its Item No. as it is typed
       const at = insp.acceptance?.dateReceived || old.date || "";
       for (const l of lines) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
-      tx.update(ref, { lines, inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
-        approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), stamp("Inspected and approved by GSO", insp.remarks || "")], updatedAt: serverTimestamp() });
+      tx.update(ref, { airNo, lines, inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
+        approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), stamp(old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`, insp.remarks || "")], updatedAt: serverTimestamp() });
     });
     audit("air_approve", "air", id, {});
   });

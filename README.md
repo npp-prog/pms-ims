@@ -153,6 +153,10 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 - **Dashboard:** search across property, PAR / ICS / RIS, transfers, repairs, AIRs and CIP.
 - **Reports:** Accountability (by officer / office / account / status, with CSV and bulk cards)
   and Disposed / Retired. **Settings → Download full backup (JSON).**
+- **Clear recorded data** (Super Administrator only, Settings): deletes every record in all funds — AIRs, PAR / ICS / RIS,
+  the registries, transfers and disposals, repairs, CIP and SWA, depreciation, Trial Balances, attachments, the item list
+  and the number series (numbering restarts at each "Start at"). Users, invitations, settings and the activity log stay.
+  You must type `DELETE ALL RECORDS`; download the backup first. It cannot be undone.
 
 ### Inventory Registry and posting by AIR
 

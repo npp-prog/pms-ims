@@ -1,9 +1,9 @@
 // Every write the app makes. Multi-document changes run in Firestore transactions so numbering and
 // issued quantities stay exact even when several people work at the same time.
 import {
-  db, doc, collection, setDoc, updateDoc, deleteDoc, addDoc, runTransaction, serverTimestamp, arrayUnion, dbError
+  db, doc, collection, setDoc, updateDoc, deleteDoc, addDoc, runTransaction, serverTimestamp, arrayUnion, getDocs, writeBatch, dbError
 } from "./fb.js";
-import { S, settings, can } from "./state.js";
+import { S, settings, can, isSuper } from "./state.js";
 import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/catalog.js";
 import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, hasPostedDepreciation } from "./core/assets.js";
 import { specialGroup } from "./core/cards.js";
@@ -983,3 +983,26 @@ export function reviewRepair(id, verify, remarks, verifiedBy) {
 }
 
 export { remainingQty };
+
+// ---------------- clearing the records (Super Administrator) ----------------
+// Everything recorded in the app. Users, invitations, settings and the audit trail are kept.
+export const RECORD_COLLECTIONS = ["airs", "issuances", "assets", "movements", "repairs", "cipProjects", "swa", "depreciation", "tbSnapshots", "attachments", "items", "docNumbers", "counters"];
+
+/** Deletes every record in RECORD_COLLECTIONS (attachments with their file chunks); onStep(name, count) after each. */
+export async function clearRecords(onStep = () => {}) {
+  if (!isSuper()) throw fail("Only the Super Administrator can clear the recorded data.");
+  return wrap(async () => {
+    let total = 0;
+    for (const name of RECORD_COLLECTIONS) {
+      const snap = await getDocs(collection(db, name)), refs = [];
+      for (const d of snap.docs) {
+        if (name === "attachments") (await getDocs(collection(db, "attachments", d.id, "chunks"))).forEach(c => refs.push(c.ref));
+        refs.push(d.ref);
+      }
+      for (let i = 0; i < refs.length; i += 400) { const b = writeBatch(db); refs.slice(i, i + 400).forEach(r => b.delete(r)); await b.commit(); }
+      total += snap.size; onStep(name, snap.size);
+    }
+    await audit("records cleared", "app", "records", { deleted: total });
+    return total;
+  });
+}

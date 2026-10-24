@@ -148,7 +148,7 @@ test("cancellation only before posting; accounting posts and unposts", async () 
   await assertSucceeds(updateDoc(doc(ctx("acc"), "issuances/D1"), { posting: { posted: false } }));
   await assertSucceeds(updateDoc(doc(ctx("gso"), "issuances/D1"), { status: "cancelled", cancel: { reason: "x" } }));
   await assertFails(updateDoc(doc(ctx("acc"), "issuances/D1"), { posting: { posted: true } }));
-  await assertFails(deleteDoc(doc(ctx("sa"), "issuances/D1")));
+  await assertFails(deleteDoc(doc(ctx("ad"), "issuances/D1")));
   await assertSucceeds(updateDoc(doc(ctx("acc"), "airs/A_APPR"), { posting: { posted: true, ref: "JEV-2" } }));
   await assertFails(updateDoc(doc(ctx("acc"), "airs/A_SUB"), { posting: { posted: true, ref: "JEV-2" } }));
   await assertFails(updateDoc(doc(ctx("acc"), "airs/A_APPR"), { posting: { posted: true }, status: "issued" }));
@@ -210,7 +210,7 @@ test("property records: who creates, who changes what, who reads", async () => {
   await assertSucceeds(updateDoc(doc(ctx("acc"), "assets/P1"), { usefulLifeYears: 7, residualValue: 3000 }));
   await assertFails(updateDoc(doc(ctx("acc"), "assets/P1"), { holder: { name: "x" } }));
   await assertFails(updateDoc(doc(ctx("eu"), "assets/P1"), { condition: "Unserviceable" }));
-  await assertFails(deleteDoc(doc(ctx("sa"), "assets/P1")));
+  await assertFails(deleteDoc(doc(ctx("ad"), "assets/P1")));
 });
 
 test("transfers, returns, disposals", async () => {
@@ -463,4 +463,23 @@ test("attachments: the GSO and Accounting attach; End-Users see their own office
   await assertFails(deleteDoc(doc(ctx("eu"), "attachments/A1")));
   await assertSucceeds(deleteDoc(doc(ctx("acc"), "attachments/A1/chunks/0")));
   await assertSucceeds(deleteDoc(doc(ctx("acc"), "attachments/A1")));
+});
+
+test("clearing the records: only the Super Administrator, and never users, invitations or the audit trail", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "assets/X1"), { fund: "GF", posting: { posted: true } });
+    await setDoc(doc(d, "attachments/T1"), { office: "MHO" }); await setDoc(doc(d, "attachments/T1/chunks/0"), { data: "x" });
+    await setDoc(doc(d, "auditLogs/L1"), { uid: "sa" }); await setDoc(doc(d, "invites/a@x.com"), { role: "gso" });
+  });
+  for (const who of ["ad", "acc", "gso"]) {
+    await assertFails(deleteDoc(doc(ctx(who), "issuances/D1")), `${who} can't delete a document`);
+    await assertFails(deleteDoc(doc(ctx(who), "assets/X1")));
+  }
+  await assertFails(deleteDoc(doc(ctx("ad"), "counters/GF_AIR_2026-10")));
+  const sa = ctx("sa");
+  for (const p of ["airs/A_SUB", "airs/A_APPR", "issuances/D1", "assets/X1", "attachments/T1/chunks/0", "attachments/T1", "counters/GF_AIR_2026-10"])
+    await assertSucceeds(deleteDoc(doc(sa, p)));
+  for (const p of ["users/eu", "auditLogs/L1"]) await assertFails(deleteDoc(doc(sa, p)), p);
+  await assertSucceeds(getDoc(doc(sa, "invites/a@x.com")));
 });

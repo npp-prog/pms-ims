@@ -317,6 +317,13 @@ service cloud.firestore {
       allow delete: if active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status != 'verified';
     }
 
+    // ---------------- clearing the records (Settings → Clear recorded data) ----------------
+    // Only the Super Administrator, and only the record collections: users, invites, settings and auditLogs are never cleared.
+    match /{coll}/{id} {
+      allow delete: if isSuper() && coll in ['airs', 'issuances', 'assets', 'movements', 'repairs', 'cipProjects', 'swa',
+        'depreciation', 'tbSnapshots', 'attachments', 'items', 'docNumbers', 'counters'];
+    }
+
     // ---------------- audit trail (append-only) ----------------
     match /auditLogs/{id} {
       allow read: if isAdmin();

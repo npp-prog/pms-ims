@@ -1,8 +1,8 @@
 // Administration: users and roles, settings, audit trail — and every user's own profile.
 import { auth, updatePassword, EmailAuthProvider, reauthenticateWithCredential, authError, db, doc, getDoc } from "../fb.js";
 import { S, isSuper, settings } from "../state.js";
-import { $, esc, busy, toast, fmtDate, fmtDateTime, opts, renderTable, openModal, userBadge, avatar, confirmBox } from "../ui.js";
-import { ROLES, ROLE_NAMES, FUNDS } from "../core/catalog.js";
+import { $, $$, esc, busy, toast, fmtDate, fmtDateTime, opts, renderTable, openModal, userBadge, avatar, confirmBox } from "../ui.js";
+import { ROLES, ROLE_NAMES, FUNDS, ACCOUNTS_BY_CATEGORY, STANDARD_CHART, ACCOUNT_KINDS, DEP_EXPENSE_NAMES, applyChartOfAccounts, checkChartAccount } from "../core/catalog.js";
 import { NUMBERED_DOCS, NUMBER_RESETS, numberingFor, seriesKey, formatDocNo, checkNumbering } from "../core/logic.js";
 import { setUserAccess, saveSettings, updateProfile, setNextNumber, rebuildItemList, clearRecords } from "../data.js";
 
@@ -76,6 +76,7 @@ export function settingsPage(main) {
         ${f("accountant", "Accounting (RSMI posted by)", sg.accountant)}${f("accountantPosition", "Position", sg.accountantPosition)}</div></fieldset>
       <div class="spanall btn-row end"><button class="btn primary" type="submit">Save settings</button></div></form>
     <div id="numbering"></div>
+    <div id="chart"></div>
     <div class="card"><div class="card-head"><h3>Backup</h3></div><p class="small muted">Downloads everything this app holds — register, AIRs, PAR / ICS / RIS, transfers, depreciation, Trial Balances, CIP and SWA, repairs, users and settings — as one JSON file. Keep it somewhere safe; Firestore on the free plan has no automatic backups.</p>
       <button class="btn" id="bk" type="button">Download full backup (JSON)</button></div>
     <div class="card"><div class="card-head"><h3>Item list</h3><span class="small muted">${S.d.items.length} items</span></div><p class="small muted">When an End-User types an item on a new AIR, its Item No. (stock no.), unit and type fill in from items accepted before. The list grows by itself as the GSO approves AIRs; run this once to add the items of AIRs approved earlier.</p>
@@ -88,6 +89,7 @@ export function settingsPage(main) {
         and make sure nobody else is working in the app.</p>
       <button class="btn danger solid" id="clr" type="button">Clear recorded data…</button></div>` : ""}`;
   numberingCard($("#numbering", main));
+  chartCard($("#chart", main));
   $("#items", main).onclick = e => busy(e.target, async () => { const n = await rebuildItemList(); toast(`${n} items in the list.`, "ok"); }).catch(() => {});
   const PHRASE = "DELETE ALL RECORDS";
   if ($("#clr", main)) $("#clr", main).onclick = async e => {
@@ -188,6 +190,88 @@ const today = () => new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10)
 const SERIES = NUMBERED_DOCS.flatMap(([t, l]) => t === "ics" ? [[t, "low", "ICS — low value (SPLV)"], [t, "high", "ICS — high value (SPHV)"]] : [[t, "", l.split(" — ")[0]]]);
 
 /** How each document is numbered: automatic (format, restart, starting number) or typed by hand; and the next number of each series. */
+/* ---------------- chart of accounts ---------------- */
+const chartState = { kind: "ppe", q: "" };
+const customAccounts = () => (S.settings?.accounts || []).filter(x => x && x.code);
+function chartCard(el) {
+  const kind = chartState.kind, custom = customAccounts(), q = chartState.q.trim().toLowerCase();
+  const rows = ACCOUNTS_BY_CATEGORY[kind].filter(a => !q || `${a[0]} ${a[1]} ${a[2]}`.toLowerCase().includes(q));
+  const tag = code => custom.some(x => x.code === code) ? (STANDARD_CHART[kind].some(a => a[1] === code) ? `<span class="badge b-gold">Changed</span>` : `<span class="badge b-ok">Added</span>`) : `<span class="badge">Standard</span>`;
+  const extraHead = kind === "ppe" ? "<th class=\"right\">Useful life</th><th>Depreciation expense</th>" : kind === "cons" ? "<th>Expense account</th>" : "";
+  const extra = a => kind === "ppe" ? `<td class="right">${a[3] ? `${a[5]} yrs` : "—"}</td><td class="small">${a[3] ? `${esc(a[4])} ${esc(DEP_EXPENSE_NAMES[a[4]] || "")}` : `<span class="muted">Not depreciated</span>`}</td>` : kind === "cons" ? `<td class="small">${esc(a[3] || "")}</td>` : "";
+  const cols = kind === "ppe" ? 6 : kind === "cons" ? 5 : 4;
+  let group = "";
+  const body = rows.map(a => {
+    const head = a[0] !== group ? `<tr><td colspan="${cols}" style="background:var(--green-soft);font-weight:650;color:var(--green)">${esc(a[0])}</td></tr>` : "";
+    group = a[0];
+    return `${head}<tr class="click" data-code="${esc(a[1])}"><td class="mono"><b>${esc(a[1])}</b></td><td>${esc(a[2])}</td>${extra(a)}<td>${tag(a[1])}</td><td class="right"><button class="btn sm" type="button" data-edit="${esc(a[1])}">Edit</button></td></tr>`;
+  }).join("");
+  el.innerHTML = `<div class="card" data-nodirty><div class="card-head"><h3>Chart of accounts</h3><button class="btn primary sm" id="acc-add" type="button">Add account</button></div>
+    <p class="small muted">The accounts used for PPE, semi-expendable property and inventory, by group, with their codes. Add an account the standard chart doesn't have, or change a name, group, useful life or expense account. Standard accounts can be changed back but not deleted. The import, the AIR, the registries and the cards all use this chart.</p>
+    <div class="tabs">${Object.entries(ACCOUNT_KINDS).map(([k, l]) => `<button type="button" data-k="${k}" class="${k === kind ? "active" : ""}">${l} <span class="xs muted">${ACCOUNTS_BY_CATEGORY[k].length}</span></button>`).join("")}</div>
+    <div class="table-tools"><div class="grow"><label>Search</label><input type="search" id="acc-q" placeholder="Code, account name or group" value="${esc(chartState.q)}"></div></div>
+    <div class="table-wrap"><table><thead><tr><th>Code</th><th>Account name</th>${extraHead}<th></th><th></th></tr></thead><tbody>${body || `<tr><td colspan="${cols}" class="empty">No account matches.</td></tr>`}</tbody></table></div></div>`;
+  $$(".tabs [data-k]", el).forEach(b => b.onclick = () => { chartState.kind = b.dataset.k; chartCard(el); });
+  const qi = $("#acc-q", el);
+  qi.oninput = () => { chartState.q = qi.value; chartCard(el); const n = $("#acc-q", el); n.focus(); n.setSelectionRange(n.value.length, n.value.length); };
+  $("#acc-add", el).onclick = () => accountModal(el, null);
+  $$("[data-edit]", el).forEach(b => b.onclick = e => { e.stopPropagation(); accountModal(el, b.dataset.edit); });
+  $$("tr[data-code]", el).forEach(tr => tr.onclick = () => accountModal(el, tr.dataset.code));
+}
+function accountModal(el, code) {
+  const kind0 = chartState.kind, row = code ? ACCOUNTS_BY_CATEGORY[kind0].find(a => a[1] === code) : null;
+  const custom = customAccounts(), mine = code ? custom.find(x => x.code === code) : null, standard = code && STANDARD_CHART[kind0].some(a => a[1] === code);
+  const v = row ? { kind: kind0, code, group: row[0], name: row[2], depreciable: kind0 === "ppe" ? row[3] : false, expCode: kind0 === "ppe" ? row[4] : kind0 === "cons" ? row[3] : "", life: kind0 === "ppe" ? row[5] : "" }
+    : { kind: kind0, code: "", group: "", name: "", depreciable: kind0 === "ppe", expCode: "", life: "" };
+  const groups = k => [...new Set(ACCOUNTS_BY_CATEGORY[k].map(a => a[0]))];
+  const m = openModal(`<h2>${code ? `Account ${esc(code)}` : "Add an account"}</h2>
+    <p class="muted small">${code ? (standard ? "A standard account: you can change its name, group and settings, and change it back later." : "An account added for this LGU.") : "For an account the standard chart doesn't have. The code can't be changed afterwards."}</p>
+    <form class="grid g2" id="acf">
+      <div><label class="req">Kind</label><select name="kind" ${code ? "disabled" : ""}>${opts(Object.entries(ACCOUNT_KINDS), v.kind)}</select></div>
+      <div><label class="req">Account code</label><input name="code" inputmode="numeric" maxlength="8" placeholder="e.g. 10405150" value="${esc(v.code)}" ${code ? "disabled" : ""}></div>
+      <div class="spanall"><label class="req">Account name</label><input name="name" value="${esc(v.name)}"></div>
+      <div class="spanall"><label class="req">Group</label><input name="group" list="acc-groups" value="${esc(v.group)}" placeholder="e.g. Machinery & Equipment"><datalist id="acc-groups"></datalist></div>
+      <div data-ppe class="spanall"><label class="check"><input type="checkbox" name="depreciable" ${v.depreciable ? "checked" : ""}> Depreciated</label></div>
+      <div data-ppe data-dep><label class="req">Useful life (years)</label><input type="number" min="1" name="life" value="${esc(v.life || "")}"></div>
+      <div data-ppe data-dep><label class="req">Depreciation expense</label><select name="expCode">${opts(Object.entries(DEP_EXPENSE_NAMES).map(([c, n]) => [c, `${c} ${n}`]), v.expCode, "Choose…")}</select></div>
+      <div data-cons class="spanall"><label>Expense account on issue</label><input name="expInv" value="${esc(v.kind === "cons" ? v.expCode : "")}" placeholder="e.g. 50203010"></div>
+      <div class="spanall form-msg err" id="acm"></div>
+      <div class="spanall modal-actions">${mine ? `<button type="button" class="btn danger" id="acc-rm">${standard ? "Change back to standard" : "Remove account"}</button>` : ""}<span style="flex:1"></span>
+        <button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { size: "narrow" });
+  const f = $("#acf", m);
+  const sync = () => {
+    const k = f.kind.value;
+    $$("[data-ppe]", m).forEach(x => x.hidden = k !== "ppe"); $$("[data-cons]", m).forEach(x => x.hidden = k !== "cons");
+    $$("[data-dep]", m).forEach(x => x.hidden = k !== "ppe" || !f.depreciable.checked);
+    $("#acc-groups", m).innerHTML = groups(k).map(g => `<option value="${esc(g)}">`).join("");
+  };
+  f.kind.onchange = sync; f.depreciable.onchange = sync; sync();
+  $("[data-x]", m).onclick = () => m.close();
+  const store = (list, msg, btn) => busy(btn, async () => {
+    await saveSettings({ accounts: list });
+    S.settings = { ...(S.settings || {}), accounts: list }; applyChartOfAccounts(list);
+    m.close(); chartCard(el);
+  }, msg).catch(err => { $("#acm", m).textContent = err.message; });
+  f.onsubmit = e => {
+    e.preventDefault();
+    const k = code ? kind0 : f.kind.value;
+    const x = { kind: k, code: code || f.code.value.trim(), name: f.name.value.trim(), group: f.group.value.trim(),
+      depreciable: k === "ppe" && f.depreciable.checked, life: k === "ppe" && f.depreciable.checked ? Number(f.life.value) || 0 : 0,
+      expCode: k === "ppe" ? (f.depreciable.checked ? f.expCode.value : "") : k === "cons" ? f.expInv.value.trim() : "" };
+    const others = custom.filter(y => y.code !== x.code);
+    const err = checkChartAccount(x, others);
+    if (!code && ACCOUNTS_BY_CATEGORY[k].some(a => a[1] === x.code)) err.push(`Account ${x.code} is already in the chart — open it to change it.`);
+    if (err.length) { $("#acm", m).textContent = err[0]; return; }
+    store([...others, x], `Account ${x.code} saved.`, e.submitter);
+  };
+  const rm = $("#acc-rm", m);
+  if (rm) rm.onclick = () => {
+    const used = S.d.assets.filter(a => a.accountCode === code).length + S.d.airs.reduce((t, a) => t + (a.lines || []).filter(l => l.accountCode === code).length, 0);
+    if (!standard && used) { $("#acm", m).textContent = `Account ${code} is used by ${used} record${used === 1 ? "" : "s"}; it can't be removed. You can rename it instead.`; return; }
+    store(custom.filter(y => y.code !== code), standard ? `Account ${code} changed back to standard.` : `Account ${code} removed.`, rm);
+  };
+}
+
 function numberingCard(el) {
   const cfg = Object.fromEntries(NUMBERED_DOCS.map(([t]) => [t, numberingFor(S.settings, t)]));
   const ex = (t, c) => c.mode === "manual" ? "typed when the document is saved" : formatDocNo(c.format, { date: today(), fund: "GF", cls: "low", seq: c.start });

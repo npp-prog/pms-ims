@@ -204,6 +204,13 @@ function pick(row, ...aliases) {
   for (const al of aliases) { const k = keys.find(x => norm(x) === norm(al)); if (k !== undefined && String(row[k] ?? "").trim() !== "") return String(row[k]).trim(); }
   return "";
 }
+/** The account text a row carries ("10405100 Semi-Expendable …", or just the name), shown when it isn't recognised
+ *  and used as the key of the administrator's choice in opts.accountMap ({ text: code }). */
+const accountText = (code, name) => [String(code || "").replace(/\.0+$/, "").trim(), String(name || "").trim()].filter(Boolean).join(" ");
+function resolveAccount(code, name, kind, map) {
+  const text = accountText(code, name), key = text || `(blank)${kind}`;
+  return { text, key, code: (map && map[key]) || accountByCodeOrName(code, name, kind) };
+}
 const money = v => round2(Number(String(v || "").replace(/[₱,\s]/g, "")) || 0);
 const fundCode = v => { const s = String(v || "").trim(); const f = FUNDS.find(x => x.code.toLowerCase() === s.toLowerCase() || x.name.toLowerCase() === s.toLowerCase()); return f ? f.code : ""; };
 function isoDate(v) {
@@ -224,20 +231,21 @@ export function normalizeAssets(rows, opts) {
   const items = [], errors = [], cip = [];
   rows.forEach((r, i) => {
     const line = i + 2;
-    const accountCode = accountByCodeOrName(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Category", "Account Name", "Account"));
-    const type = pick(r, "item_type", "Type").toLowerCase();
+    const type = pick(r, "item_type", "Type").toLowerCase(), kind = type.startsWith("semi") || type === "sx" ? "sx" : type ? "ppe" : "";
+    const acct = resolveAccount(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Category", "Account Name", "Account"), kind, opts.accountMap);
+    const accountCode = acct.code;
     const itemType = type.startsWith("semi") || type === "sx" || isSxAccount(accountCode) ? "sx" : "ppe";
     const status = pick(r, "status", "Status").toLowerCase();
     const cost = money(pick(r, "cost", "Cost", "Total Cost", "Amount"));
     const description = pick(r, "description", "Description", "Item");
     const err = [];
-    if (!accountCode) err.push("unknown account");
+    if (!accountCode) err.push(acct.text ? `account "${acct.text}" is not in the chart of accounts` : "no account (Category) in the file");
     if (!description) err.push("no description");
     const retired = /retired|disposed/.test(status);
     if (!(cost > 0) && !retired) err.push("no cost"); // retired PMS items keep their history at ₱0
     const fund = fundCode(pick(r, "fund", "Fund")) || opts.fund;
     if (!fund) err.push("unknown fund");
-    if (err.length) { errors.push({ line, description, problem: err.join(", ") }); return; }
+    if (err.length) { errors.push({ line, description, problem: err.join(", "), ...(!accountCode ? { accountKey: acct.key, account: acct.text, kind } : {}) }); return; }
     // Older PMS registers kept Construction in Progress as assets: those become CIP projects here,
     // with their cost as one "balance brought forward" billing (PMS keeps CIP in its own section too).
     if (CIP_ACCOUNTS.includes(accountCode)) {
@@ -286,9 +294,10 @@ export function normalizeParIcs(rows, opts = {}) {
     const line = i + 2;
     const status = pick(r, "status", "Status").toLowerCase();
     if (r.recorded === true || String(r.recorded).toLowerCase() === "true" || status === "recorded") { recorded++; return; }
-    const accountCode = accountByCodeOrName(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Account Name", "Account"));
-    const type = pick(r, "doc_type", "Type", "Document").toLowerCase();
-    const docType = type.startsWith("par") ? "par" : type.startsWith("ics") ? "ics" : accountCode ? (isSxAccount(accountCode) ? "ics" : "par") : "";
+    const type = pick(r, "doc_type", "Type", "Document").toLowerCase(), kind = type.startsWith("par") ? "ppe" : type.startsWith("ics") ? "sx" : "";
+    const acct = resolveAccount(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Account Name", "Account"), kind, opts.accountMap);
+    const accountCode = acct.code;
+    const docType = kind === "ppe" ? "par" : kind === "sx" ? "ics" : accountCode ? (isSxAccount(accountCode) ? "ics" : "par") : "";
     const number = pick(r, "number", "Number", "PAR No.", "ICS No.", "PAR/ICS No.");
     const qty = Number(pick(r, "qty", "Qty", "Quantity")) || 1;
     const amount = money(pick(r, "amount", "cost", "Amount", "Total Cost", "Cost"));
@@ -303,11 +312,11 @@ export function normalizeParIcs(rows, opts = {}) {
     if (!number) err.push("no number");
     if (!description) err.push("no description");
     if (!(amount > 0)) err.push("no amount");
-    if (!accountCode) err.push("no account code — set it in PMS or add an Account Code column");
+    if (!accountCode) err.push(acct.text ? `account "${acct.text}" is not in the chart of accounts` : "no account in the file");
     else if (docType === "par" && isSxAccount(accountCode)) err.push("PAR on a semi-expendable account");
     else if (docType === "ics" && !isSxAccount(accountCode)) err.push("ICS on a PPE account");
     if (!fund) err.push("unknown fund");
-    if (err.length) { errors.push({ line, description: number || description, problem: err.join(", ") }); return; }
+    if (err.length) { errors.push({ line, description: number || description, problem: err.join(", "), ...(!accountCode ? { accountKey: acct.key, account: acct.text, kind } : {}) }); return; }
     const detail = Array.isArray(r.detail_lines) ? r.detail_lines.filter(Boolean).join("\n") : pick(r, "Specifications", "Details");
     const name = pick(r, "received_by_name", "Received by", "Received By Name", "End-User", "Accountable Officer");
     const cls = docType === "ics" ? (/^SPLV/i.test(number) ? "low" : /^SPHV/i.test(number) ? "high" : sxClass(unitCost, opts.thresholds)) : null;

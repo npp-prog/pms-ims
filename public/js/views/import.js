@@ -1,13 +1,13 @@
 // Administration → Data Import: brings over the existing PMS property register and IMS supplies on hand.
 import { S, settings, isSuper } from "../state.js";
 import { $, $$, esc, busy, toast, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
-import { FUNDS, fundName, accountName } from "../core/catalog.js";
+import { FUNDS, fundName, accountName, PPE_ACCOUNTS, SX_ACCOUNTS } from "../core/catalog.js";
 import { normalizeAssets, normalizeStock, normalizeCip, normalizeParIcs, isPeriod, cipTotal } from "../core/assets.js";
 import { importAssets, importStock, importCip, importParIcs, importUsers, deleteInvite } from "../data.js";
 import { parsePmsUsers, IMPORT_ROLES } from "../core/users.js";
 import { ROLE_NAMES } from "../core/catalog.js";
 
-const st = { tab: "assets", fund: "GF", baseline: "2025-12", asOf: "", parsed: null, file: "" };
+const st = { tab: "assets", fund: "GF", baseline: "2025-12", asOf: "", parsed: null, file: "", accountMap: {} };
 
 export function importPage(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Data Import</h1><p>One-time transfer of your existing records into this system. Nothing is saved until you review the preview and click Import.</p></div></div>
@@ -62,8 +62,8 @@ function reparse(main) {
   if (!st.raw) return draw(main);
   if (st.tab === "assets" && !isPeriod(st.baseline)) { toast("Choose the month of the accumulated depreciation.", "err"); return; }
   if (st.tab === "cip" && !st.asOf) { toast("Enter the date for brought-forward totals first.", "err"); return; }
-  st.parsed = st.tab === "parics" ? normalizeParIcs(st.raw, { fund: st.fund, offices: settings().offices, thresholds: settings().thresholds })
-    : st.tab === "assets" ? normalizeAssets(st.raw, { fund: st.fund, baselinePeriod: st.baseline, offices: settings().offices })
+  st.parsed = st.tab === "parics" ? normalizeParIcs(st.raw, { fund: st.fund, offices: settings().offices, thresholds: settings().thresholds, accountMap: st.accountMap })
+    : st.tab === "assets" ? normalizeAssets(st.raw, { fund: st.fund, baselinePeriod: st.baseline, offices: settings().offices, accountMap: st.accountMap })
     : st.tab === "cip" ? normalizeCip(st.raw, { fund: st.fund, asOf: st.asOf }) : normalizeStock(st.raw, { fund: st.fund });
   draw(main);
 }
@@ -102,6 +102,7 @@ function draw(main) {
         <div class="stat"><span class="n">${recorded}</span><span class="l">recorded in PMS (skipped)</span></div>
         <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div>
         <div class="stat"><span class="n">${dup.length}</span><span class="l">already here (skipped)</span></div></div>
+      ${accountChooser(errors)}
       ${noName ? `<div class="notice warn">${noName} of these ${noName === 1 ? "has" : "have"} no "Received by" name in the file (the PMS CSV doesn't include it), so the office is shown as the recipient. The PMS backup file has the names.</div>` : ""}
       ${problems(errors)}
       <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Number</th><th>Date</th><th>Description</th><th>Account</th><th class="right">Qty</th><th class="right">Amount</th><th>Received by / office</th></tr></thead>
@@ -109,6 +110,7 @@ function draw(main) {
           <td class="small">${esc(d.accountCode)} ${esc(accountName(d.accountCode))}</td><td class="right">${qty(d.qty)} ${esc(d.unit)}</td><td class="right">${num(d.amount)}</td><td>${esc(d.recipient.name)}<div class="xs muted">${esc(d.recipient.office)}</div></td></tr>`).join("")}</tbody></table></div>
       ${fresh.length > 100 ? `<p class="small muted">Showing the first 100 of ${fresh.length}.</p>` : ""}
       <div class="btn-row end" style="margin-top:1rem"><span class="small muted" id="prog"></span><button class="btn primary" id="go" ${fresh.length ? "" : "disabled"}>Import ${fresh.length} PAR / ICS</button></div>`;
+    wireChooser(out, main);
     $("#go", out).onclick = e => busy(e.target, async () => {
       await importParIcs(fresh, (d, t) => { const p = $("#prog", out); if (p) p.textContent = `${d} of ${t} saved…`; });
       st.parsed = null; st.raw = null; importPage(main);
@@ -128,6 +130,7 @@ function draw(main) {
         <div class="stat"><span class="n">${fresh.filter(i => i.status === "disposed").length}</span><span class="l">retired / disposed</span></div>
         <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div>
         <div class="stat"><span class="n">${dup.length}</span><span class="l">already here (skipped)</span></div></div>
+      ${accountChooser(errors)}
       ${cipFresh.length ? `<div class="notice info">${cipFresh.length} item${cipFresh.length === 1 ? " is" : "s are"} on a Construction in Progress account (${money(cipFresh.reduce((t, p) => t + cipTotal(p), 0))}). ${cipFresh.length === 1 ? "It" : "They"} will be created as <b>CIP projects</b> with the cost brought forward, not as PPE.</div>` : ""}
       ${problems(errors)}
       <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Property No.</th><th>Description</th><th>Account</th><th>Acquired</th><th class="right">Cost</th><th class="right">Accum. depr.</th><th class="right">Life</th><th>Officer / office</th><th>Status</th></tr></thead>
@@ -135,6 +138,7 @@ function draw(main) {
           <td>${esc(i.dateAcquired)}</td><td class="right">${num(i.cost)}</td><td class="right">${i.depBaseline ? num(i.depBaseline.amount) : "—"}</td><td class="right">${i.usefulLifeYears || "—"}</td><td>${esc(i.holder.name)}<div class="xs muted">${esc(i.holder.office || "office not recognised")}</div></td><td>${esc(i.status)}</td></tr>`).join("")}</tbody></table></div>
       ${fresh.length > 100 ? `<p class="small muted">Showing the first 100 of ${fresh.length}.</p>` : ""}
       <div class="btn-row end" style="margin-top:1rem"><span class="small muted" id="prog"></span><button class="btn primary" id="go" ${fresh.length || cipFresh.length ? "" : "disabled"}>Import ${fresh.length} records${cipFresh.length ? ` and ${cipFresh.length} CIP projects` : ""}</button></div>`;
+    wireChooser(out, main);
     $("#go", out).onclick = e => busy(e.target, async () => {
       if (fresh.length) await importAssets(fresh, (d, t) => { const p = $("#prog", out); if (p) p.textContent = `${d} of ${t} saved…`; });
       if (cipFresh.length) await importCip(cipFresh);
@@ -156,6 +160,32 @@ function draw(main) {
       busy(e.target, async () => { await importStock(items, st.asOf); st.parsed = null; st.raw = null; importPage(main); }, "Supplies on hand imported.").catch(() => {});
     };
   }
+}
+
+/** Accounts the file names that are not in the chart (or rows with no account): the administrator picks the account
+ *  for each, and the file is read again with those choices. */
+function accountChooser(errors) {
+  const groups = new Map();
+  for (const e of errors) if (e.accountKey) { const g = groups.get(e.accountKey) || { ...e, n: 0 }; g.n++; groups.set(e.accountKey, g); }
+  if (!groups.size) return "";
+  const list = (accts, label) => `<optgroup label="${label}">${accts.map(a => `<option value="${a[1]}">${a[1]} ${esc(a[2])}</option>`).join("")}</optgroup>`;
+  const select = g => `<select data-acct="${esc(g.accountKey)}" data-nodirty><option value="">Choose the account…</option>${g.kind === "sx" ? list(SX_ACCOUNTS, "Semi-expendable") + list(PPE_ACCOUNTS, "PPE") : list(PPE_ACCOUNTS, "PPE") + list(SX_ACCOUNTS, "Semi-expendable")}</select>`;
+  return `<div class="card" style="border-color:var(--gold-soft-2)"><div class="card-head"><h3>Accounts not recognised</h3><span class="small muted">${[...groups.values()].reduce((t, g) => t + g.n, 0)} rows</span></div>
+    <p class="small muted">These account names in the file are not in the chart of accounts, or the rows have none. Choose the account each one belongs to, then apply — the file is read again with your choices. If the account is missing from the list, add it first in <a href="#/settings">Settings → Chart of accounts</a>.</p>
+    <div class="table-wrap"><table><thead><tr><th>In the file</th><th class="right">Rows</th><th>Example</th><th style="min-width:300px">Account to use</th></tr></thead><tbody>
+      ${[...groups.values()].map(g => `<tr><td><b>${g.account ? esc(g.account) : `<span class="muted">No account${g.kind === "sx" ? " — semi-expendable" : g.kind === "ppe" ? " — PPE" : ""}</span>`}</b></td><td class="right">${g.n}</td><td class="small">${esc(g.description || "")}</td><td>${select(g)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <div class="btn-row end" style="margin-top:.8rem"><button class="btn primary sm" id="acct-apply" type="button">Apply and read the file again</button></div></div>`;
+}
+function wireChooser(out, main) {
+  const b = $("#acct-apply", out); if (!b) return;
+  b.onclick = () => {
+    const picks = $$("[data-acct]", out).filter(x => x.value);
+    if (!picks.length) return toast("Choose an account for at least one of them.", "err");
+    picks.forEach(x => { st.accountMap[x.dataset.acct] = x.value; });
+    reparse(main);
+    toast(`${picks.length} account${picks.length === 1 ? "" : "s"} applied.`, "ok");
+  };
 }
 
 const problems = errors => errors.length ? `<details class="notice warn"><summary>${errors.length} row${errors.length === 1 ? "" : "s"} can't be imported — show</summary>

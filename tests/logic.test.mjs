@@ -5,7 +5,7 @@ import {
   round2, lineAmount, linesTotal, suggestCategory, sxClass, counterKey, formatNumber, remainingQty, statusAfterIssue,
   postingSummary, validateAir, validateInspection, checkIssue, stockCards, rsmi
 } from "../public/js/core/logic.js";
-import { accountCategory, isDistributionAccount, SUPERADMIN_EMAILS } from "../public/js/core/catalog.js";
+import { accountCategory, isDistributionAccount, SUPERADMIN_EMAILS, applyChartOfAccounts, checkChartAccount, accountName, ppeAccount, isSxAccount, accountByCodeOrName, PPE_ACCOUNTS } from "../public/js/core/catalog.js";
 import { readFileSync } from "node:fs";
 
 test("money is rounded to the centavo", () => {
@@ -139,4 +139,21 @@ test("monthly RSMI by JEV date: an RIS goes into the month Accounting posted it"
   assert.equal(R(docs, "GF", "2026-09-01", "2026-09-30", { byJev: true }).lines.length, 0);
   assert.deepEqual(rsmiMonths(docs, "GF").map(m => [m.period, m.ris, m.total]), [["2026-10", 2, 1500]]);
   assert.deepEqual(risAwaitingPosting(docs, "GF").map(d => d.number), ["2026-10-0002"]);
+});
+
+test("chart of accounts: the administrator adds accounts or changes standard ones, and can change them back", () => {
+  const n = PPE_ACCOUNTS.length;
+  applyChartOfAccounts([
+    { kind: "sx", code: "10405150", name: "Semi-Expendable Hospital Furniture", group: "Semi-Expendable Machinery and Equipment" },
+    { kind: "ppe", code: "10705110", name: "Medical Equipment", group: "Machinery & Equipment", depreciable: true, life: 7, expCode: "50501050" }
+  ]);
+  assert.equal(accountName("10405150"), "Semi-Expendable Hospital Furniture");
+  assert.equal(isSxAccount("10405150"), true); assert.equal(accountCategory("10405150"), "sx");
+  assert.equal(accountByCodeOrName("", "Hospital Furniture", "sx"), "10405150");
+  assert.equal(ppeAccount("10705110").life, 7); assert.equal(PPE_ACCOUNTS.length, n);
+  assert.deepEqual(checkChartAccount({ kind: "sx", code: "10705110", name: "x", group: "y" }), ["Code 10705110 is already a PPE account."]);
+  assert.match(checkChartAccount({ kind: "ppe", code: "1070", name: "x", group: "y" })[0], /8 digits/);
+  assert.match(checkChartAccount({ kind: "ppe", code: "10799020", name: "Other", group: "Other PPE", depreciable: true, life: 0 })[0], /useful life/);
+  applyChartOfAccounts([]);
+  assert.equal(accountName("10405150"), ""); assert.equal(ppeAccount("10705110").life, 5);
 });

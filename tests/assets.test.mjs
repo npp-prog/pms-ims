@@ -216,7 +216,7 @@ test("pending PAR / ICS from PMS: backup records and the Download CSV; recorded 
   ];
   const r = normalizeParIcs(backup, { fund: "GF" });
   assert.equal(r.recorded, 1);
-  assert.equal(r.errors.length, 1); assert.match(r.errors[0].problem, /no account code/);
+  assert.equal(r.errors.length, 1); assert.match(r.errors[0].problem, /no account in the file/);
   assert.equal(r.docs.length, 2);
   const [par, ics] = r.docs;
   assert.equal(par.docType, "par"); assert.equal(par.accountCode, "10705030"); assert.equal(par.specs, "Core i5\n16GB");
@@ -233,4 +233,18 @@ test("pending PAR / ICS from PMS: backup records and the Download CSV; recorded 
   const c = normalizeParIcs(csv, { fund: "SEF" });
   assert.equal(c.recorded, 1); assert.equal(c.docs.length, 1); assert.match(c.errors[0].problem, /ICS on a PPE account/);
   assert.equal(c.docs[0].fund, "GF"); assert.equal(c.docs[0].noName, true); assert.equal(c.docs[0].recipient.name, "Municipal Health Office");
+});
+
+test("PMS register Category names resolve to the chart; unknown or blank accounts can be chosen by the administrator", () => {
+  const row = (Type, Category, Description = "Item") => ({ Fund: "General Fund", Type, "Property ID": "", Category, Description, "Date Acquired": "2021-05-11", Cost: "5000", Status: "active" });
+  const rows = [row("Semi-Expendable", "Semi-Expendable Medical, Dental and Laboratory Equipment", "GLUCOMETER"), row("Semi-Expendable", "Semi-Expendable Communication Equipment", "UV-82 radio"),
+    row("Semi-Expendable", "Medical Equipment", "PULSE OXIMETER"), row("PPE", "Communication Equipment", "COMMUNICATION SET"),
+    row("Semi-Expendable", "Hospital Furniture", "IV STAND"), row("Semi-Expendable", "", "FOLDING STRETCHER")];
+  const r = normalizeAssets(rows, { fund: "GF" });
+  assert.deepEqual(r.items.map(i => i.accountCode), ["10405100", "10405070", "10405100", "10705070"]);
+  assert.equal(r.errors.length, 2);
+  assert.match(r.errors[0].problem, /account "Hospital Furniture" is not in the chart/); assert.equal(r.errors[0].accountKey, "Hospital Furniture");
+  assert.match(r.errors[1].problem, /no account \(Category\) in the file/); assert.equal(r.errors[1].accountKey, "(blank)sx");
+  const again = normalizeAssets(rows, { fund: "GF", accountMap: { "Hospital Furniture": "10406010", "(blank)sx": "10405100" } });
+  assert.equal(again.errors.length, 0); assert.deepEqual(again.items.slice(4).map(i => [i.accountCode, i.itemType]), [["10406010", "sx"], ["10405100", "sx"]]);
 });

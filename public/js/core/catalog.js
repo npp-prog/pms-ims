@@ -111,13 +111,13 @@ export const SX_ACCOUNTS = [
   ["Semi-Expendable Machinery and Equipment", "10405050", "Semi-Expendable Marine and Fishery Equipment"],
   ["Semi-Expendable Machinery and Equipment", "10405060", "Semi-Expendable Airport Equipment"],
   ["Semi-Expendable Machinery and Equipment", "10405070", "Semi-Expendable Communications Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405080", "Semi-Expendable Construction and Heavy Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405090", "Semi-Expendable Disaster Response and Rescue Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405100", "Semi-Expendable Military, Police and Security Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405110", "Semi-Expendable Medical Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405120", "Semi-Expendable Printing Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405130", "Semi-Expendable Sports Equipment"],
-  ["Semi-Expendable Machinery and Equipment", "10405140", "Semi-Expendable Technical and Scientific Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405080", "Semi-Expendable Disaster Response and Rescue Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405090", "Semi-Expendable Military, Police and Security Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405100", "Semi-Expendable Medical, Dental and Laboratory Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405110", "Semi-Expendable Printing Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405120", "Semi-Expendable Sports Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405130", "Semi-Expendable Technical and Scientific Equipment"],
+  ["Semi-Expendable Machinery and Equipment", "10405140", "Semi-Expendable Construction Equipment"],
   ["Semi-Expendable Machinery and Equipment", "10405990", "Semi-Expendable Other Machinery and Equipment"],
   ["Semi-Expendable Furniture, Fixtures and Books", "10406010", "Semi-Expendable Furniture and Fixtures"],
   ["Semi-Expendable Furniture, Fixtures and Books", "10406020", "Semi-Expendable Books"]
@@ -151,6 +151,41 @@ export const INV_ACCOUNTS = [
 
 export const ACCOUNTS_BY_CATEGORY = { ppe: PPE_ACCOUNTS, sx: SX_ACCOUNTS, cons: INV_ACCOUNTS };
 const ALL = [...PPE_ACCOUNTS, ...SX_ACCOUNTS, ...INV_ACCOUNTS];
+
+/* ---------------- the administrator's chart of accounts (Settings) ---------------- */
+// The standard chart above is the base. Settings keeps a list of accounts the administrator added, or standard ones
+// whose name, group, useful life or expense account were changed: { kind: "ppe" | "sx" | "cons", code, name, group,
+// life, depreciable, expCode }. They are merged into the lists in place, so every lookup and dropdown sees them.
+export const STANDARD_CHART = Object.fromEntries(Object.entries(ACCOUNTS_BY_CATEGORY).map(([k, list]) => [k, list.map(a => [...a])]));
+export const ACCOUNT_KINDS = { ppe: "PPE", sx: "Semi-expendable", cons: "Inventory" };
+export const chartRow = x => x.kind === "ppe" ? [x.group, x.code, x.name, !!x.depreciable, x.depreciable ? x.expCode || "" : "", x.depreciable ? Number(x.life) || 0 : 0]
+  : x.kind === "sx" ? [x.group, x.code, x.name] : [x.group, x.code, x.name, x.expCode || ""];
+export function applyChartOfAccounts(list = []) {
+  for (const [kind, arr] of Object.entries(ACCOUNTS_BY_CATEGORY)) {
+    const rows = STANDARD_CHART[kind].map(a => [...a]);
+    for (const x of list) {
+      if (x.kind !== kind || !/^\d{8}$/.test(String(x.code || ""))) continue;
+      const i = rows.findIndex(a => a[1] === x.code), row = chartRow(x);
+      if (i >= 0) rows[i] = row; else rows.push(row);
+    }
+    rows.sort((a, b) => a[1].localeCompare(b[1]));
+    arr.splice(0, arr.length, ...rows);
+  }
+  ALL.splice(0, ALL.length, ...PPE_ACCOUNTS, ...SX_ACCOUNTS, ...INV_ACCOUNTS);
+}
+/** Problems with an account the administrator is adding or changing (empty when it can be saved). */
+export function checkChartAccount(x, list = []) {
+  const err = [];
+  if (!ACCOUNT_KINDS[x.kind]) err.push("Choose the kind of account.");
+  if (!/^\d{8}$/.test(String(x.code || ""))) err.push("The account code has 8 digits, e.g. 10705110.");
+  if (!String(x.name || "").trim()) err.push("Enter the account name.");
+  if (!String(x.group || "").trim()) err.push("Enter the group.");
+  const other = Object.entries(STANDARD_CHART).find(([k, rows]) => k !== x.kind && rows.some(a => a[1] === x.code)) || list.find(y => y.code === x.code && y.kind !== x.kind);
+  if (other) err.push(`Code ${x.code} is already a ${ACCOUNT_KINDS[other[0] || other.kind]} account.`);
+  if (x.kind === "ppe" && x.depreciable && !(Number(x.life) > 0)) err.push("Enter the useful life in years for a depreciable account.");
+  if (x.kind === "ppe" && x.depreciable && !DEP_EXPENSE_NAMES[x.expCode]) err.push("Choose the depreciation expense account.");
+  return err;
+}
 export const accountName = code => (ALL.find(a => a[1] === String(code)) || [])[2] || "";
 /** PPE account details: { group, code, name, depreciable, expCode, expName, adCode, life }. */
 export function ppeAccount(code) {
@@ -159,13 +194,31 @@ export function ppeAccount(code) {
   return { group: r[0], code: r[1], name: r[2], depreciable: r[3], expCode: r[4], expName: DEP_EXPENSE_NAMES[r[4]] || "", adCode: String(Number(r[1]) + 1), life: r[5] };
 }
 export const isSxAccount = code => SX_ACCOUNTS.some(a => a[1] === String(code));
-/** Looks an account up by its code or, failing that, by its exact name (PMS exports carry the name only). */
-export function accountByCodeOrName(code, name) {
-  const c = String(code || "").replace(/\.0+$/, "").trim();
-  if (c && ALL.some(a => a[1] === c)) return c;
-  const n = String(name || "").trim().toLowerCase();
-  const hit = n && ALL.find(a => a[2].toLowerCase() === n);
-  return hit ? hit[1] : "";
+// Names as they may appear in PMS files but differ from the chart: PMS's semi-expendable names before its
+// September 2026 correction (each shifted one code), and the PPE name of a semi-expendable sub-account.
+const NAME_ALIASES = {
+  "semi expendable construction and heavy equipment": "10405140",
+  "semi expendable medical equipment": "10405100",
+  "semi expendable medical dental and laboratory equipment": "10405100"
+};
+const normName = s => String(s || "").toLowerCase().replace(/&/g, " and ").replace(/communications/g, "communication").replace(/[^a-z0-9]+/g, " ").trim();
+/**
+ * Looks an account up by its code or by its name (PMS register exports carry the name only, in "Category").
+ * Names match ignoring case, punctuation and "&"/"and". kind ("ppe" | "sx") says which register the row belongs
+ * to: a PPE name on a semi-expendable row ("Medical Equipment") finds the semi-expendable account. When a PMS
+ * file gives both a code and a name that disagree, the name wins (PMS renumbered some semi-expendable codes).
+ */
+export function accountByCodeOrName(code, name, kind = "") {
+  const c = String(code || "").replace(/\.0+$/, "").trim(), n = normName(name);
+  const byName = () => {
+    if (!n) return "";
+    const find = (list, x) => (list.find(a => normName(a[2]) === x) || [])[1] || "";
+    if (kind === "sx") return find(SX_ACCOUNTS, n) || find(SX_ACCOUNTS, `semi expendable ${n}`) || NAME_ALIASES[n] || NAME_ALIASES[`semi expendable ${n}`] || find(ALL, n);
+    return (kind === "ppe" && find(PPE_ACCOUNTS, n)) || find(ALL, n) || NAME_ALIASES[n] || "";
+  };
+  const known = c && ALL.some(a => a[1] === c), named = byName();
+  if (known && named && named !== c && normName(accountName(c)) !== n) return named;
+  return known ? c : named;
 }
 export const accountCategory = code => {
   const c = String(code || "");

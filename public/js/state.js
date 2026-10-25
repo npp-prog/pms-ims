@@ -1,6 +1,6 @@
 // Live application state: Firestore listeners chosen by role.
 import { db, doc, collection, query, where, orderBy, limit, onSnapshot } from "./fb.js";
-import { DEFAULT_THRESHOLDS, DEFAULT_OFFICES } from "./core/catalog.js";
+import { DEFAULT_THRESHOLDS, DEFAULT_OFFICES, applyChartOfAccounts } from "./core/catalog.js";
 
 export const S = {
   user: null, account: undefined, settings: null,
@@ -47,7 +47,7 @@ export function stop(prefix = "") {
 /** The signed-in user's own account record. */
 export function startAccount(uid) {
   live("account", doc(db, "users", uid), v => { S.account = v; }, { confirmed: true });
-  live("settings", doc(db, "settings", "app"), v => { S.settings = v || {}; });
+  live("settings", doc(db, "settings", "app"), v => { S.settings = v || {}; applyChartOfAccounts(S.settings.accounts || []); });
 }
 
 /** Listeners that depend on the role on the account record (the security rules enforce the same split). */

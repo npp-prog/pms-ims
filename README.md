@@ -155,6 +155,10 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 - **Dashboard:** search across property, PAR / ICS / RIS, transfers, repairs, AIRs and CIP.
 - **Reports:** Accountability (by officer / office / account / status, with CSV and bulk cards)
   and Disposed / Retired. **Settings → Download full backup (JSON).**
+- **Chart of accounts** (Settings): every PPE, semi-expendable and inventory account with its code and group. Add an
+  account the standard chart doesn't have, or change a standard account's name, group, useful life or expense
+  account (and change it back). The AIR, imports, registries and cards all use it. The semi-expendable codes follow
+  PMS (10405080 Disaster Response and Rescue … 10405100 Medical, Dental and Laboratory … 10405140 Construction).
 - **Clear recorded data** (Super Administrator only, Settings): deletes every record in all funds — AIRs, PAR / ICS / RIS,
   the registries, transfers and disposals, repairs, CIP and SWA, depreciation, Trial Balances, attachments, the item list
   and the number series (numbering restarts at each "Start at"). Users, invitations, settings and the activity log stay.
@@ -325,6 +329,12 @@ with problems, and duplicates that will be skipped.
    disposed history. Items on a **Construction in Progress** account become **CIP projects**,
    with their cost as a "balance brought forward" billing.
 5. Depreciation continues here from the following month.
+
+**Accounts:** the PMS register export has no account code, only the account name ("Category"). Names are matched
+ignoring case, punctuation and "&"/"and", including PMS's older semi-expendable names. Any account the file names
+that is not in the chart, or rows with no account, are listed under **Accounts not recognised** in the preview:
+choose the account for each and apply, and the file is read again. A missing account can be added in
+**Settings → Chart of accounts** first.
 
 **Pending PAR / ICS from PMS:** the PAR and ICS that PMS still shows as *Pending* (issued, not yet recorded in its
 Asset Register).

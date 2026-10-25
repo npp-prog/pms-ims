@@ -483,3 +483,19 @@ test("clearing the records: only the Super Administrator, and never users, invit
   for (const p of ["users/eu", "auditLogs/L1"]) await assertFails(deleteDoc(doc(sa, p)), p);
   await assertSucceeds(getDoc(doc(sa, "invites/a@x.com")));
 });
+
+test("pending PAR / ICS from PMS: only administrators bring them over, unposted, with their item", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  const pmsDoc = (o = {}) => ({ docType: "par", number: "2026-10-0007", fund: "GF", date: "2026-10-03", origin: "pms", airId: null, airNo: "", endUserUid: "",
+    recipient: { name: "Juan", office: "MHO" }, lines: [], total: 65000, status: "issued", posting: { posted: false }, ...o });
+  const item = docId => ({ fund: "GF", itemType: "ppe", accountCode: "10705030", cost: 65000, status: "active", holder: { name: "Juan", office: "MHO" }, source: { kind: "par", docId, number: "2026-10-0007", airId: null } });
+  const ad = ctx("ad"), b = writeBatch(ad);
+  b.set(doc(ad, "issuances/PMS1"), pmsDoc()); b.set(doc(ad, "assets/PMSA1"), item("PMS1"));
+  await assertSucceeds(b.commit());
+  await assertFails(setDoc(doc(ctx("gso"), "issuances/PMS2"), pmsDoc({ number: "2026-10-0008" })), "the GSO issues only from an AIR");
+  await assertFails(setDoc(doc(ad, "issuances/PMS3"), pmsDoc({ number: "2026-10-0009", posting: { posted: true } })), "never already posted");
+  await assertFails(setDoc(doc(ad, "issuances/PMS4"), pmsDoc({ number: "2026-10-0010", docType: "ris" })), "PAR / ICS only");
+  await assertFails(setDoc(doc(ad, "issuances/PMS5"), pmsDoc({ number: "2026-10-0011", origin: "other" })));
+  // Accounting posts it; the GSO can cancel it while unposted
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "issuances/PMS1"), { status: "cancelled", cancel: { reason: "x" }, updatedAt: 1 }));
+});

@@ -1,7 +1,7 @@
 // Property register rules: depreciation (straight-line, PMS method), transfers / returns / disposals,
 // Trial Balance reconciliation and the import of existing PMS / IMS records. Pure functions only.
 import { ppeAccount, isSxAccount, accountCategory, accountByCodeOrName, ZERO_RESIDUAL_ACCOUNTS, INV_ACCOUNTS, PPE_ACCOUNTS, SX_ACCOUNTS, FUNDS, officeFromText, DEFAULT_OFFICES } from "./catalog.js";
-import { round2 } from "./logic.js";
+import { round2, sxClass } from "./logic.js";
 
 /* ---------------- periods ---------------- */
 export const periodOf = date => String(date || "").slice(0, 7);
@@ -270,6 +270,59 @@ export function normalizeAssets(rows, opts) {
     });
   });
   return { items, errors, cip };
+}
+
+/**
+ * Normalises the PAR / ICS that PMS still shows as Pending (issued, not yet recorded in its Asset Register).
+ * Accepts the PMS backup (firestore-export.json → par_ics), the PMS PAR / ICS "Download CSV" file, or the template.
+ * Records PMS shows as Recorded are skipped — their items come in with the property register.
+ * opts: { fund (default when the row has none), offices, thresholds }
+ * Returns { docs, errors, recorded } — docs: one PAR / ICS with one line each, as PMS keeps them.
+ */
+export function normalizeParIcs(rows, opts = {}) {
+  const docs = [], errors = [];
+  let recorded = 0;
+  rows.forEach((r, i) => {
+    const line = i + 2;
+    const status = pick(r, "status", "Status").toLowerCase();
+    if (r.recorded === true || String(r.recorded).toLowerCase() === "true" || status === "recorded") { recorded++; return; }
+    const accountCode = accountByCodeOrName(pick(r, "account_code", "Account Code", "UACS"), pick(r, "account_name", "Account Name", "Account"));
+    const type = pick(r, "doc_type", "Type", "Document").toLowerCase();
+    const docType = type.startsWith("par") ? "par" : type.startsWith("ics") ? "ics" : accountCode ? (isSxAccount(accountCode) ? "ics" : "par") : "";
+    const number = pick(r, "number", "Number", "PAR No.", "ICS No.", "PAR/ICS No.");
+    const qty = Number(pick(r, "qty", "Qty", "Quantity")) || 1;
+    const amount = money(pick(r, "amount", "cost", "Amount", "Total Cost", "Cost"));
+    const unitCost = money(pick(r, "unit_cost", "Unit Cost")) || round2(amount / qty);
+    const description = pick(r, "description", "Description", "Item");
+    const officeText = pick(r, "dept_office", "entity_name", "Dept/Office or Entity", "Dept/Office", "Entity", "Office");
+    const fund = fundCode(pick(r, "fund", "Fund")) || opts.fund;
+    const date = isoDate(pick(r, "date", "Date Issued", "Date"));
+    const err = [];
+    if (!docType) err.push("not a PAR or ICS");
+    if (!date) err.push("no date issued");
+    if (!number) err.push("no number");
+    if (!description) err.push("no description");
+    if (!(amount > 0)) err.push("no amount");
+    if (!accountCode) err.push("no account code — set it in PMS or add an Account Code column");
+    else if (docType === "par" && isSxAccount(accountCode)) err.push("PAR on a semi-expendable account");
+    else if (docType === "ics" && !isSxAccount(accountCode)) err.push("ICS on a PPE account");
+    if (!fund) err.push("unknown fund");
+    if (err.length) { errors.push({ line, description: number || description, problem: err.join(", ") }); return; }
+    const detail = Array.isArray(r.detail_lines) ? r.detail_lines.filter(Boolean).join("\n") : pick(r, "Specifications", "Details");
+    const name = pick(r, "received_by_name", "Received by", "Received By Name", "End-User", "Accountable Officer");
+    const cls = docType === "ics" ? (/^SPLV/i.test(number) ? "low" : /^SPHV/i.test(number) ? "high" : sxClass(unitCost, opts.thresholds)) : null;
+    docs.push({
+      pmsId: String(r.id || ""), docType, fund, number, sxClass: cls,
+      date, dateAcquired: isoDate(pick(r, "date_acquired", "Date Acquired")),
+      accountCode, description, specs: detail, qty, unit: pick(r, "unit", "Unit") || "unit", unitCost, amount,
+      propertyNo: pick(r, "property_number", "item_no", "Property No./SEN", "Property No.", "Item No.").replace(/\.0$/, ""),
+      usefulLife: pick(r, "estimated_useful_life", "Estimated Useful Life", "Useful Life"),
+      recipient: { name: name || officeText, position: pick(r, "received_by_position", "Position"), office: officeFromText(officeText, opts.offices) || officeText },
+      issuedBy: { name: pick(r, "issued_by_name", "received_from_name", "Issued by"), position: pick(r, "issued_by_position", "received_from_position") },
+      noName: !name
+    });
+  });
+  return { docs, errors, recorded };
 }
 
 /**

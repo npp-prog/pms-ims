@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   addMonths, periodEnd, residualFor, isDepreciable, accumAsOf, amountFor, depreciationFor, checkPostPeriod, ownedAt,
-  checkMovement, movementDocType, parseTrialBalance, reconcile, normalizeAssets, normalizeStock
+  checkMovement, movementDocType, parseTrialBalance, reconcile, normalizeAssets, normalizeStock, normalizeParIcs
 } from "../public/js/core/assets.js";
 
 // A real record from the PMS December 2025 baseline (seed_assets.json, id a1).
@@ -201,4 +201,36 @@ test("standard offices: PMS locations are mapped, addresses are not", () => {
   assert.ok(DEFAULT_OFFICES.includes("General Services Office"));
   const [a] = normalizeAssets([{ account_code: 10705020, description: "Printer", cost: 9000, location: "MAYOR'S OFFICE", accountable_officer: "Ana" }], { fund: "GF", baselinePeriod: "2025-12" }).items;
   assert.deepEqual([a.holder.office, a.location], ["Office of the Municipal Mayor", "MAYOR'S OFFICE"]);
+});
+
+test("pending PAR / ICS from PMS: backup records and the Download CSV; recorded ones skipped", () => {
+  // as in the PMS backup (firestore-export.json → par_ics)
+  const backup = [
+    { id: "p1", doc_type: "par", fund: "GF", date: "2026-10-03", number: "2026-10-0007", account_code: 10705030, account_name: "Information and Communication Technology Equipment",
+      dept_office: "Municipal Accounting Office", qty: 1, unit: "UNIT", description: "Desktop computer", detail_lines: ["Core i5", "16GB"], property_number: "PPE-1",
+      amount: 65000, received_by_name: "Juan Dela Cruz", received_by_position: "Clerk", issued_by_name: "Ramon S. Cruz", recorded: false },
+    { id: "i1", doc_type: "ics", fund: "SEF", date: "2026-10-04", number: "SPLV-2026-10-0002", account_code: 10405020, entity_name: "Candoni Central School",
+      qty: 2, unit: "pc", unit_cost: 3500, cost: 7000, description: "Office chair", item_no: "SE-9", estimated_useful_life: "3 years", received_by_name: "Ana Reyes", recorded: false },
+    { id: "r1", doc_type: "par", fund: "GF", date: "2026-09-01", number: "2026-09-0001", account_code: 10705030, description: "Printer", amount: 9000, recorded: true },
+    { id: "x1", doc_type: "ics", fund: "GF", date: "2026-10-05", number: "SPHV-2026-10-0001", account_code: null, description: "Tablet", cost: 30000, recorded: false }
+  ];
+  const r = normalizeParIcs(backup, { fund: "GF" });
+  assert.equal(r.recorded, 1);
+  assert.equal(r.errors.length, 1); assert.match(r.errors[0].problem, /no account code/);
+  assert.equal(r.docs.length, 2);
+  const [par, ics] = r.docs;
+  assert.equal(par.docType, "par"); assert.equal(par.accountCode, "10705030"); assert.equal(par.specs, "Core i5\n16GB");
+  assert.deepEqual(par.recipient, { name: "Juan Dela Cruz", position: "Clerk", office: "Municipal Accounting Office" });
+  assert.equal(par.unitCost, 65000); assert.equal(par.pmsId, "p1"); assert.equal(par.noName, false);
+  assert.equal(ics.fund, "SEF"); assert.equal(ics.sxClass, "low"); assert.equal(ics.amount, 7000); assert.equal(ics.unitCost, 3500); assert.equal(ics.propertyNo, "SE-9");
+  // the PMS PAR / ICS "Download CSV" columns: no recipient name, so the office stands in
+  const csv = [
+    { Fund: "General Fund", Type: "PAR (PPE)", Number: "2026-10-0008", "Property No./SEN": "", "Account Code": "10705030", "Account Name": "", "Date Issued": "2026-10-06",
+      "Dept/Office or Entity": "Municipal Health Office", Description: "Laptop", Qty: "1", Unit: "unit", Amount: "55000.00", Status: "Pending", "Recorded At": "" },
+    { Fund: "General Fund", Type: "ICS (Semi-Expendable)", Number: "SPHV-2026-10-0002", "Account Code": "10705030", "Date Issued": "2026-10-06", Description: "Mismatch", Qty: "1", Amount: "6000", Status: "Pending" },
+    { Fund: "General Fund", Type: "PAR (PPE)", Number: "2026-09-0003", "Account Code": "10705030", "Date Issued": "2026-09-06", Description: "Done", Amount: "1000", Status: "Recorded" }
+  ];
+  const c = normalizeParIcs(csv, { fund: "SEF" });
+  assert.equal(c.recorded, 1); assert.equal(c.docs.length, 1); assert.match(c.errors[0].problem, /ICS on a PPE account/);
+  assert.equal(c.docs[0].fund, "GF"); assert.equal(c.docs[0].noName, true); assert.equal(c.docs[0].recipient.name, "Municipal Health Office");
 });

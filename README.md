@@ -326,6 +326,17 @@ with problems, and duplicates that will be skipped.
    with their cost as a "balance brought forward" billing.
 5. Depreciation continues here from the following month.
 
+**Pending PAR / ICS from PMS:** the PAR and ICS that PMS still shows as *Pending* (issued, not yet recorded in its
+Asset Register).
+1. Upload the PMS daily backup `firestore-export.json` (it has everything, including who received the property), or
+   PMS's *PAR / ICS → Download CSV* with the status filter on Pending or All, or the template. The CSV has no
+   "Received by" name, so the office stands in for it unless you add a *Received by* column.
+2. PAR / ICS shown as *Recorded* in PMS are skipped: their items come in with the property register. Numbers
+   already here are skipped too.
+3. Each one keeps its PMS number and comes in as an issued PAR / ICS with no AIR, waiting for Accounting on
+   **For Posting** (filter "PAR / ICS without an AIR (from PMS)"). Its item enters the registry once Accounting
+   posts it. Until then the GSO can cancel it, and its item is cancelled with it.
+
 **CIP from PMS:** upload the file you use with PMS's *Bulk import CIP billings* (one billing per
 row, with its header row), or PMS's *CIP Projects → Export CSV* (one total per project). Projects
 already transferred in PMS are skipped.

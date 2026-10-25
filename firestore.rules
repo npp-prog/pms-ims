@@ -186,8 +186,13 @@ service cloud.firestore {
     match /issuances/{id} {
       allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid) || sameOffice(resource.data.recipient.office);
 
-      // Created only together with (or after) an approved AIR — getAfter sees the same transaction.
-      allow create: if issuer()
+      // Created only together with (or after) an approved AIR — getAfter sees the same transaction —
+      // or by an administrator bringing over the PAR / ICS still pending in PMS (no AIR), unposted.
+      allow create: if (isAdmin() && request.resource.data.origin == 'pms' && request.resource.data.airId == null
+          && request.resource.data.docType in ['par', 'ics'] && validFund(request.resource.data.fund)
+          && request.resource.data.number is string && request.resource.data.number.size() > 0
+          && request.resource.data.status == 'issued' && request.resource.data.posting.posted == false)
+        || (issuer()
         && request.resource.data.docType in ['par', 'ics', 'ris']
         && validFund(request.resource.data.fund)
         && request.resource.data.number is string && request.resource.data.number.size() > 0
@@ -195,7 +200,7 @@ service cloud.firestore {
         && request.resource.data.posting.posted == false
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid;
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid);
 
       allow update: if
         // GSO cancels a document Accounting has not posted

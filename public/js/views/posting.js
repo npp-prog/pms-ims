@@ -38,7 +38,7 @@ async function unpost(i, btn) {
 
 /* ---------------- For Posting ---------------- */
 /** One row per AIR (the AIR and every PAR / ICS / RIS issued from it, posted together), plus disposals and
- *  PAR / ICS for register items, which have no AIR. */
+ *  PAR / ICS brought over from PMS, which have no AIR. */
 function queueRows() {
   const open = postingItems().filter(i => !i.posting.posted), rows = [], byAir = new Map();
   for (const i of open) {
@@ -67,7 +67,7 @@ export function queue(main) {
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "Older PAR / ICS without an AIR"]] : []), ["movement", "Disposal / donation"]],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"]],
       test: (r, v) => v === "air" ? !!r.airId : v === "movement" ? r.items[0].kind === "movement" : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },

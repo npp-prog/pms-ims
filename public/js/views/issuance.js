@@ -129,7 +129,7 @@ export function list(main) {
     columns: [
       { label: "Number", render: d => `<b>${esc(d.docType.toUpperCase())} ${esc(d.number)}</b>`, sort: d => d.docType + d.number },
       { label: "Date", render: d => fmtDate(d.date), sort: d => d.date },
-      { label: "AIR No.", render: d => d.airId ? esc(d.airNo) : `<span class="muted">Register items</span>`, sort: d => d.airNo },
+      { label: "AIR No.", render: d => d.airId ? esc(d.airNo) : `<span class="muted">${d.origin === "pms" ? "From PMS" : "Register items"}</span>`, sort: d => d.airNo },
       { label: "Received by", render: d => `${esc(d.recipient?.name)}<div class="xs muted">${esc(d.recipient?.office)}</div>`, sort: d => d.recipient?.name || "" },
       { label: "Items", render: d => d.lines.length, cls: "right" },
       { label: "Amount", render: d => money(d.total), sort: d => d.total, cls: "right", headCls: "right" },
@@ -147,7 +147,7 @@ export function detail(main, [id]) {
   const d = docById(id);
   if (!d) { main.innerHTML = `<div class="notice warn">Document not found, or you don't have access to it.</div>`; return; }
   const t = DOC_TYPES[d.docType];
-  main.innerHTML = `<div class="page-head"><div><h1>${esc(t.short)} ${esc(d.number)}</h1><p>${esc(t.label)} · ${esc(fundName(d.fund))} · ${d.airId ? `from <a href="#/airs/${d.airId}">AIR ${esc(d.airNo)}</a>` : "for items already in the register"}</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>${esc(t.short)} ${esc(d.number)}</h1><p>${esc(t.label)} · ${esc(fundName(d.fund))} · ${d.airId ? `from <a href="#/airs/${d.airId}">AIR ${esc(d.airNo)}</a>` : d.origin === "pms" ? "brought over from PMS, where it was still pending (no AIR)" : "for items already in the register"}</p></div>
       <div class="btn-row">${docStatusBadge(d)}</div></div>
     ${d.status === "cancelled" ? `<div class="notice bad"><b>Cancelled</b> ${fmtDateTime(d.cancel?.at)} by ${esc(d.cancel?.by?.name)} — ${esc(d.cancel?.reason)}</div>` : ""}
     <div class="split"><div>
@@ -179,7 +179,7 @@ export function detail(main, [id]) {
     { defaultLabel: `Signed ${t.short}`, title: `Signed ${t.short} and other attachments` });
   $("#print", main).onclick = () => printForm(docHtml(d));
   $("#cancel", main) && ($("#cancel", main).onclick = async e => {
-    const v = await confirmBox({ title: `Cancel ${t.short} ${d.number}?`, body: `${d.airId ? "The quantities return to the AIR so they can be issued again." : "The items stay in the register, without this document."} The number stays used and the document is kept as Cancelled.`, fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: `Cancel ${t.short}`, danger: true });
+    const v = await confirmBox({ title: `Cancel ${t.short} ${d.number}?`, body: `${d.airId ? "The quantities return to the AIR so they can be issued again." : d.origin === "pms" ? "Its item is cancelled too (it was never posted in the registry)." : "The items stay in the register, without this document."} The number stays used and the document is kept as Cancelled.`, fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: `Cancel ${t.short}`, danger: true });
     if (v) busy(e.target, () => cancelDoc(d.id, v.reason), `${t.short} ${d.number} cancelled.`).catch(() => {});
   });
 }

@@ -225,6 +225,15 @@ export function cancelDoc(docId, reason) {
         snaps.forEach(x => { if (x.exists() && x.data().parIcs?.docId === docId) tx.update(x.ref, { parIcs: null, history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
         return;
       }
+      if (d.origin === "pms") {
+        // brought over from PMS without an AIR: the document and its (not yet registered) property are cancelled
+        const snaps = [];
+        for (const l of d.lines) if (l.assetId) snaps.push(await tx.get(doc(db, "assets", l.assetId)));
+        if (snaps.some(x => x.exists() && x.data().status !== "active")) throw fail("Some of this property was already transferred, returned or disposed. Reverse those first.");
+        tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
+        snaps.forEach(x => { if (x.exists()) tx.update(x.ref, { status: "cancelled", history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
+        return;
+      }
       const airRef = doc(db, "airs", d.airId); const airSnap = await tx.get(airRef);
       const air = airSnap.data();
       const assetRefs = d.lines.filter(l => l.assetId).map(l => doc(db, "assets", l.assetId));
@@ -786,6 +795,41 @@ export function importStock(items, asOf) {
       }
     }
     audit("import_stock", "air", "-", { count: n, asOf });
+  });
+}
+
+/** PAR / ICS still pending in PMS come in as issued documents without an AIR, with their property, waiting for
+ *  Accounting to post them (the property enters the registry then). Their PMS numbers are kept and claimed. */
+export function importParIcs(docs, onProgress) {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    for (let i = 0; i < docs.length; i += 120) {
+      const b = writeBatch(db);
+      for (const d of docs.slice(i, i + 120)) {
+        const ref = doc(collection(db, "issuances")), assetRef = doc(collection(db, "assets")), ppe = d.docType === "par";
+        const life = ppe ? (Number(String(d.usefulLife).replace(/[^\d.]/g, "")) || defaultLife(d.accountCode)) : 0;
+        const line = { assetId: assetRef.id, airLineId: "", description: d.description, specs: d.specs, unit: d.unit, qty: d.qty, unitCost: d.unitCost, amount: d.amount,
+          accountCode: d.accountCode, stockNo: "", propertyNo: d.propertyNo, usefulLife: d.usefulLife, qtyRequested: d.qty };
+        b.set(ref, {
+          docType: d.docType, number: d.number, fund: d.fund, date: d.date, sxClass: d.sxClass, origin: "pms", legacy: { pmsId: d.pmsId, importedAt: new Date().toISOString(), by: me().name },
+          airId: null, airNo: "", endUserUid: "", office: d.recipient.office, supplier: "",
+          recipient: d.recipient, issuedBy: d.issuedBy, approvedBy: {}, purpose: "",
+          lines: [line], total: d.amount, status: "issued", posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+        b.set(assetRef, {
+          fund: d.fund, itemType: ppe ? "ppe" : "sx", accountCode: d.accountCode, propertyNo: d.propertyNo, description: d.description, specs: d.specs,
+          unit: d.unit, qty: d.qty, unitCost: d.unitCost, cost: d.amount, residualValue: ppe ? residualFor(d.accountCode, d.amount) : 0,
+          usefulLifeYears: life, estimatedLife: ppe ? "" : d.usefulLife, depreciable: ppe && !!ppeAccount(d.accountCode)?.depreciable && life > 0,
+          dateAcquired: d.dateAcquired || d.date, holder: { ...d.recipient }, custodianUid: "", location: d.recipient.office || "", status: "active", condition: "Serviceable",
+          source: { kind: d.docType, docId: ref.id, number: d.number, airId: null, airNo: "", imported: true }, depBaseline: null, disposal: null,
+          history: [stamp(`${d.docType.toUpperCase()} ${d.number} brought over from PMS (pending there)`)], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+        b.set(doc(db, "docNumbers", `${d.fund}_${d.docType}_${encodeURIComponent(d.number)}`), { number: d.number, type: d.docType, path: ref.path, by: S.user.uid, at: serverTimestamp() });
+      }
+      await b.commit();
+      onProgress && onProgress(Math.min(docs.length, i + 120), docs.length);
+    }
+    audit("import_par_ics", "issuance", "-", { count: docs.length });
   });
 }
 

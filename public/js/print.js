@@ -78,7 +78,7 @@ export function parHtml(d) {
     <table class="pt"><thead><tr><th style="width:9%">Quantity</th><th style="width:8%">Unit</th><th>Description</th><th style="width:16%">Property Number</th><th style="width:13%">Date Acquired</th><th style="width:14%">Amount</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 6)}
       <tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td></tr></tbody></table>
-    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)} · Supplier: ${esc(d.supplier || "")}` : "Property already in the register"}</div>
+    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)} · Supplier: ${esc(d.supplier || "")}` : d.origin === "pms" ? "Issued in PMS" : "Property already in the register"}</div>
     <div class="sig2">${sig("Received by:", d.recipient?.name, "Signature over Printed Name of End User", d.recipient?.position)}
       ${sig("Issued by:", d.issuedBy?.name, "Signature over Printed Name of Supply and/or Property Custodian", d.issuedBy?.position)}</div></div>`;
 }
@@ -96,7 +96,7 @@ export function icsHtml(d) {
       <tr><th style="width:10%">Unit Cost</th><th style="width:11%">Total Cost</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="7">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 7)}
       <tr><td colspan="3" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td><td colspan="3"></td></tr></tbody></table>
-    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)}` : "Property already in the register"} · ${d.sxClass === "low" ? "Low-Value" : "High-Value"} Semi-Expendable Property</div>
+    <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)}` : d.origin === "pms" ? "Issued in PMS" : "Property already in the register"} · ${d.sxClass === "low" ? "Low-Value" : "High-Value"} Semi-Expendable Property</div>
     <div class="sig2">${sig("Received from:", d.issuedBy?.name, "Signature over Printed Name", d.issuedBy?.position)}
       ${sig("Received by:", d.recipient?.name, "Signature over Printed Name", d.recipient?.position)}</div></div>`;
 }

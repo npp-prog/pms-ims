@@ -198,7 +198,7 @@ function sourceHtml(a) {
   if (k === "import") return "Imported from PMS";
   if (k === "manual") return `Added to the register${a.source.by ? ` by ${esc(a.source.by)}` : ""}`;
   if (k === "cip") return `<a href="#/cip/${esc(a.source.docId)}">CIP ${esc(a.source.number)}</a>`;
-  return `<a href="#/issuances/${esc(a.source?.docId)}">${esc(k?.toUpperCase())} ${esc(a.source?.number)}</a> · <a href="#/airs/${esc(a.source?.airId)}">AIR ${esc(a.source?.airNo)}</a>`;
+  return `<a href="#/issuances/${esc(a.source?.docId)}">${esc(k?.toUpperCase())} ${esc(a.source?.number)}</a> · ${a.source?.airId ? `<a href="#/airs/${esc(a.source.airId)}">AIR ${esc(a.source.airNo)}</a>` : "from PMS"}`;
 }
 const sourceText = a => ({ import: "Imported", manual: "Added to register", cip: `CIP ${a.source?.number || ""}` }[a.source?.kind] || `${a.source?.kind?.toUpperCase() || ""} ${a.source?.number || ""}`);
 

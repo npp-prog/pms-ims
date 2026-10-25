@@ -7,10 +7,10 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 - **Backend:** Firebase (Authentication + Cloud Firestore). The free Spark plan is enough: no Cloud
   Functions, no Storage.
 - **Hosting:** Netlify, with no build step. It serves the `public/` folder as it is.
-- **Look:** a clean admin layout in the shadcn style (references from 21st.dev), with the municipal **green and
-  gold** as accents: a light sidebar that collapses to an icon rail (the choice is remembered on each browser), a
-  slim header showing where you are and the fund, KPI cards and a "Needs your attention" list on the dashboard,
-  compact tables, and the Inter typeface. On phones the sidebar opens from the menu button.
+- **Look:** green and gold: a green sidebar that collapses to an icon rail (the choice is remembered on each browser)
+  and a green header with a gold rule showing where you are and the fund; light content pages with KPI cards and a
+  "Needs your attention" list on the dashboard, compact tables, and the Inter typeface. On phones the sidebar opens
+  from the menu button.
 - **Sign-in:** Google, or email and password.
 
 ---

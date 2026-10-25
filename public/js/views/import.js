@@ -103,6 +103,7 @@ function draw(main) {
         <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div>
         <div class="stat"><span class="n">${dup.length}</span><span class="l">already here (skipped)</span></div></div>
       ${accountChooser(errors)}
+      ${fresh.some(d => !d.amount) ? `<div class="notice warn">${fresh.filter(d => !d.amount).length} PAR / ICS have no amount (₱0); their items come in at ₱0.</div>` : ""}
       ${noName ? `<div class="notice warn">${noName} of these ${noName === 1 ? "has" : "have"} no "Received by" name in the file (the PMS CSV doesn't include it), so the office is shown as the recipient. The PMS backup file has the names.</div>` : ""}
       ${problems(errors)}
       <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Number</th><th>Date</th><th>Description</th><th>Account</th><th class="right">Qty</th><th class="right">Amount</th><th>Received by / office</th></tr></thead>
@@ -131,6 +132,7 @@ function draw(main) {
         <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div>
         <div class="stat"><span class="n">${dup.length}</span><span class="l">already here (skipped)</span></div></div>
       ${accountChooser(errors)}
+      ${fresh.some(i => !i.cost && i.status === "active") ? `<div class="notice warn">${fresh.filter(i => !i.cost && i.status === "active").length} item(s) have no cost (₱0). They come in as recorded in PMS — enter the cost later with <b>Correct record</b> (before any depreciation is posted for them) or <b>Revalue</b>.</div>` : ""}
       ${cipFresh.length ? `<div class="notice info">${cipFresh.length} item${cipFresh.length === 1 ? " is" : "s are"} on a Construction in Progress account (${money(cipFresh.reduce((t, p) => t + cipTotal(p), 0))}). ${cipFresh.length === 1 ? "It" : "They"} will be created as <b>CIP projects</b> with the cost brought forward, not as PPE.</div>` : ""}
       ${problems(errors)}
       <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Type</th><th>Property No.</th><th>Description</th><th>Account</th><th>Acquired</th><th class="right">Cost</th><th class="right">Accum. depr.</th><th class="right">Life</th><th>Officer / office</th><th>Status</th></tr></thead>

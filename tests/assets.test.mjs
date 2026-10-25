@@ -248,3 +248,12 @@ test("PMS register Category names resolve to the chart; unknown or blank account
   const again = normalizeAssets(rows, { fund: "GF", accountMap: { "Hospital Furniture": "10406010", "(blank)sx": "10405100" } });
   assert.equal(again.errors.length, 0); assert.deepEqual(again.items.slice(4).map(i => [i.accountCode, i.itemType]), [["10406010", "sx"], ["10405100", "sx"]]);
 });
+
+test("items with no cost (₱0) are imported as they are; a negative cost is not", () => {
+  const row = (Cost, Category = "Semi-Expendable Office Equipment") => ({ Fund: "GF", Type: "Semi-Expendable", Category, Description: "Chair", Cost, Status: "active" });
+  const r = normalizeAssets([row("0"), row(""), row("-5")], { fund: "GF" });
+  assert.equal(r.items.length, 2); assert.equal(r.items[0].cost, 0); assert.equal(r.items[1].cost, 0);
+  assert.equal(r.errors.length, 1); assert.match(r.errors[0].problem, /negative cost/);
+  const p = normalizeParIcs([{ doc_type: "ics", fund: "GF", date: "2026-10-01", number: "SPLV-1", account_code: 10405020, description: "Fan", cost: 0 }], { fund: "GF" });
+  assert.equal(p.docs.length, 1); assert.equal(p.docs[0].amount, 0);
+});

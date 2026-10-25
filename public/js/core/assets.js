@@ -241,8 +241,7 @@ export function normalizeAssets(rows, opts) {
     const err = [];
     if (!accountCode) err.push(acct.text ? `account "${acct.text}" is not in the chart of accounts` : "no account (Category) in the file");
     if (!description) err.push("no description");
-    const retired = /retired|disposed/.test(status);
-    if (!(cost > 0) && !retired) err.push("no cost"); // retired PMS items keep their history at ₱0
+    if (cost < 0) err.push("negative cost"); // ₱0 items come in as they are in PMS (shown in the preview)
     const fund = fundCode(pick(r, "fund", "Fund")) || opts.fund;
     if (!fund) err.push("unknown fund");
     if (err.length) { errors.push({ line, description, problem: err.join(", "), ...(!accountCode ? { accountKey: acct.key, account: acct.text, kind } : {}) }); return; }
@@ -311,7 +310,7 @@ export function normalizeParIcs(rows, opts = {}) {
     if (!date) err.push("no date issued");
     if (!number) err.push("no number");
     if (!description) err.push("no description");
-    if (!(amount > 0)) err.push("no amount");
+    if (amount < 0) err.push("negative amount");
     if (!accountCode) err.push(acct.text ? `account "${acct.text}" is not in the chart of accounts` : "no account in the file");
     else if (docType === "par" && isSxAccount(accountCode)) err.push("PAR on a semi-expendable account");
     else if (docType === "ics" && !isSxAccount(accountCode)) err.push("ICS on a PPE account");

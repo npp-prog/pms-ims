@@ -1,4 +1,4 @@
-// UI helpers shared by every screen (same patterns as the TOSCAN Portal).
+// UI helpers shared by every screen.
 import { AIR_STATUS, POSTING_STATE } from "./core/logic.js";
 
 export const $ = (s, el = document) => el.querySelector(s);

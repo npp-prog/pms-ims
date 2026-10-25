@@ -1,4 +1,4 @@
-// App entry: sign-in lifecycle, account/role, shell (TOSCAN layout), navigation and routing.
+// App entry: sign-in lifecycle, account/role, shell (collapsible sidebar + header), navigation and routing.
 import { auth, onAuthStateChanged, signOut, getRedirectResult, authError, CONFIGURED } from "./fb.js";
 import { S, startAccount, startRole, stop, onChange, can, isAdmin, role, setFund, emptyData } from "./state.js";
 import { $, esc, toast, avatar, closeModals, opts } from "./ui.js";
@@ -19,6 +19,7 @@ import * as Repairs from "./views/repairs.js";
 import { counts } from "./views/common.js";
 
 const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`,
+  side: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>`,
   logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>` };
 // One line icon per menu entry (24px grid, 1.8 stroke), shown before the label.
 const P = {
@@ -140,20 +141,40 @@ function parseHash() {
 }
 const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs" };
 
+// The sidebar can shrink to an icon rail (wide screens); the choice is remembered on this browser.
+const SIDE_KEY = "pmsims.sideCollapsed";
+const sideCollapsed = () => { try { return localStorage.getItem(SIDE_KEY) === "1"; } catch { return false; } };
+function setSideCollapsed(on) {
+  document.body.classList.toggle("side-collapsed", on);
+  $("#collapse")?.setAttribute("aria-expanded", String(!on));
+  try { localStorage.setItem(SIDE_KEY, on ? "1" : "0"); } catch { /* private window: not remembered */ }
+}
+
 function renderShell() {
   screen = "shell";
   $("#app").innerHTML = `
-    <header class="topbar">
-      <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu">${ICON.menu}</button>
-      <img class="seal" src="assets/municipal-seal.png" alt="">
-      <div class="brand"><b>PMS-IMS</b><span>Property &amp; Inventory Management · Municipal Government of Candoni</span></div>
-      <div class="spacer"></div>
-      <a class="me" id="me" href="#/profile" title="My Profile"></a>
-      <button class="icon-btn" id="logout" title="Log out">${ICON.logout}<span class="lo-txt">Log out</span></button>
-    </header>
-    <div class="layout"><nav class="side" aria-label="Main">
-      <div class="fund"><label for="fund-sel">Fund</label><select id="fund-sel" class="fund-select" data-nodirty>${opts(FUNDS.map(f => [f.code, f.name]), S.fund)}</select></div>
-      <div id="nav"></div></nav><div class="scrim" id="scrim"></div><main class="main" id="main" tabindex="-1"></main></div>`;
+    <div class="shell">
+      <aside class="side" aria-label="Main">
+        <a class="side-brand" href="#/home"><img class="seal" src="assets/municipal-seal.png" alt=""><span class="brand"><b>PMS-IMS</b><span>Municipal Government of Candoni</span></span></a>
+        <div class="fund"><label for="fund-sel">Fund</label><select id="fund-sel" class="fund-select" data-nodirty>${opts(FUNDS.map(f => [f.code, f.name]), S.fund)}</select></div>
+        <nav id="nav" class="side-nav"></nav>
+        <div class="side-foot"><a class="me" id="me" href="#/profile" title="My Profile"></a>
+          <button class="icon-btn" id="logout" title="Log out" aria-label="Log out">${ICON.logout}</button></div>
+      </aside>
+      <div class="scrim" id="scrim"></div>
+      <div class="inset">
+        <header class="topbar">
+          <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu">${ICON.menu}</button>
+          <button class="icon-btn collapse-btn" id="collapse" aria-label="Collapse or expand the menu" title="Collapse / expand the menu">${ICON.side}</button>
+          <div class="crumbs" id="crumbs"></div>
+          <div class="spacer"></div>
+          <span class="fund-chip" id="fund-chip"></span>
+        </header>
+        <main class="main" id="main" tabindex="-1"></main>
+      </div>
+    </div>`;
+  setSideCollapsed(sideCollapsed());
+  $("#collapse").onclick = () => setSideCollapsed(!document.body.classList.contains("side-collapsed"));
   $("#scrim").onclick = () => document.body.classList.remove("nav-open");
   $("#logout").onclick = async () => { if (!dirty || confirm("Leave without saving your changes?")) await signOut(auth); };
   $("#menu-btn").onclick = () => { const open = document.body.classList.toggle("nav-open"); $("#menu-btn").setAttribute("aria-expanded", String(open)); };
@@ -200,7 +221,11 @@ function updateChrome() {
   const acc = S.account || {};
   const me = $("#me"); if (me) me.innerHTML = `${avatar(acc, "sm")}<div class="who"><div>${esc(acc.displayName || acc.email || "")}</div><div class="role">${esc(ROLE_NAMES[acc.role] || "")}</div></div>`;
   const fs = $("#fund-sel"); if (fs && fs.value !== S.fund) fs.value = S.fund;
-  const active = NAV_OF[current?.name] || current?.name;
-  $("#nav").innerHTML = navGroups().map(g => `${g.label ? `<div class="group">${esc(g.label)}</div>` : ""}${g.items.map(([k, l, c]) =>
-    `<a href="#/${k}" class="${active === k ? "active" : ""}"${active === k ? ` aria-current="page"` : ""}>${navIcon(k)}<span class="lbl">${esc(l)}</span>${c ? `<span class="count" aria-label="${c} waiting">${c}</span>` : ""}</a>`).join("")}`).join("");
+  const fc = $("#fund-chip"); if (fc) fc.textContent = (FUNDS.find(f => f.code === S.fund) || {}).name || S.fund;
+  const active = NAV_OF[current?.name] || current?.name, groups = navGroups();
+  $("#nav").innerHTML = groups.map(g => `<div class="nav-group">${g.label ? `<div class="group">${esc(g.label)}</div>` : ""}${g.items.map(([k, l, c]) =>
+    `<a href="#/${k}" title="${esc(l)}" class="${active === k ? "active" : ""}"${active === k ? ` aria-current="page"` : ""}>${navIcon(k)}<span class="lbl">${esc(l)}</span>${c ? `<span class="count" aria-label="${c} waiting">${c}</span>` : ""}</a>`).join("")}</div>`).join("");
+  const g = groups.find(x => x.items.some(([k]) => k === active)), item = g?.items.find(([k]) => k === active);
+  const crumbs = $("#crumbs");
+  if (crumbs) crumbs.innerHTML = `${g?.label ? `<span>${esc(g.label)}</span><span class="sep" aria-hidden="true">/</span>` : ""}<b>${esc(item?.[1] || "Dashboard")}</b>`;
 }

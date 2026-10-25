@@ -1,7 +1,6 @@
-// Dashboard — same layout as the TOSCAN Portal home: greeting, "Needs your attention" inbox,
-// "At a glance" figures and recent activity, with the content chosen by role.
+// Dashboard: greeting, KPI cards, "Needs your attention" inbox and recent activity, with the content chosen by role.
 import { S, role, can, isAdmin, fundAirs, fundDocs, fundAssets } from "../state.js";
-import { $, esc, manilaToday, money, fmtDate, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
+import { $, esc, manilaToday, money, fmtDateTime, avatar, airBadge, docStatusBadge } from "../ui.js";
 import { fundName, ROLE_NAMES } from "../core/catalog.js";
 import { searchAll } from "../core/cards.js";
 import { counts, postingItems } from "./common.js";
@@ -14,6 +13,8 @@ const I = {
   box: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><path d="M12 13v8"/></svg>`,
   book: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/></svg>`,
   user: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>`,
+  peso: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21V3h6a5 5 0 0 1 0 10H7"/><path d="M4 7h16M4 10h16"/></svg>`,
+  chart: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 6-6"/></svg>`,
   back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg>`
 };
 function greeting() {
@@ -42,19 +43,20 @@ export function dashboard(main) {
     c.post && row(I.book, "green", "For posting", "AIRs with their PAR / ICS / RIS, and disposals, not yet posted in the registry", c.post, "#/posting")
   ].filter(Boolean);
 
+  // KPI cards: [label, figure, hint, link, icon]
   const glance = r === "enduser" ? [
-    ["My AIRs submitted", mine.filter(a => a.status !== "draft").length, "#/airs"],
-    ["Office AIRs (all encoders)", S.d.airs.filter(a => a.status !== "draft").length, "#/airs"],
-    ["Waiting for GSO inspection", mine.filter(a => a.status === "submitted").length, "#/airs"],
-    ["Approved, for issuance", mine.filter(a => a.status === "approved").length, "#/airs"],
-    ["PAR / ICS / RIS issued to my AIRs", S.d.docs.filter(d => d.status !== "cancelled").length, "#/issuances"]
+    ["My AIRs submitted", mine.filter(a => a.status !== "draft").length, "Encoded by you", "#/airs", I.doc],
+    ["Office AIRs", S.d.airs.filter(a => a.status !== "draft").length, "All encoders in your office", "#/airs", I.doc],
+    ["Waiting for inspection", mine.filter(a => a.status === "submitted").length, "With the GSO", "#/airs", I.check],
+    ["Approved, for issuance", mine.filter(a => a.status === "approved").length, "PAR / ICS / RIS to follow", "#/airs", I.box],
+    ["PAR / ICS / RIS issued", S.d.docs.filter(d => d.status !== "cancelled").length, "To your office", "#/issuances", I.book]
   ] : [
-    [`AIRs encoded, ${year}`, airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, "#/airs"],
-    [`Value received, ${year}`, money(airs.filter(a => ["approved", "issued"].includes(a.status) && yearOf(a.date) === year).reduce((t, a) => t + (a.total || 0), 0)), "#/airs"],
-    ["PPE on hand — carrying amount", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), S.d.depr), 0)), "#/registry/ppe"],
-    ["Semi-expendable on hand — cost", money(onHand("sx").reduce((t, a) => t + a.cost, 0)), "#/registry/sx"],
-    ["Supplies on hand", money(stockCards(S.d.airs, S.d.docs, S.fund).reduce((t, x) => t + x.balValue, 0)), "#/registry/stock"],
-    ["Posted in the registry", `${posting.filter(p => p.posting.posted).length} of ${posting.length}`, "#/posted"]
+    ["AIRs encoded", airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, `In ${year}`, "#/airs", I.doc],
+    ["Value received", money(airs.filter(a => ["approved", "issued"].includes(a.status) && yearOf(a.date) === year).reduce((t, a) => t + (a.total || 0), 0)), `Approved AIRs, ${year}`, "#/airs", I.peso],
+    ["PPE on hand", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), S.d.depr), 0)), "Carrying amount", "#/registry/ppe", I.chart],
+    ["Semi-expendable on hand", money(onHand("sx").reduce((t, a) => t + a.cost, 0)), "At cost", "#/registry/sx", I.box],
+    ["Supplies on hand", money(stockCards(S.d.airs, S.d.docs, S.fund).reduce((t, x) => t + x.balValue, 0)), "Inventory Registry balance", "#/registry/stock", I.box],
+    ["Posted in the registry", `${posting.filter(p => p.posting.posted).length} of ${posting.length}`, "AIRs and documents", "#/posted", I.book]
   ];
 
   const recentAirs = (r === "enduser" ? S.d.airs : airs).filter(a => a.status !== "draft").sort((a, b) => (b.updatedAt?.seconds || 0) - (a.updatedAt?.seconds || 0)).slice(0, 6);
@@ -64,6 +66,7 @@ export function dashboard(main) {
   main.innerHTML = `
     <div class="home-head">${avatar(S.account, "lg")}<div><h1>${greeting()}${name ? `, ${esc(name)}` : ""}</h1>
       <p>${esc(ROLE_NAMES[r] || "")}${S.account?.office ? ` · ${esc(S.account.office)}` : ""} · ${esc(fundName(S.fund))}</p></div></div>
+    <div class="kpis">${glance.map(([l, v, h, href, ic]) => `<a class="kpi" href="${href}"><span class="top">${esc(l)}${ic}</span><span class="v">${esc(v)}</span><span class="h">${esc(h)}</span></a>`).join("")}</div>
     ${can("viewAll") ? `<div class="card search-card" data-nodirty><input type="search" id="gs" placeholder="Search everything: property no., item, officer, PAR / ICS / RIS, PTR, job order, AIR, CIP…" value="${esc(srch.q)}" autocomplete="off"><div id="gsr" class="search-hits"></div></div>` : ""}
     <div class="steps">${flowSteps(r)}</div>
     <div class="home">
@@ -74,8 +77,6 @@ export function dashboard(main) {
           ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo || (a.status === "draft" ? "Draft" : "For inspection"))}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
       </div>
       <div>
-        <div class="card"><div class="card-head"><h3>At a glance</h3><span class="small muted">${esc(fmtDate(new Date()))}</span></div>
-          <ul class="glance">${glance.map(([l, v, h]) => `<li><a href="${h}"><span>${esc(l)}</span></a><b>${esc(v)}</b></li>`).join("")}</ul></div>
         <div class="card"><div class="card-head"><h3>Recently issued</h3></div>
           <ul class="upcoming">${recentDocs.map(d => `<li><span class="when">${fmtDateTime(d.createdAt)}</span><a href="#/issuances/${d.id}">${esc(d.docType.toUpperCase())} ${esc(d.number)}</a> — ${esc(d.recipient?.name || "")} ${docStatusBadge(d)}</li>`).join("") || `<li class="muted">Nothing issued yet.</li>`}</ul></div>
       </div>

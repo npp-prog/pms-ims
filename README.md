@@ -7,8 +7,10 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 - **Backend:** Firebase (Authentication + Cloud Firestore). The free Spark plan is enough: no Cloud
   Functions, no Storage.
 - **Hosting:** Netlify, with no build step. It serves the `public/` folder as it is.
-- **Look:** the TOSCAN Portal layout in **green and gold**: a top bar and sidebar, a dashboard
-  with "Needs your attention" and "At a glance" panels, and the Inter typeface.
+- **Look:** a clean admin layout in the shadcn style (references from 21st.dev), with the municipal **green and
+  gold** as accents: a light sidebar that collapses to an icon rail (the choice is remembered on each browser), a
+  slim header showing where you are and the fund, KPI cards and a "Needs your attention" list on the dashboard,
+  compact tables, and the Inter typeface. On phones the sidebar opens from the menu button.
 - **Sign-in:** Google, or email and password.
 
 ---
@@ -401,7 +403,7 @@ can never over-issue an item or get the same number.
 ```
 public/                 ← what Netlify serves
   index.html
-  assets/app.css        ← TOSCAN design system + official form print styles
+  assets/app.css        ← design system (shell, components) + official form print styles
   js/firebase-config.js ← your project's web config (step 2)
   js/fb.js              ← Firebase SDK (v10.12.2 from gstatic)
   js/state.js           ← live listeners chosen by role

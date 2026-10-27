@@ -380,7 +380,14 @@ export const cipOpenAt = (p, period) => !(p.status === "completed" && p.complete
 
 /* ---------------- History of Repair ---------------- */
 export const repairTotal = r => round2((r.parts || []).reduce((t, l) => t + (Number(l.cost) || 0), 0));
-export const REPAIR_STATUS = { submitted: "For GSO verification", returned: "Returned to End-User", verified: "Verified" };
+/** History of Repair: request → GSO pre-repair inspection → repair (job order) → GSO post-repair inspection (+ WMR) →
+ *  Accounting posts → GSO verifies. "submitted" is a repair recorded before the inspections (it continues at step 4). */
+export const REPAIR_STATUS = {
+  requested: "For pre-repair inspection", preinspected: "Approved for repair", repaired: "For post-repair inspection", submitted: "For post-repair inspection",
+  inspected: "For Accounting posting", posted: "Posted — for GSO verification", verified: "Verified", returned: "Returned to End-User"
+};
+/** Where a returned repair goes back to when it is sent again: the request, or the job order once pre-inspected. */
+export const repairStage = r => r?.preInspection?.approved || r?.status === "submitted" || (r?.jobOrderNo && !r?.preInspection) ? "repair" : "request";
 
 /**
  * Normalises PMS Construction in Progress rows: either the PMS bulk-billing format (one billing per row:

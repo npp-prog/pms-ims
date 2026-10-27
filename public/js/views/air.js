@@ -5,9 +5,11 @@ import {
   renderTable, confirmBox, openModal, airBadge, catBadge, docStatusBadge, postBadge, downloadCSV
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
-import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir } from "../core/logic.js";
+import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir, suggestStockNo } from "../core/logic.js";
 import { saveAir, deleteAir, approveAir, returnAir } from "../data.js";
 import { printForm, airHtml } from "../print.js";
+import { attachmentsCard } from "./attachments.js";
+import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 
@@ -71,7 +73,8 @@ export function form(main, [id]) {
   const th = settings().thresholds;
   let lines = a ? a.lines.map(l => ({ ...l })) : [{ id: uid(), kind: "equipment", unit: "unit", qty: 1 }];
   main.innerHTML = `<div class="page-head"><div><h1>${a ? `Edit AIR ${esc(a.airNo || "(draft)")}` : "New Acceptance and Inspection Report"}</h1>
-      <p>Encode the delivery exactly as on the supplier's invoice / delivery receipt. The GSO gives the AIR its number when inspecting and approving it.</p></div></div>
+      <p>Encode the delivery exactly as on the supplier's invoice / delivery receipt. The GSO gives the AIR its number when inspecting and approving it.
+        Attach the <b>photo</b> and the <b>invoice</b> on the AIR's page after saving it (as a draft or submitted).</p></div></div>
     ${a?.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
     <form id="af" class="card" novalidate>
       <div class="grid g4">
@@ -221,34 +224,55 @@ export function detail(main, [id]) {
         </dl>
         <div class="btn-row" style="margin-top:1rem" id="acts">
           <button class="btn sm" id="print">Print AIR</button>
+          ${a.airNo && canRenumber(a) ? `<button class="btn sm" id="renum">Change AIR No.</button>` : ""}
           ${owner && ["draft", "returned"].includes(a.status) ? `<a class="btn sm primary" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>
+        <div id="att"></div>
         <div class="card"><h3>History</h3><ul class="timeline">${(a.history || []).slice().reverse().map(h => `<li class="done"><div>${esc(h.action)}${h.note ? ` — <i>${esc(h.note)}</i>` : ""}</div><div class="when">${fmtDateTime(h.at)} · ${esc(h.by)}</div></li>`).join("")}</ul></div>
       </div>
     </div>`;
   $("#print", main).onclick = () => printForm(airHtml(a));
+  $("#renum", main) && ($("#renum", main).onclick = e => renumberDialog("air", a, "AIR", a.airNo, e.target));
+  // Photo and invoice of the delivery: attached by the End-Users of the office (or the GSO / Accounting); once the GSO
+  // gives the AIR its number, every file is shown and downloaded as "<AIR No.>-<document type>".
+  const mineOffice = role() === "enduser" && S.account?.office && S.account.office === a.office;
+  attachmentsCard($("#att", main), { type: "air", id: a.id, office: a.office, fund: a.fund, label: `AIR ${a.airNo || "(no number yet)"}` }, {
+    title: "Photos and invoice", labels: ["Photo", "Invoice", "Delivery receipt", "Purchase order", "Other"], defaultLabel: "Photo",
+    canAdd: mineOffice || can("issue") || can("post"), canRemove: x => can("issue") || can("post") || x.uploadedBy?.uid === S.user.uid, namePrefix: a.airNo || "",
+    note: a.airNo ? "" : "Files are renamed to the AIR No. and the type of document once the GSO approves this AIR."
+  });
   $("#ret", main) && ($("#ret", main).onclick = async e => {
     const v = await confirmBox({ title: "Return this AIR to the End-User?", body: "They can correct it and submit again.", fields: [{ name: "remarks", label: "Reason / what to correct", type: "textarea", required: true }], confirmText: "Return", danger: true });
     if (v) busy(e.target, () => returnAir(a.id, v.remarks), "AIR returned to the End-User.").catch(() => {});
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
 }
-detail.deps = ["r:airs", "r:docs"];
+detail.deps = ["r:airs", "r:docs", "r:attachments"];
 
 /* ---------------- GSO inspection ---------------- */
 function inspectModal(a) {
   const s = settings(), th = s.thresholds;
-  const known = stockCards(S.d.airs, S.d.docs, a.fund);
-  const lines = a.lines.map(l => ({ ...l, category: l.category || suggestCategory(l.kind, l.unitCost, th),
-    stockNo: l.stockNo || (known.find(c => c.description.toLowerCase() === String(l.description).toLowerCase())?.stockNo || "") }));
+  const known = stockCards(S.d.airs, S.d.docs, a.fund, "", { postedOnly: false }); // stock numbers already given, posted or not
+  const lines = a.lines.map(l => ({ ...l, category: l.category || suggestCategory(l.kind, l.unitCost, th) }));
+  // Stock No. of supplies: the GSO's own entry, or suggested from the Inventory Registry (re-suggested when the account changes)
+  const suggest = () => {
+    const taken = [];
+    for (const l of lines) {
+      if (l.category !== "cons") continue;
+      if (!l.stockNo || l.autoStock) { l.stockNo = l.accountCode ? suggestStockNo(l, known, taken) : ""; l.autoStock = true; }
+      taken.push(l.stockNo);
+    }
+  };
+  suggest();
   const airManual = !a.airNo && numberingFor(S.settings, "air").mode === "manual";
   const m = openModal(`<h2>Inspect and approve ${a.airNo ? `AIR ${esc(a.airNo)}` : "the AIR"}</h2>
     ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
-    <p class="muted small">Confirm the classification of each item: it decides which document is issued (PAR for PPE, ICS for Semi-Expendable, RIS for supplies) and the account Accounting posts to.</p>
-    <div class="table-wrap"><table class="lines"><thead><tr><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th>Classification</th><th>Account</th><th>Stock No. / Property No.</th><th>Useful life</th></tr></thead><tbody id="il"></tbody></table></div>
+    <p class="muted small">Check each item against the delivery and correct it if needed (description, specifications, unit, quantity, unit cost). Confirm its classification: it decides which document is issued (PAR for PPE, ICS for Semi-Expendable, RIS for supplies) and the account Accounting posts to. Stock numbers of supplies are suggested from the Inventory Registry.</p>
+    <div class="table-wrap"><table class="lines"><thead><tr><th>Item</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Classification</th><th>Account</th><th>Stock No. / Property No.</th><th>Useful life</th></tr></thead><tbody id="il"></tbody>
+      <tfoot><tr><td colspan="4" class="right">Total</td><td class="tot" id="itot"></td><td colspan="4"></td></tr></tfoot></table></div>
     ${datalist("stocknos", known.map(c => c.stockNo))}
     <div class="grid g2" style="margin-top:1rem">
       <fieldset><legend>Inspection</legend><div class="grid">
@@ -266,24 +290,35 @@ function inspectModal(a) {
     <div class="modal-actions"><button class="btn" data-x>Cancel</button><button class="btn primary" id="ok">Approve AIR</button></div>`, { size: "wide" });
   const il = $("#il", m);
   const draw = () => {
-    il.innerHTML = lines.map((l, i) => `<tr data-i="${i}"><td><b>${esc(l.description)}</b><div class="xs muted">${esc(l.unit)} · ${num(l.amount)}</div></td>
-      <td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td>
+    il.innerHTML = lines.map((l, i) => `<tr data-i="${i}"><td><input data-k="description" class="w-lg" value="${esc(l.description)}"><textarea data-k="specs" class="w-lg" placeholder="Specifications" style="margin-top:.25rem">${esc(l.specs || "")}</textarea></td>
+      <td><input data-k="unit" class="w-xs" value="${esc(l.unit)}"></td>
+      <td><input data-k="qty" type="number" min="0" step="any" class="w-xs" value="${esc(l.qty)}"></td><td><input data-k="unitCost" type="number" min="0" step="0.01" class="w-sm" value="${esc(l.unitCost)}"></td>
+      <td class="right" data-amt>${num(lineAmount(l))}</td>
       <td><select data-k="category" class="w-md">${opts(Object.entries(CATEGORIES).map(([k, c]) => [k, c.short]), l.category)}</select></td>
       <td><select data-k="accountCode" class="w-lg">${accountOpts(ACCOUNTS_BY_CATEGORY[l.category] || [], l.accountCode)}</select></td>
-      <td>${l.category === "cons" ? `<input data-k="stockNo" class="w-md" list="stocknos" value="${esc(l.stockNo || "")}" placeholder="Stock No.">` : `<input data-k="propertyNo" class="w-md" value="${esc(l.propertyNo || "")}" placeholder="Optional; can be set on the PAR/ICS">`}</td>
+      <td>${l.category === "cons" ? `<input data-k="stockNo" class="w-md" list="stocknos" value="${esc(l.stockNo || "")}" placeholder="Stock No.">${l.autoStock && l.stockNo ? `<div class="xs muted">suggested</div>` : ""}` : `<input data-k="propertyNo" class="w-md" value="${esc(l.propertyNo || "")}" placeholder="Optional; can be set on the PAR/ICS">`}</td>
       <td>${l.category === "cons" ? "" : `<input data-k="usefulLife" class="w-sm" value="${esc(l.usefulLife || "")}" placeholder="e.g. 5 years">`}</td></tr>`).join("");
   };
-  draw();
+  const total = () => { $("#itot", m).textContent = money(lines.reduce((t, l) => t + lineAmount(l), 0)); };
+  draw(); total();
   il.addEventListener("change", e => {
     const tr = e.target.closest("tr"), k = e.target.dataset.k; if (!tr || !k) return;
     const l = lines[+tr.dataset.i]; l[k] = e.target.value;
-    if (k === "category") { l.accountCode = ""; draw(); }
+    if (k === "stockNo") l.autoStock = false;
+    if (k === "category") { l.accountCode = ""; suggest(); draw(); }
+    if (k === "accountCode" || k === "description") { suggest(); draw(); }
   });
-  il.addEventListener("input", e => { const tr = e.target.closest("tr"), k = e.target.dataset.k; if (tr && k && e.target.tagName === "INPUT") lines[+tr.dataset.i][k] = e.target.value; });
+  il.addEventListener("input", e => {
+    const tr = e.target.closest("tr"), k = e.target.dataset.k; if (!tr || !k || !["INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+    const l = lines[+tr.dataset.i]; l[k] = e.target.value;
+    if (k === "stockNo") l.autoStock = false;
+    if (k === "qty" || k === "unitCost") { $("[data-amt]", tr).textContent = num(lineAmount(l)); total(); }
+  });
   $("[data-x]", m).onclick = () => m.close();
   $("#ok", m).onclick = e => {
     const insp = {
-      lines: lines.map(l => ({ id: l.id, category: l.category, accountCode: l.accountCode, stockNo: l.stockNo || "", propertyNo: l.propertyNo || "", usefulLife: l.usefulLife || "" })),
+      lines: lines.map(l => ({ id: l.id, description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost,
+        category: l.category, accountCode: l.accountCode, stockNo: l.stockNo || "", propertyNo: l.propertyNo || "", usefulLife: l.usefulLife || "" })),
       inspection: { dateInspected: $("#di", m).value, inspectorName: $("#iname", m).value.trim(), inspectedOk: $("#iok", m).checked },
       acceptance: { dateReceived: $("#dr", m).value, status: $("#acc", m).value, partialNote: $("#pn", m).value.trim(), custodianName: $("#cust", m).value.trim() },
       remarks: $("#rem", m).value.trim(),

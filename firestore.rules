@@ -117,24 +117,34 @@ service cloud.firestore {
     // into chunks under the attachment. End-Users see the attachments of their own office's documents and property.
     match /attachments/{id} {
       allow read: if viewer() || sameOffice(resource.data.office);
-      allow create: if (issuer() || poster()) && request.resource.data.uploadedBy.uid == request.auth.uid
-        && request.resource.data.kind in ['file', 'link'] && request.resource.data.target.type in ['issuance', 'asset', 'movement']
-        && request.resource.data.size <= 5242880;
+      // the GSO and Accounting attach to documents, property and SWAs; an End-User attaches the photo and invoice to
+      // an AIR of their own office
+      allow create: if request.resource.data.uploadedBy.uid == request.auth.uid
+        && request.resource.data.kind in ['file', 'link'] && request.resource.data.size <= 5242880
+        && (((issuer() || poster()) && request.resource.data.target.type in ['issuance', 'asset', 'movement', 'swa', 'air'])
+          || (encoder() && request.resource.data.target.type == 'air' && sameOffice(request.resource.data.office)));
       allow update: if false;
-      allow delete: if issuer() || poster();
+      allow delete: if issuer() || poster() || (encoder() && resource.data.target.type == 'air' && resource.data.uploadedBy.uid == request.auth.uid);
       match /chunks/{n} {
         allow read: if viewer() || sameOffice(get(/databases/$(database)/documents/attachments/$(id)).data.office);
-        allow create: if (issuer() || poster()) && request.resource.data.data is string && request.resource.data.data.size() <= 900000;
+        allow create: if (issuer() || poster() || encoder()) && request.resource.data.by == request.auth.uid
+          && request.resource.data.data is string && request.resource.data.data.size() <= 900000;
         allow update: if false;
-        allow delete: if issuer() || poster();
+        allow delete: if issuer() || poster() || resource.data.by == request.auth.uid;
       }
     }
 
     match /docNumbers/{id} {
       allow read: if active();
       allow create: if active() && request.resource.data.by == request.auth.uid;
-      allow update, delete: if false;
+      allow update: if false;
+      // released when the GSO renumbers a 2026 document: only once the document no longer carries this number
+      allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris'] && resource.data.path is string
+        && getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
+             .data.get(resource.data.type == 'air' ? 'airNo' : 'number', '') != resource.data.number;
     }
+    // Documents dated 2026 (the changeover year) may be renumbered by the GSO.
+    function in2026(d) { return d.get('date', '') is string && d.get('date', '').matches('2026-.*'); }
 
     // ---------------- Acceptance and Inspection Reports ----------------
     match /airs/{id} {
@@ -162,18 +172,21 @@ service cloud.firestore {
           && (resource.data.airNo == '' || request.resource.data.fund == resource.data.fund)
           && validFund(request.resource.data.fund)
           && onlyChanged(['fund', 'date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total', 'status', 'history', 'updatedAt', 'submittedAt']))
-        // GSO inspects: approves (giving the AIR its number) or returns a submitted AIR
+        // GSO inspects: approves (giving the AIR its number; the GSO may correct the items) or returns a submitted AIR
         || (issuer() && resource.data.status == 'submitted'
           && request.resource.data.status in ['approved', 'returned']
           // returned: no number; approved: it has one — the one given now, or the one it already had
           && ((request.resource.data.status == 'returned' && request.resource.data.airNo == resource.data.airNo)
             || (request.resource.data.status == 'approved' && request.resource.data.airNo is string && request.resource.data.airNo.size() > 0
               && (resource.data.airNo == '' || request.resource.data.airNo == resource.data.airNo)))
-          && onlyChanged(['airNo', 'lines', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
+          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
         // GSO issues or cancels documents: issued quantities and the resulting status
         || (issuer() && resource.data.status in ['approved', 'issued']
           && request.resource.data.status in ['approved', 'issued']
           && onlyChanged(['lines', 'status', 'history', 'updatedAt']))
+        // GSO renumbers an AIR dated 2026
+        || (issuer() && in2026(resource.data) && resource.data.airNo != '' && request.resource.data.airNo is string
+          && request.resource.data.airNo.size() > 0 && onlyChanged(['airNo', 'history', 'updatedAt']))
         // Accounting posts / unposts the receipt of supplies
         || (poster() && resource.data.status in ['approved', 'issued']
           && onlyChanged(['posting', 'history', 'updatedAt']));
@@ -200,7 +213,10 @@ service cloud.firestore {
         && request.resource.data.posting.posted == false
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid);
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid
+        // supplies: only once Accounting has posted the AIR (they are in the Inventory Registry then)
+        && (request.resource.data.docType != 'ris'
+          || getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.get('posting', {}).get('posted', false) == true));
 
       allow update: if
         // GSO cancels a document Accounting has not posted
@@ -208,7 +224,12 @@ service cloud.firestore {
           && request.resource.data.status == 'cancelled'
           && onlyChanged(['status', 'cancel', 'updatedAt']))
         // Accounting posts / unposts
-        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt']));
+        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt']))
+        // GSO renumbers a PAR / ICS / RIS dated 2026, or it follows its AIR's new number
+        || (issuer() && in2026(resource.data) && request.resource.data.number is string && request.resource.data.number.size() > 0
+          && onlyChanged(['number', 'renumbered', 'updatedAt']))
+        || (issuer() && onlyChanged(['airNo', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.airNo == request.resource.data.airNo);
 
       allow delete: if false;
     }
@@ -245,6 +266,9 @@ service cloud.firestore {
           'cost', 'unitCost', 'dateAcquired', 'accountCode', 'depBaseline', 'priorAdjustment', 'components',
           'revaluations', 'adjustments', 'accountChanges', 'fundChanges', 'fund', 'reactivations', 'status', 'disposal'])
           && (request.resource.data.status == resource.data.status || (resource.data.status == 'disposed' && request.resource.data.status == 'active')))
+        // the PAR / ICS (or its AIR) was renumbered: the item's copy of the number follows
+        || (issuer() && onlyChanged(['source', 'history', 'updatedAt']) && request.resource.data.source.kind == resource.data.source.kind
+          && request.resource.data.source.docId == resource.data.source.docId)
         || isAdmin());
       allow delete: if false;
     }
@@ -305,21 +329,41 @@ service cloud.firestore {
     }
 
     // ---------------- History of Repair ----------------
-    // End-Users record repairs of property under their own name; the GSO can record for anyone and verifies.
+    // Request (End-User for their own property, or the GSO) → GSO pre-repair inspection → job order recorded → GSO
+    // post-repair inspection (+ WMR) → Accounting posts → GSO verifies. "submitted": recorded before the inspections.
+    function repairBase() {
+      return request.resource.data.endUserUid == resource.data.endUserUid && request.resource.data.assetId == resource.data.assetId
+        && request.resource.data.fund == resource.data.fund;
+    }
     match /repairs/{id} {
       allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid);
-      allow create: if active() && request.resource.data.status == 'submitted' && validFund(request.resource.data.fund)
+      allow create: if active() && request.resource.data.status == 'requested' && validFund(request.resource.data.fund)
+        && !request.resource.data.keys().hasAny(['preInspection', 'postInspection', 'posting', 'verifiedBy', 'wmr'])
         && (issuer() || (request.resource.data.endUserUid == request.auth.uid
           && get(/databases/$(database)/documents/assets/$(request.resource.data.assetId)).data.custodianUid == request.auth.uid));
       allow update: if
-        // the End-User (or GSO) corrects a record that is not yet verified, and sends it (back) for verification
-        (active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status in ['submitted', 'returned']
-          && request.resource.data.status == 'submitted'
-          && request.resource.data.endUserUid == resource.data.endUserUid && request.resource.data.assetId == resource.data.assetId)
-        // the GSO verifies or returns it
-        || (issuer() && resource.data.status == 'submitted' && request.resource.data.status in ['verified', 'returned']
+        // the End-User (or GSO) edits the request, or records the job order once approved for repair, and sends it on
+        (active() && (resource.data.endUserUid == request.auth.uid || issuer()) && repairBase()
+          && resource.data.status in ['requested', 'preinspected', 'repaired', 'submitted', 'returned']
+          && ((request.resource.data.status == 'requested' && !resource.data.get('preInspection', {}).get('approved', false))
+            || (request.resource.data.status == 'repaired'
+              && (resource.data.get('preInspection', {}).get('approved', false) || resource.data.status == 'submitted'
+                || (resource.data.status == 'returned' && resource.data.get('jobOrderNo', '') != '' && !resource.data.keys().hasAny(['preInspection'])))))
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['preInspection', 'postInspection', 'posting', 'verifiedBy', 'wmr', 'encodedBy', 'createdAt']))
+        // the GSO's pre-repair inspection: approve for repair, or return
+        || (issuer() && resource.data.status == 'requested' && request.resource.data.status in ['preinspected', 'returned']
+          && onlyChanged(['preInspection', 'status', 'gsoRemarks', 'reviewedBy', 'reviewedAt', 'updatedAt']))
+        // the GSO's post-repair inspection (+ WMR): for posting, or return
+        || (issuer() && resource.data.status in ['repaired', 'submitted'] && request.resource.data.status in ['inspected', 'returned']
+          && onlyChanged(['postInspection', 'wmr', 'status', 'gsoRemarks', 'reviewedBy', 'reviewedAt', 'updatedAt']))
+        // Accounting posts (or unposts) the repair
+        || (poster() && ((resource.data.status == 'inspected' && request.resource.data.status == 'posted')
+            || (resource.data.status == 'posted' && request.resource.data.status == 'inspected'))
+          && onlyChanged(['posting', 'status', 'updatedAt']))
+        // the GSO verifies a posted repair
+        || (issuer() && resource.data.status == 'posted' && request.resource.data.status == 'verified'
           && onlyChanged(['status', 'gsoRemarks', 'verifiedBy', 'reviewedBy', 'reviewedAt', 'updatedAt']));
-      allow delete: if active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status != 'verified';
+      allow delete: if active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status in ['requested', 'returned'];
     }
 
     // ---------------- clearing the records (Settings → Clear recorded data) ----------------

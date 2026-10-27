@@ -7,8 +7,9 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 - **Backend:** Firebase (Authentication + Cloud Firestore). The free Spark plan is enough: no Cloud
   Functions, no Storage.
 - **Hosting:** Netlify, with no build step. It serves the `public/` folder as it is.
-- **Look:** green and gold: a green sidebar that collapses to an icon rail (the choice is remembered on each browser)
-  and a green header with a gold rule showing where you are and the fund; light content pages with KPI cards and a
+- **Look:** the CBO palette (Candoni Financial Management System): a deep navy sidebar that collapses to an icon rail
+  (remembered on each browser) and a navy header showing where you are, a **Back** button that returns to where you
+  were (with the list's search and filters), steel-blue actions, teal accents; light content pages with KPI cards and a
   "Needs your attention" list on the dashboard, compact tables, and the Inter typeface. On phones the sidebar opens
   from the menu button.
 - **Sign-in:** Google, or email and password.
@@ -35,7 +36,7 @@ After issuance, PAR and ICS items live in the **property register**, where their
 | Trial Balance check | Accounting | Reconciliation | Register vs Trial Balance, per account, at any month end. |
 
 | Construction in Progress | Accounting | CIP Ledger Card | Projects with their contractor billings (by contract or by administration), each matched to its **SWA**. "Complete → transfer to PPE" turns the billed total into a new PPE record. |
-| Repair | **End-User**, then GSO | History of Repair | The End-User records each job order (supplier, spare parts, labor) on property under their name. The GSO verifies it, or returns it with remarks, and it joins the item's history. |
+| Repair | **End-User**, GSO, Accounting | History of Repair | Request → GSO pre-repair inspection → job order → GSO post-repair inspection (+ WMR) → Accounting posts → GSO verifies, and it joins the item's history. |
 
 Semi-expendable items can be moved in part (for example 1 of 4 chairs); the record splits in two.
 PPE always moves as a whole record.
@@ -74,14 +75,20 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 
 ### History of Repair
 
-- **Who records:** End-Users, from **Office Property** or **History of Repair**, for items under their
-  name. The GSO can record for anyone.
-- **What a record holds:** one job order (make and model, serial, engine and plate numbers, job
-  order, invoice/PO, supplier, nature of repair, spare parts / materials / labor with costs) and the
-  Prepared by and Noted by signatories.
-- **Verification:** the GSO verifies (adding "Verified by") or returns the record with remarks. A
-  verified repair is locked and appears in the item's history.
-- **Print:** the History of Repair prints every job order for the item, with a grand total.
+1. **Request** (End-User for an item under their name, from Office Property or History of Repair; or the GSO for any
+   item): complaints / defects, parts or components to repair or replace, and the nature and scope of the last repair
+   (filled in from the item's last repair).
+2. **Pre-repair inspection** (GSO): findings / observations, inspector and date — approve for repair, or return.
+3. **Job order** (End-User or GSO, once approved): job order no. and date, repair shop, invoice, nature of repair,
+   spare parts / materials / labor with costs, Prepared by and Noted by.
+4. **Post-repair inspection** (GSO): findings / comments — accept, or return. If parts were replaced, a **Waste
+   Materials Report** (place of storage, items for disposal with any sale's OR, how they were disposed of).
+5. **Posting** (Accounting): posting date and JEV, from the repair or from **For Posting** (filter "Repairs").
+6. **Verification** (GSO): the repair is locked and joins the item's history.
+
+Prints: the **Pre-Repair and Post-Repair Inspection Report** (one page, as the municipal form, seal at the upper
+centre), the **Waste Materials Report**, and the item's **History of Repair**. Repairs recorded before this flow
+continue at step 4.
 
 ### Offices
 
@@ -146,7 +153,7 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   sectioned by component), Biological Assets Property Card. Rows come from the item's whole
   history: acquisition, balance forward, depreciation by month, revaluations and CIP additions,
   impairments, transfers, verified repairs, disposal and reactivation.
-- **QR ID tags** (3 × 2 in. stickers) that open the item's page when scanned.
+- **QR ID tags** (3 × 2 in. stickers), with the municipal seal above each QR code, that open the item's page when scanned.
 - **Transfers:** the printed details of a PTR / ITR / PRS / RRSP / disposal (reason, signatories,
   reference) can be edited without touching the items.
 - **CIP completion** can split the cost by building or road component, or **add the project to an
@@ -167,7 +174,7 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 ### Inventory Registry and posting by AIR
 
 - **Inventory Registry** (Property → Inventory Registry): every consumable and for-distribution item, one row per Stock
-  No. — received on AIRs (or brought over from IMS), issued on RIS, balance quantity and value, as of any date. Filter by
+  No. — received on AIRs **once Accounting posts the AIR** (or brought over from IMS), issued on RIS, balance quantity and value, as of any date. Filter by
   type, account or balance; print the registry, or the Stock Cards / Supplies Ledger Cards of the items listed; open an
   item for its cards. PPE and semi-expendable property have their own registries.
 - **Items enter the PPE / Semi-Expendable Registry when Accounting posts their PAR / ICS.** Until then they wait
@@ -175,14 +182,32 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
   reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
   Items brought in through Data Import or completed from CIP are in the registry from the start.
-- **RSMI, monthly by JEV date:** Reports → RSMI lists one RSMI per month (RSMI No. = the month, e.g. 2026-10), made
-  automatically from the RIS that Accounting posted in that month — an RIS goes into the month of its JEV date,
-  whatever date it was issued. RIS not yet posted are shown as waiting; they join the month they are posted.
-- **Posting by AIR:** For Posting shows one row per AIR. Posting it marks the AIR **and every PAR, ICS and RIS issued
-  from it** as posted, under one JEV. Documents issued later from an AIR already posted show up on the same row to be
-  posted the same way. Disposals are posted on their own rows.
+- **Supplies wait for the AIR's posting:** the RIS for an AIR's supplies can be issued only after Accounting posts the
+  AIR (they are in the Inventory Registry then). PAR and ICS are issued right after approval.
+- **RSMI by JEV date — monthly or any date coverage:** Reports → RSMI lists one RSMI per month (RSMI No. = the month,
+  e.g. 2026-10), or choose **By date coverage** for any from–to range. It is made from the RIS that Accounting posted —
+  an RIS goes into the period of its JEV date, whatever date it was issued. The **recapitulation is the proposed
+  accounting entry**: each expense account debited (e.g. 50203010 Office Supplies Expenses) and each inventory account
+  credited, on screen and on the printed RSMI.
+- **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR, ICS and
+  RIS with a tick box: the AIR, PAR and ICS are ticked, RIS are not (they are usually posted on their own). Everything
+  ticked is posted under one JEV. Disposals and repairs are posted on their own rows.
+- **Property No. / Inventory Item No.** are suggested on the PAR / ICS as *year purchased – asset group – sub-major
+  account – general ledger – series*, e.g. 10705020 Office Equipment bought in 2026 → **2026-07-05-02-0001**; the series
+  runs per year across all accounts, and a number can't be used twice.
+- **The GSO corrects the items at inspection** (description, specifications, unit, quantity, unit cost); the change is
+  recorded on the AIR. Stock numbers of supplies are suggested from the Inventory Registry: the item's own if it is
+  already there, otherwise the next in its account's series.
+- **Renumbering 2026 documents:** the GSO can change the number of an AIR, PAR, ICS or RIS **dated 2026** (Change
+  number). The new number must be free in the fund; the old one is released, and the AIR No. on its PAR / ICS / RIS and
+  the numbers on the items follow. The PAR / ICS / RIS list links each document to its AIR.
 
 ### Attachments (signed PAR / ICS / RIS and other documents)
+
+**On the AIR**, End-Users of the office (and the GSO / Accounting) attach the **photo** and the **invoice** (also the
+delivery receipt or PO). Once the GSO approves the AIR, each file is shown and downloaded as
+*<AIR No.>-<type of document>*, e.g. `2026-10-0007-Invoice.pdf`. **On each SWA**, the GSO and Accounting upload the
+scanned SWA; choosing an SWA on a CIP billing fills in its amount and particulars.
 
 The GSO and Accounting can attach the signed copy — or any supporting document — to a **PAR, ICS or RIS**, a **PTR /
 ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 5 MB, or a link (e.g. Google

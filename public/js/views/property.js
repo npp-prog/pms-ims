@@ -98,7 +98,7 @@ export function mine(main) {
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
       { label: "Cost", render: a => money(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
       { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
-      { label: "", render: a => `<div class="btn-row" style="min-width:150px">${isMine(a) ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Record repair</a><button class="btn sm" data-hor="${esc(a.id)}">Repair history</button>` : ""}<button class="btn sm" data-card="${esc(a.id)}">Print card</button></div>` }
+      { label: "", render: a => `<div class="btn-row" style="min-width:150px">${isMine(a) ? `<a class="btn sm" href="#/repairs/new/${esc(a.id)}">Request repair</a><button class="btn sm" data-hor="${esc(a.id)}">Repair history</button>` : ""}<button class="btn sm" data-card="${esc(a.id)}">Print card</button></div>` }
     ],
     empty: "No property is recorded for your office yet.",
     footer: l => `<tr><td colspan="4" class="right">Total</td><td class="right">${money(l.reduce((t, a) => t + a.cost, 0))}</td><td colspan="2"></td></tr>`

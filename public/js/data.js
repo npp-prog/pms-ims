@@ -5,7 +5,7 @@ import {
 } from "./fb.js";
 import { S, settings, can, isSuper } from "./state.js";
 import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/catalog.js";
-import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, hasPostedDepreciation } from "./core/assets.js";
+import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, repairStage, hasPostedDepreciation } from "./core/assets.js";
 import { specialGroup } from "./core/cards.js";
 import {
   round2, lineAmount, linesTotal, validateAir, NUMBERED_DOCS, numberingFor, seriesKey, formatDocNo, cleanDocNo, validateInspection, checkIssue, sxClass,
@@ -121,9 +121,14 @@ export function approveAir(id, insp) {
       if (old?.status !== "submitted") throw fail("Only an AIR waiting for inspection can be approved.");
       const lines = old.lines.map(l => {
         const c = insp.lines.find(x => x.id === l.id) || {};
-        return { ...l, category: c.category, accountCode: c.accountCode, stockNo: String(c.stockNo || "").trim().toUpperCase(),
+        // the GSO may correct the item as delivered: description, specifications, unit, quantity and unit cost
+        const fix = { description: String(c.description ?? l.description).trim(), specs: String(c.specs ?? l.specs ?? "").trim(), unit: String(c.unit ?? l.unit).trim(),
+          qty: round2(c.qty ?? l.qty), unitCost: round2(c.unitCost ?? l.unitCost) };
+        return { ...l, ...fix, amount: round2(fix.qty * fix.unitCost), category: c.category, accountCode: c.accountCode, stockNo: String(c.stockNo || "").trim().toUpperCase(),
           propertyNo: String(c.propertyNo || "").trim(), usefulLife: String(c.usefulLife || "").trim(), issuedQty: 0 };
       });
+      if (lines.some(l => !l.description || !(l.qty > 0) || l.unitCost < 0)) throw fail("Every item needs a description, a quantity above zero and a unit cost.");
+      const changed = lines.filter(l => { const o = old.lines.find(x => x.id === l.id); return o && (o.description !== l.description || Number(o.qty) !== l.qty || Number(o.unitCost) !== l.unitCost || (o.unit || "") !== l.unit || (o.specs || "") !== l.specs); });
       const next = { ...old, lines, inspection: insp.inspection, acceptance: insp.acceptance };
       const errs = validateInspection(next);
       if (errs.length) throw fail(errs[0]);
@@ -133,8 +138,10 @@ export function approveAir(id, insp) {
       // the shared item list, so the next AIR with the same item gets its Item No. as it is typed
       const at = insp.acceptance?.dateReceived || old.date || "";
       for (const l of lines) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
-      tx.update(ref, { airNo, lines, inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
-        approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), stamp(old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`, insp.remarks || "")], updatedAt: serverTimestamp() });
+      const hist = [stamp(old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`, insp.remarks || "")];
+      if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
+      tx.update(ref, { airNo, lines, total: linesTotal(lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
+        approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), ...hist], updatedAt: serverTimestamp() });
     });
     audit("air_approve", "air", id, {});
   });
@@ -156,6 +163,7 @@ export function issueDocs(airId, docType, picks, header) {
       const airRef = doc(db, "airs", airId); const snap = await tx.get(airRef);
       if (!snap.exists()) throw fail("This AIR no longer exists.");
       const air = { id: airId, ...snap.data() };
+      if (docType === "ris" && !air.posting?.posted) throw fail("Supplies are issued (RIS) only after Accounting posts the AIR: they enter the Inventory Registry then.");
       const { errors, lines } = checkIssue(air, docType, picks);
       if (errors.length) throw fail(errors[0]);
       const groups = new Map();
@@ -250,11 +258,55 @@ export function cancelDoc(docId, reason) {
   });
 }
 
+/* ---------------- renumbering (2026, the changeover year) ---------------- */
+/**
+ * The GSO changes the number of an AIR or a PAR / ICS / RIS dated 2026. The new number is claimed (it must be free in
+ * the fund), the old one released, and the copies follow: an AIR's number on its PAR / ICS / RIS and their items, a
+ * PAR / ICS number on its items.
+ */
+export function renumber(kind, id, newNumber, reason = "") {
+  return wrap(async () => {
+    const number = cleanDocNo(newNumber);
+    if (!number) throw fail("Enter the new number.");
+    let label = "";
+    await runTransaction(db, async tx => {
+      const ref = doc(db, kind === "air" ? "airs" : "issuances", id), snap = await tx.get(ref);
+      const d = snap.data(); if (!d) throw fail("This document no longer exists.");
+      const type = kind === "air" ? "air" : d.docType, old = kind === "air" ? d.airNo : d.number;
+      label = kind === "air" ? "AIR" : DOC_LABEL[type];
+      if (!String(d.date || "").startsWith("2026-")) throw fail("Only documents dated 2026 can be renumbered.");
+      if (kind === "air" && !old) throw fail("This AIR has no number yet — the GSO gives it on approval.");
+      if (d.status === "cancelled") throw fail("A cancelled document keeps its number.");
+      if (number === old) throw fail("That is already its number.");
+      const claim = doc(db, "docNumbers", `${d.fund}_${type}_${encodeURIComponent(number)}`), oldClaim = doc(db, "docNumbers", `${d.fund}_${type}_${encodeURIComponent(old)}`);
+      if ((await tx.get(claim)).exists() || numberTaken(d.fund, type, number)) throw fail(`${label} No. ${number} is already used in this fund.`);
+      const hadOld = (await tx.get(oldClaim)).exists();
+      // what follows the number
+      const docs = kind === "air" ? S.d.docs.filter(x => x.airId === id) : [];
+      const assetIds = kind === "air" ? S.d.assets.filter(a => a.source?.airId === id).map(a => a.id) : (d.lines || []).map(l => l.assetId).filter(Boolean);
+      const assets = [];
+      for (const aid of assetIds) { const x = await tx.get(doc(db, "assets", aid)); if (x.exists()) assets.push(x); }
+      const note = `${label} No. ${old} → ${number}`;
+      tx.set(claim, { number, type, path: ref.path, by: S.user.uid, at: serverTimestamp() });
+      if (kind === "air") tx.update(ref, { airNo: number, history: [...(d.history || []), stamp(`AIR renumbered: ${old} → ${number}`, reason)], updatedAt: serverTimestamp() });
+      else tx.update(ref, { number, renumbered: [...(d.renumbered || []), { from: old, to: number, reason, by: me(), at: new Date().toISOString() }], updatedAt: serverTimestamp() });
+      if (hadOld) tx.delete(oldClaim);
+      for (const x of docs) tx.update(doc(db, "issuances", x.id), { airNo: number, updatedAt: serverTimestamp() });
+      for (const x of assets) {
+        const a = x.data(), source = kind === "air" ? { ...a.source, airNo: number } : { ...a.source, number };
+        tx.update(x.ref, { source, history: [...(a.history || []), stamp(`Renumbered: ${note}`, reason)], updatedAt: serverTimestamp() });
+      }
+    });
+    audit("renumber", kind === "air" ? "air" : "issuance", id, { to: number, reason });
+    return number;
+  });
+}
+
 /* ---------------- Accounting posting ---------------- */
 /** kind: "air" (the receipt of supplies) or "doc" (a PAR / ICS / RIS). */
 export function setPosting(kind, id, posting) {
   return wrap(async () => {
-    const coll = kind === "air" ? "airs" : kind === "movement" ? "movements" : "issuances";
+    const coll = kind === "air" ? "airs" : kind === "movement" ? "movements" : kind === "repair" ? "repairs" : "issuances";
     const data = posting
       ? { posted: true, date: posting.date, ref: String(posting.ref || "").trim(), remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() }
       : { posted: false, unpostedBy: me(), unpostedAt: new Date().toISOString() };
@@ -262,30 +314,30 @@ export function setPosting(kind, id, posting) {
     if (posting && !data.ref) throw fail("Enter the JEV / reference number.");
     const patch = { posting: data, updatedAt: serverTimestamp() };
     if (kind === "air") patch.history = arrayUnion(stamp(posting ? "Receipt posted by Accounting" : "Receipt unposted by Accounting", posting ? data.ref : ""));
+    if (kind === "repair") patch.status = posting ? "posted" : "inspected";
     await updateDoc(doc(db, coll, id), patch);
-    audit(posting ? "post" : "unpost", kind === "air" ? "air" : kind === "movement" ? "movement" : "issuance", id, posting ? { ref: data.ref, date: data.date } : {});
+    audit(posting ? "post" : "unpost", kind === "doc" ? "issuance" : kind, id, posting ? { ref: data.ref, date: data.date } : {});
   });
 }
 
-/** Posts an AIR together with every PAR / ICS / RIS issued from it that is not posted yet — one JEV for all. */
-export function postAirWithDocs(airIds, posting) {
+/** Posts the ticked items — AIRs, PAR / ICS / RIS, disposals — together, under one JEV. items: [{ kind: "air" | "doc" | "movement", id }] */
+export function postSelected(items, posting) {
   return wrap(async () => {
+    if (!items.length) throw fail("Tick at least one document to post.");
     if (!posting?.date) throw fail("Enter the posting date.");
     const ref = String(posting.ref || "").trim();
     if (!ref) throw fail("Enter the JEV / reference number.");
     const { writeBatch } = await import("./fb.js");
     const data = { posted: true, date: posting.date, ref, remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() };
-    const b = writeBatch(db); let n = 0;
-    for (const id of [].concat(airIds)) {
-      const a = S.d.airs.find(x => x.id === id);
-      if (!a) continue;
-      if (!a.posting?.posted) { b.update(doc(db, "airs", id), { posting: data, history: arrayUnion(stamp("AIR posted by Accounting", ref)), updatedAt: serverTimestamp() }); n++; }
-      for (const d of S.d.docs) if (d.airId === id && d.status === "issued" && !d.posting?.posted) { b.update(doc(db, "issuances", d.id), { posting: data, updatedAt: serverTimestamp() }); n++; }
+    const b = writeBatch(db);
+    for (const i of items) {
+      if (i.kind === "air") b.update(doc(db, "airs", i.id), { posting: data, history: arrayUnion(stamp("AIR posted by Accounting", ref)), updatedAt: serverTimestamp() });
+      else if (i.kind === "repair") b.update(doc(db, "repairs", i.id), { posting: data, status: "posted", updatedAt: serverTimestamp() });
+      else b.update(doc(db, i.kind === "movement" ? "movements" : "issuances", i.id), { posting: data, updatedAt: serverTimestamp() });
     }
-    if (!n) throw fail("Everything here is already posted.");
     await b.commit();
-    audit("post_air", "air", [].concat(airIds).join(","), { ref, count: n });
-    return n;
+    audit("post_selected", "posting", items.map(i => i.id).join(","), { ref, count: items.length });
+    return items.length;
   });
 }
 
@@ -976,7 +1028,7 @@ export function unmatchSwa(swaId) {
 export function saveSwa(id, f) {
   return wrap(async () => {
     const data = { fund: f.fund, date: f.date, cipNo: String(f.cipNo || "").trim(), swaNo: String(f.swaNo || "").trim(), contractor: String(f.contractor || "").trim(),
-      cost: round2(f.cost), percent: f.percent === "" || f.percent == null ? null : round2(f.percent), docLink: String(f.docLink || "").trim(), remarks: String(f.remarks || "").trim() };
+      cost: round2(f.cost), percent: f.percent === "" || f.percent == null ? null : round2(f.percent), particulars: String(f.particulars || "").trim(), docLink: String(f.docLink || "").trim(), remarks: String(f.remarks || "").trim() };
     if (!data.swaNo) throw fail("Enter the SWA No.");
     if (data.docLink && !/^https?:\/\//i.test(data.docLink)) throw fail("The document link must start with https://");
     if (id) await updateDoc(doc(db, "swa", id), { ...data, updatedAt: serverTimestamp() });
@@ -989,40 +1041,76 @@ export const deleteSwa = id => wrap(() => deleteDoc(doc(db, "swa", id)));
 
 /* ---------------- History of Repair ---------------- */
 /** End-Users record repairs of property under their name; the GSO verifies (or returns) them. */
+/**
+ * Saves a repair. Before the pre-repair inspection it is the request (complaints / defects, parts to repair or replace);
+ * once approved for repair, the job order (supplier, invoice, spare parts and labor) is recorded and the repair goes to
+ * the GSO for the post-repair inspection.
+ */
 export function saveRepair(id, f, asset) {
   return wrap(async () => {
+    const cur = id ? S.d.repairs.find(x => x.id === id) : null, stage = repairStage(cur);
     const parts = (f.parts || []).map(l => ({ qty: Number(l.qty) || 0, unit: String(l.unit || "").trim(), description: String(l.description || "").trim(), cost: round2(l.cost), remarks: String(l.remarks || "").trim() }))
       .filter(l => l.description || l.cost || l.qty);
-    if (!asset) throw fail("Choose the item that was repaired.");
-    if (!String(f.jobOrderNo || "").trim()) throw fail("Enter the Job Order No.");
-    if (!f.jobOrderDate) throw fail("Enter the Job Order date.");
-    if (!parts.length) throw fail("Add at least one spare part, material or labor line.");
+    if (!asset) throw fail("Choose the item to be repaired.");
+    const t = k => String(f[k] || "").trim();
+    if (stage === "request" && !t("complaints")) throw fail("Describe the complaints / defects.");
+    if (stage === "repair") {
+      if (!t("jobOrderNo")) throw fail("Enter the Job Order No.");
+      if (!f.jobOrderDate) throw fail("Enter the Job Order date.");
+      if (!parts.length) throw fail("Add at least one spare part, material or labor line.");
+    }
     const data = {
       fund: asset.fund, assetId: asset.id, propertyNo: asset.propertyNo || "", description: asset.description,
-      makeModel: String(f.makeModel || "").trim(), unitSerialNo: String(f.unitSerialNo || "").trim(), engineSerialNo: String(f.engineSerialNo || "").trim(), plateNo: String(f.plateNo || "").trim(),
-      endUser: String(f.endUser || "").trim(), designation: String(f.designation || "").trim(), office: String(f.office || "").trim(),
-      jobOrderNo: f.jobOrderNo.trim(), jobOrderDate: f.jobOrderDate, invoiceNo: String(f.invoiceNo || "").trim(), invoiceDate: f.invoiceDate || "", supplier: String(f.supplier || "").trim(),
-      nature: String(f.nature || "").trim(), parts, totalCost: repairTotal({ parts }), preparedBy: { name: String(f.preparedBy || "").trim(), position: String(f.preparedByPos || "").trim() },
-      notedBy: { name: String(f.notedBy || "").trim(), position: String(f.notedByPos || "").trim() }, status: "submitted", updatedAt: serverTimestamp()
+      makeModel: t("makeModel"), unitSerialNo: t("unitSerialNo"), engineSerialNo: t("engineSerialNo"), plateNo: t("plateNo"),
+      endUser: t("endUser"), designation: t("designation"), office: t("office"),
+      complaints: t("complaints"), partsToRepair: t("partsToRepair"), lastRepair: t("lastRepair"),
+      jobOrderNo: t("jobOrderNo"), jobOrderDate: f.jobOrderDate || "", invoiceNo: t("invoiceNo"), invoiceDate: f.invoiceDate || "", supplier: t("supplier"),
+      nature: t("nature"), parts, totalCost: repairTotal({ parts }), preparedBy: { name: t("preparedBy"), position: t("preparedByPos") },
+      notedBy: { name: t("notedBy"), position: t("notedByPos") }, status: stage === "request" ? "requested" : "repaired", updatedAt: serverTimestamp()
     };
     if (id) await updateDoc(doc(db, "repairs", id), data);
     else id = (await addDoc(collection(db, "repairs"), { ...data, endUserUid: asset.custodianUid === S.user.uid ? S.user.uid : (asset.custodianUid || ""), encodedBy: me(), createdAt: serverTimestamp() })).id;
-    audit("repair_save", "repair", id, { jobOrderNo: data.jobOrderNo, total: data.totalCost });
+    audit(stage === "request" ? "repair_request" : "repair_save", "repair", id, { jobOrderNo: data.jobOrderNo, total: data.totalCost });
     return id;
   });
 }
+/**
+ * The GSO's inspections. which: "pre" (before the repair: approve it, or return the request) or "post" (after the repair:
+ * accept it for Accounting posting — with a Waste Materials Report if parts were replaced — or return it).
+ * f: { findings, inspector, date, wmr? }
+ */
+export function inspectRepair(id, which, approve, f) {
+  return wrap(async () => {
+    const r = S.d.repairs.find(x => x.id === id);
+    if (!r) throw fail("This repair no longer exists.");
+    const okFrom = which === "pre" ? ["requested"] : ["repaired", "submitted"];
+    if (!okFrom.includes(r.status)) throw fail(which === "pre" ? "Only a requested repair gets a pre-repair inspection." : "Only a repair with its job order gets a post-repair inspection.");
+    if (!String(f.findings || "").trim()) throw fail("Write the findings / observations.");
+    if (!f.date) throw fail("Enter the date of the inspection.");
+    const ins = { findings: String(f.findings).trim(), inspector: String(f.inspector || "").trim(), date: f.date, approved: !!approve, by: me(), at: new Date().toISOString() };
+    const patch = { [which === "pre" ? "preInspection" : "postInspection"]: ins, status: approve ? (which === "pre" ? "preinspected" : "inspected") : "returned",
+      gsoRemarks: approve ? "" : ins.findings, reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    if (which === "post") {
+      const items = (f.wmr?.items || []).map(l => ({ qty: Number(l.qty) || 0, unit: String(l.unit || "").trim(), description: String(l.description || "").trim(),
+        orNo: String(l.orNo || "").trim(), orDate: l.orDate || "", amount: round2(l.amount) })).filter(l => l.description);
+      patch.wmr = items.length ? { items, placeOfStorage: String(f.wmr.placeOfStorage || "").trim(), date: f.wmr.date || f.date, disposal: f.wmr.disposal || "", transferredTo: String(f.wmr.transferredTo || "").trim() } : null;
+    }
+    await updateDoc(doc(db, "repairs", id), patch);
+    audit(`repair_${which}_inspection`, "repair", id, { approve });
+  });
+}
 export const deleteRepair = id => wrap(() => deleteDoc(doc(db, "repairs", id)));
-/** GSO: verify (the repair is added to the item's history) or return with remarks. */
+/** The GSO verifies a repair Accounting has posted: it is added to the item's history. */
 export function reviewRepair(id, verify, remarks, verifiedBy) {
   return wrap(async () => {
     await runTransaction(db, async tx => {
       const rref = doc(db, "repairs", id); const r = (await tx.get(rref)).data();
-      if (r.status !== "submitted") throw fail("Only a repair waiting for verification can be reviewed.");
-      const aref = doc(db, "assets", r.assetId); const a = verify ? (await tx.get(aref)).data() : null;
-      tx.update(rref, { status: verify ? "verified" : "returned", gsoRemarks: remarks || "", verifiedBy: verify ? verifiedBy : null, reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      if (verify && a) tx.update(aref, { history: [...(a.history || []), stamp(`Repaired — JO ${r.jobOrderNo} (₱${r.totalCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })})`, r.nature || r.parts.map(l => l.description).join(", "))], updatedAt: serverTimestamp() });
+      if (r.status !== "posted") throw fail("A repair is verified after Accounting posts it.");
+      const aref = doc(db, "assets", r.assetId); const a = (await tx.get(aref)).data();
+      tx.update(rref, { status: "verified", gsoRemarks: remarks || "", verifiedBy, reviewedBy: me(), reviewedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      if (a) tx.update(aref, { history: [...(a.history || []), stamp(`Repaired — JO ${r.jobOrderNo} (₱${r.totalCost.toLocaleString("en-PH", { minimumFractionDigits: 2 })})`, r.nature || r.parts.map(l => l.description).join(", "))], updatedAt: serverTimestamp() });
     });
-    audit(verify ? "repair_verify" : "repair_return", "repair", id, { remarks });
+    audit("repair_verify", "repair", id, { remarks });
   });
 }
 

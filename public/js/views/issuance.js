@@ -5,11 +5,12 @@ import {
   docStatusBadge, downloadCSV, officeSelect
 } from "../ui.js";
 import { fundName, DOC_TYPES, CATEGORIES, accountName, FUNDS, isDistributionAccount } from "../core/catalog.js";
-import { remainingQty, sxClass, numberingFor } from "../core/logic.js";
+import { remainingQty, sxClass, numberingFor, suggestPropertyNos, propertyNoPrefix } from "../core/logic.js";
 import { defaultLife } from "../core/assets.js";
 import { issueDocs, cancelDoc } from "../data.js";
 import { printForm, docHtml } from "../print.js";
 import { attachmentsCard, attachmentsOf } from "./attachments.js";
+import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 const left = (a, cat) => (a.lines || []).filter(l => l.category === cat && remainingQty(l) > 0);
@@ -28,7 +29,7 @@ export function queue(main, [airId]) {
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>` },
       { label: "PAR (PPE)", render: a => count(left(a, "ppe")), cls: "right", headCls: "right" },
       { label: "ICS (Semi-Exp.)", render: a => count(left(a, "sx")), cls: "right", headCls: "right" },
-      { label: "RIS (Supplies)", render: a => count(left(a, "cons")), cls: "right", headCls: "right" }
+      { label: "RIS (Supplies)", render: a => left(a, "cons").length && !a.posting?.posted ? `${count(left(a, "cons"))}<div class="xs muted">after posting</div>` : count(left(a, "cons")), cls: "right", headCls: "right" }
     ],
     empty: "Nothing waiting for issuance.",
     onRow: a => { location.hash = `#/issue/${a.id}`; }
@@ -51,6 +52,13 @@ function issuePanel(main, airId) {
   $$(".tabs [data-t]", main).forEach(b => b.onclick = () => { st.type = b.dataset.t; issuePanel(main, airId); });
   const t = st.type, cat = DOC_TYPES[t].category, prop = t !== "ris";
   const lines = left(a, cat);
+  if (t === "ris" && !a.posting?.posted) {
+    $("#isf", main).innerHTML = `<h3>${esc(DOC_TYPES[t].label)}</h3><div class="notice info" style="margin:0">The supplies on this AIR are issued with an RIS only after Accounting posts the AIR — they enter the Inventory Registry then. ${lines.length} item${lines.length === 1 ? " is" : "s are"} waiting.</div>`;
+    return;
+  }
+  // Property No. / Inventory Item No. suggested in the year-group-sub major-GL-series format, after every number used that year
+  const year = String(a.acceptance?.dateReceived || a.date || manilaToday()).slice(0, 4);
+  const suggested = prop ? suggestPropertyNos(lines, year, S.d.assets.map(x => x.propertyNo)) : [];
   const f = $("#isf", main);
   f.innerHTML = `<h3>${esc(DOC_TYPES[t].label)}</h3>
     <p class="xs muted" style="margin-top:-.3rem">${t === "par" ? "Issue PPE to the accountable End-User. A PAR can hold several items; issue to different people by issuing partial quantities." :
@@ -62,7 +70,7 @@ function issuePanel(main, airId) {
         <td><b>${esc(l.description)}</b><div class="xs muted">${esc(l.unit)} · ${esc(l.accountCode)} ${esc(accountName(l.accountCode))}${l.stockNo ? ` · Stock No. ${esc(l.stockNo)}` : ""}${t === "ris" ? ` · ${isDistributionAccount(l.accountCode) ? "Distribution" : "Consumption"}` : ""}${t === "ics" ? ` · ${sxClass(l.unitCost, th) === "low" ? "SPLV" : "SPHV"}` : ""}</div></td>
         <td class="right">${num(l.unitCost)}</td><td class="right">${qty(remainingQty(l))}</td>
         <td><input type="number" class="w-xs" data-q min="0" max="${remainingQty(l)}" step="${prop ? 1 : "any"}" value="${remainingQty(l)}"></td>
-        ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || "")}"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
+        ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || suggested[lines.indexOf(l)] || "")}" placeholder="${esc(propertyNoPrefix(l.accountCode, year))}-0001"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
     <div class="grid g3" style="margin-top:1rem">
       <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
       ${numberingFor(S.settings, t).mode === "manual" ? (t === "ics"
@@ -91,6 +99,11 @@ function issuePanel(main, airId) {
       picks.push({ lineId: tr.dataset.id, qty: Number($("[data-q]", tr).value) || 0 });
       lineInfo[tr.dataset.id] = prop ? { propertyNo: $("[data-pn]", tr).value, usefulLife: $("[data-ul]", tr).value } : { qtyRequested: Number($("[data-rq]", tr).value) || 0 };
     });
+    if (prop) {
+      const nos = Object.values(lineInfo).map(x => String(x.propertyNo || "").trim()).filter(Boolean);
+      const dup = nos.find((n, i) => nos.indexOf(n) !== i) || nos.find(n => S.d.assets.some(x => x.propertyNo === n && x.status !== "cancelled"));
+      if (dup) return toast(`${t === "par" ? "Property" : "Inventory Item"} No. ${dup} is already used. Each item needs its own number.`, "err");
+    }
     const header = {
       date: fd.date, purpose: fd.purpose || "", lineInfo, numbers: { main: fd.no_main, low: fd.no_low, high: fd.no_high },
       // property shows as "You" in Office Property of the registered user who receives it (none if not a system user)
@@ -129,7 +142,7 @@ export function list(main) {
     columns: [
       { label: "Number", render: d => `<b>${esc(d.docType.toUpperCase())} ${esc(d.number)}</b>`, sort: d => d.docType + d.number },
       { label: "Date", render: d => fmtDate(d.date), sort: d => d.date },
-      { label: "AIR No.", render: d => d.airId ? esc(d.airNo) : `<span class="muted">${d.origin === "pms" ? "From PMS" : "Register items"}</span>`, sort: d => d.airNo },
+      { label: "AIR No.", render: d => d.airId ? `<a href="#/airs/${esc(d.airId)}" onclick="event.stopPropagation()">${esc(d.airNo)}</a>` : `<span class="muted">${d.origin === "pms" ? "From PMS" : "Register items"}</span>`, sort: d => d.airNo },
       { label: "Received by", render: d => `${esc(d.recipient?.name)}<div class="xs muted">${esc(d.recipient?.office)}</div>`, sort: d => d.recipient?.name || "" },
       { label: "Items", render: d => d.lines.length, cls: "right" },
       { label: "Amount", render: d => money(d.total), sort: d => d.total, cls: "right", headCls: "right" },
@@ -172,12 +185,14 @@ export function detail(main, [id]) {
           : `<p class="muted">Not yet posted by Accounting to the ${esc(t.registry)}.</p>`}
         ${can("post") && d.status !== "cancelled" ? `<a class="btn sm" href="#/posting">Open posting</a>` : ""}</div>
       <div class="btn-row"><button class="btn primary" id="print">Print ${esc(t.short)}</button>
+        ${canRenumber(d) ? `<button class="btn" id="renum">Change number</button>` : ""}
         ${can("issue") && d.status !== "cancelled" && !d.posting?.posted ? `<button class="btn danger" id="cancel">Cancel ${esc(t.short)}</button>` : ""}</div>
       <div id="att" style="margin-top:1rem"></div>
     </div></div>`;
   attachmentsCard($("#att", main), { type: "issuance", id: d.id, office: d.recipient?.office || d.office || "", fund: d.fund, label: `${t.short} ${d.number}` },
     { defaultLabel: `Signed ${t.short}`, title: `Signed ${t.short} and other attachments` });
   $("#print", main).onclick = () => printForm(docHtml(d));
+  $("#renum", main) && ($("#renum", main).onclick = e => renumberDialog("doc", d, t.short, d.number, e.target));
   $("#cancel", main) && ($("#cancel", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel ${t.short} ${d.number}?`, body: `${d.airId ? "The quantities return to the AIR so they can be issued again." : d.origin === "pms" ? "Its item is cancelled too (it was never posted in the registry)." : "The items stay in the register, without this document."} The number stays used and the document is kept as Cancelled.`, fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: `Cancel ${t.short}`, danger: true });
     if (v) busy(e.target, () => cancelDoc(d.id, v.reason), `${t.short} ${d.number} cancelled.`).catch(() => {});

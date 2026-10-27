@@ -97,7 +97,11 @@ test("stock cards and RSMI use the exact cost of each AIR line", () => {
     { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0002", date: "2026-10-06", recipient: { office: "MTO" }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 4, unitCost: 260, amount: 1040, accountCode: "10404010" }] },
     { fund: "GF", docType: "ris", status: "cancelled", number: "2026-10-0003", date: "2026-10-06", lines: [{ stockNo: "OS-1", qty: 99, unitCost: 1 }] }
   ];
-  const [card] = stockCards([air, air2, { ...air, id: "X", status: "submitted" }], docs, "GF");
+  const posted = { posted: true, date: "2026-10-05", ref: "JEV-1" };
+  const [card] = stockCards([{ ...air, posting: posted }, { ...air2, posting: posted }, { ...air, id: "X", status: "submitted" }], docs, "GF");
+  // supplies enter the Inventory Registry only when Accounting posts the AIR
+  assert.equal(stockCards([air, air2], [], "GF").length, 0);
+  assert.equal(stockCards([air, air2], [], "GF", "", { postedOnly: false })[0].balQty, 14);
   assert.equal(card.stockNo, "OS-1");
   assert.equal(card.balQty, 4);
   assert.equal(card.balValue, round2(2500 + 1040 - 1500 - 1040));
@@ -156,4 +160,23 @@ test("chart of accounts: the administrator adds accounts or changes standard one
   assert.match(checkChartAccount({ kind: "ppe", code: "10799020", name: "Other", group: "Other PPE", depreciable: true, life: 0 })[0], /useful life/);
   applyChartOfAccounts([]);
   assert.equal(accountName("10405150"), ""); assert.equal(ppeAccount("10705110").life, 5);
+});
+
+test("RSMI recapitulation as the proposed accounting entry: expense debited, inventory credited, per account", async () => {
+  const { rsmiEntry } = await import("../public/js/core/logic.js");
+  const e = rsmiEntry([{ accountCode: "10404010", amount: 2500 }, { accountCode: "10404010", amount: 500 }, { accountCode: "10404070", amount: 1200 }, { accountCode: "10404130", amount: 100 }]);
+  assert.deepEqual(e.debits.map(d => [d.code, d.amount]), [["50203010", 3000], ["50203080", 1200], ["", 100]]);
+  assert.equal(e.debits[0].name, "Office Supplies Expenses"); assert.equal(e.debits[2].name, "Expense account to be set");
+  assert.deepEqual(e.credits.map(c => [c.code, c.amount]), [["10404010", 3000], ["10404070", 1200], ["10404130", 100]]);
+  assert.equal(e.total, 4300);
+});
+
+test("property numbers: year purchased - group - sub major - GL - series, one series per year across all accounts", async () => {
+  const { propertyNoPrefix, nextPropertySeq, suggestPropertyNos } = await import("../public/js/core/logic.js");
+  assert.equal(propertyNoPrefix("10705020", 2026), "2026-07-05-02");
+  assert.equal(propertyNoPrefix("10405030", "2026"), "2026-04-05-03");
+  assert.equal(propertyNoPrefix("", 2026), "");
+  assert.equal(nextPropertySeq(["2026-07-05-02-0004", "2026-04-05-03-0009", "2025-07-05-02-0099", "PPE-1"], 2026), 10);
+  assert.equal(nextPropertySeq([], 2027), 1);
+  assert.deepEqual(suggestPropertyNos([{ accountCode: "10705020" }, { accountCode: "10707010" }], 2026, ["2026-07-05-02-0001"]), ["2026-07-05-02-0002", "2026-07-07-01-0003"]);
 });

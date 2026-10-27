@@ -3,11 +3,11 @@ import { S, can, fundAirs, docsOfAir } from "../state.js";
 import { $, $$, esc, busy, money, fmtDate, manilaToday, renderTable, openModal, confirmBox, postBadge, downloadCSV } from "../ui.js";
 import { fundName, DOC_TYPES } from "../core/catalog.js";
 import { postingSummary, POSTING_STATE } from "../core/logic.js";
-import { setPosting, postAirWithDocs } from "../data.js";
+import { setPosting, postSelected } from "../data.js";
 import { postingItems } from "./common.js";
 
 const REGISTRY = { air: "AIR — everything received", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
-  dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
+  repair: "Repairs and maintenance — History of Repair", dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
 const itemLabel = i => i.kind === "air" ? `AIR ${i.number}` : `${i.label} ${i.number}`;
 const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
@@ -67,13 +67,13 @@ export function queue(main) {
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"]],
-      test: (r, v) => v === "air" ? !!r.airId : v === "movement" ? r.items[0].kind === "movement" : !r.airId && r.items[0].kind === "doc" }],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"]],
+      test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },
       { label: "Date", render: r => fmtDate(r.date), sort: r => r.date || "" },
       { label: "AIR / document", render: r => `<b>${r.airId ? `<a href="#/airs/${esc(r.airId)}">${esc(r.title)}</a>` : esc(r.title)}</b><div class="xs muted">${esc(r.sub)}</div>`, sort: r => r.title },
-      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
+      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "repair" ? `<a href="#/repairs/${esc(r.items[0].id)}">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
       { label: "Office / recipient", render: r => `${esc(r.office)}${r.recipient ? `<div class="xs muted">${esc(r.recipient)}</div>` : ""}` },
       { label: "Amount", render: r => money(r.amount), sort: r => r.amount, cls: "right", headCls: "right" },
       { label: "", render: r => `<button class="btn sm primary" data-post="${esc(r.key)}">${r.items.length > 1 ? `Post all (${r.items.length})` : "Post"}</button>` }
@@ -88,31 +88,35 @@ export function queue(main) {
   });
   $("#bulk", main).onclick = () => postRows([...sel].map(find).filter(Boolean));
 }
-queue.deps = ["r:airs", "r:docs", "r:movements", "fund"];
+queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "fund"];
 
-/** Posting form for queue rows: AIR rows post the AIR and its documents together; other rows post one document. */
+/** Posting form for queue rows: a checklist of what goes under this JEV — the AIR and its PAR / ICS are ticked, RIS are
+ *  not (they are usually posted on their own); other rows post their one document. */
 function postRows(rows) {
-  const n = rows.reduce((t, r) => t + r.items.length, 0);
+  const items = rows.flatMap(r => r.items.map(i => ({ ...i, row: r })));
+  const ticked = i => i.kind !== "doc" || i.docType !== "ris" || items.every(x => x.kind === "doc" && x.docType === "ris");
   const m = openModal(`<h2>Post ${rows.length === 1 ? esc(rows[0].title) : `${rows.length} rows`}</h2>
-    <p class="muted small">${n} document${n === 1 ? "" : "s"} will be marked as posted in the registry under one JEV:</p>
-    <div class="chips" style="margin-bottom:.8rem">${rows.flatMap(r => r.items.map(i => r.airId ? chip(i).replace("AIR</span>", `${esc(r.title)}</span>`) : `<span class="badge b-warn">${esc(itemLabel(i))}</span>`)).join("")}</div>
+    <p class="muted small">Tick what is posted under this JEV. RIS are usually posted separately, so they are not ticked.</p>
+    <div class="table-wrap" style="margin-bottom:.8rem"><table><thead><tr><th></th><th>Document</th><th>Registry</th><th class="right">Amount</th></tr></thead><tbody>
+      ${items.map((i, k) => `<tr><td><input type="checkbox" data-k="${k}" ${ticked(i) ? "checked" : ""}></td><td><b>${esc(i.kind === "air" ? `AIR ${i.number}` : itemLabel(i))}</b>${rows.length > 1 && i.kind !== "air" && i.row.airId ? `<div class="xs muted">${esc(i.row.title)}</div>` : ""}</td>
+        <td class="small">${esc(regOf(i))}</td><td class="right">${money(i.amount)}</td></tr>`).join("")}
+    </tbody></table></div>
     <form class="grid g2" id="pf">
       <div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
       <div><label class="req">JEV / reference no.</label><input name="ref" placeholder="e.g. JEV 2026-10-0123"></div>
       <div class="spanall"><label>Remarks</label><input name="remarks"></div>
       <div class="spanall form-msg err" id="pm"></div>
-      <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Post ${n === 1 ? "" : `all ${n}`}</button></div></form>`, { size: "narrow" });
+      <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit" id="pgo">Post</button></div></form>`, { size: "wide" });
+  const boxes = () => $$("[data-k]", m).filter(b => b.checked).map(b => items[+b.dataset.k]);
+  const label = () => { const n = boxes().length; $("#pgo", m).textContent = n === 1 ? "Post 1 document" : `Post ${n} documents`; $("#pgo", m).disabled = !n; };
+  m.addEventListener("change", e => { if (e.target.matches("[data-k]")) label(); }); label();
   $("[data-x]", m).onclick = () => m.close();
   $("#pf", m).onsubmit = e => {
     e.preventDefault();
-    const v = Object.fromEntries(new FormData(e.target).entries());
+    const v = Object.fromEntries(new FormData(e.target).entries()), list = boxes();
     if (!v.date || !v.ref.trim()) { $("#pm", m).textContent = "Enter the posting date and the JEV / reference number."; return; }
-    busy(e.submitter, async () => {
-      const airIds = rows.filter(r => r.airId).map(r => r.airId);
-      if (airIds.length) await postAirWithDocs(airIds, v);
-      for (const r of rows.filter(r => !r.airId)) await setPosting(r.items[0].kind, r.items[0].id, v);
-      m.close();
-    }, n === 1 ? "Posted." : `${n} documents posted.`).catch(err => { $("#pm", m).textContent = err.message; });
+    busy(e.submitter, async () => { await postSelected(list.map(i => ({ kind: i.kind, id: i.id })), v); m.close(); },
+      list.length === 1 ? "Posted." : `${list.length} documents posted.`).catch(err => { $("#pm", m).textContent = err.message; });
   };
 }
 

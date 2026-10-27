@@ -19,6 +19,7 @@ import * as Repairs from "./views/repairs.js";
 import { counts } from "./views/common.js";
 
 const ICON = { menu: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>`,
+  back: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>`,
   side: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="M9 4v16"/></svg>`,
   logout: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>` };
 // One line icon per menu entry (24px grid, 1.8 stroke), shown before the label.
@@ -166,6 +167,7 @@ function renderShell() {
         <header class="topbar">
           <button class="icon-btn menu-btn" id="menu-btn" aria-label="Menu">${ICON.menu}</button>
           <button class="icon-btn collapse-btn" id="collapse" aria-label="Collapse or expand the menu" title="Collapse / expand the menu">${ICON.side}</button>
+          <button class="icon-btn back-btn" id="back" hidden title="Back to where you were">${ICON.back}<span>Back</span></button>
           <div class="crumbs" id="crumbs"></div>
           <div class="spacer"></div>
           <span class="fund-chip" id="fund-chip"></span>
@@ -174,6 +176,7 @@ function renderShell() {
       </div>
     </div>`;
   setSideCollapsed(sideCollapsed());
+  $("#back").onclick = goBack;
   $("#collapse").onclick = () => setSideCollapsed(!document.body.classList.contains("side-collapsed"));
   $("#scrim").onclick = () => document.body.classList.remove("nav-open");
   $("#logout").onclick = async () => { if (!dirty || confirm("Leave without saving your changes?")) await signOut(auth); };
@@ -184,7 +187,17 @@ function renderShell() {
   route();
 }
 
-window.addEventListener("hashchange", () => { if (screen === "shell") { if (dirty && !confirm("Leave this page without saving your changes?")) return; route(); } });
+// Back: the pages you came from (and how far down each was scrolled), so Back returns exactly where you left.
+const trail = [], scrollAt = {};
+let lastHash = location.hash, restoreTo = null;
+function goBack() { if (trail.length) location.hash = trail[trail.length - 1]; }
+window.addEventListener("hashchange", () => {
+  scrollAt[lastHash] = window.scrollY;
+  const back = trail.length && trail[trail.length - 1] === location.hash; // our Back button or the browser's
+  if (back) { trail.pop(); restoreTo = scrollAt[location.hash] || 0; } else if (lastHash && lastHash !== location.hash) { trail.push(lastHash); if (trail.length > 50) trail.shift(); restoreTo = null; }
+  lastHash = location.hash;
+  if (screen === "shell") { if (dirty && !confirm("Leave this page without saving your changes?")) return; route(); }
+});
 window.addEventListener("beforeunload", e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
 window.addEventListener("app:clean", () => { dirty = false; $("#refresh-bar")?.remove(); });
 
@@ -196,8 +209,10 @@ function route() {
   closeModals();
   document.body.classList.remove("nav-open");
   updateChrome();
-  renderCurrent();
+  const y = restoreTo; restoreTo = null;
+  Promise.resolve(renderCurrent()).then(() => requestAnimationFrame(() => window.scrollTo(0, y || 0)));
   window.scrollTo(0, 0);
+  const b = $("#back"); if (b) b.hidden = !trail.length;
 }
 
 function scheduleRender() {

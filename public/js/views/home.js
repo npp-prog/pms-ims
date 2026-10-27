@@ -36,7 +36,7 @@ export function dashboard(main) {
     c.returned && row(I.back, "red", "AIRs returned to you", "Correct and resubmit to the GSO", c.returned, "#/airs"),
     c.drafts && row(I.doc, "", "Draft AIRs", "Not yet submitted to the GSO", c.drafts, "#/airs"),
     c.repairsReturned && row(I.back, "red", "Repairs returned to you", "Correct the repair record and send it again", c.repairsReturned, "#/repairs"),
-    c.repairs && row(I.check, "blue", "Repairs to verify", "History of Repair records sent by End-Users", c.repairs, "#/repairs"),
+    c.repairs && row(I.check, "blue", "Repairs waiting for the GSO", "Pre- and post-repair inspections, and posted repairs to verify", c.repairs, "#/repairs"),
     c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: from ${oldestInspect.office}, ${oldestInspect.supplier}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
     deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),
@@ -98,7 +98,7 @@ function hits(r) {
   const html = grp("Property", r.assets, a => `<a href="#/assets/${esc(a.id)}"><b>${esc(a.propertyNo || "—")}</b> ${esc(a.description)} <span class="xs muted">${esc(a.holder?.name || "")} · ${esc(a.status)}</span></a>`)
     + grp("PAR / ICS / RIS", r.docs, d => `<a href="#/issuances/${esc(d.id)}"><b>${esc(d.docType.toUpperCase())} ${esc(d.number)}</b> ${esc(d.recipient?.name || "")} <span class="xs muted">${esc(d.recipient?.office || "")} · ${money(d.total)}</span></a>`)
     + grp("Transfers, returns and disposals", r.movements, x => `<a href="#/movements/${esc(x.id)}"><b>${esc(x.docType.toUpperCase())} ${esc(x.number)}</b> ${esc(x.from?.name || "")} → ${esc(x.to?.name || x.mode || "")}</a>`)
-    + grp("Repairs", r.repairs, x => `<a href="#/repairs/${esc(x.id)}"><b>JO ${esc(x.jobOrderNo)}</b> ${esc(x.description || "")} <span class="xs muted">${money(x.totalCost)}</span></a>`)
+    + grp("Repairs", r.repairs, x => `<a href="#/repairs/${esc(x.id)}"><b>${x.jobOrderNo ? `JO ${esc(x.jobOrderNo)}` : "Repair request"}</b> ${esc(x.description || "")} <span class="xs muted">${money(x.totalCost)}</span></a>`)
     + grp("AIRs", r.airs, a => `<a href="#/airs/${esc(a.id)}"><b>AIR ${esc(a.airNo)}</b> ${esc(a.supplier)} <span class="xs muted">${esc(a.office)}</span></a>`)
     + grp("Construction in Progress", r.cip, p => `<a href="#/cip/${esc(p.id)}"><b>CIP ${esc(p.cipNo)}</b> ${esc(p.name)}</a>`);
   return html || `<p class="muted small" style="margin:.6rem 0 0">Nothing found in ${esc(fundName(S.fund))}.</p>`;

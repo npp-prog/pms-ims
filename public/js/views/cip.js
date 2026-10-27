@@ -5,6 +5,7 @@ import { FUNDS, fundName, accountName, PPE_ACCOUNTS } from "../core/catalog.js";
 import { CIP_ACCOUNTS, CIP_COST_FIELDS, CIP_STATUS, billingTotal, cipTotal, cipStatus, cipTransferAccount, defaultLife, residualFor } from "../core/assets.js";
 import { saveCip, setCipOverride, saveBilling, deleteBilling, completeCip, saveSwa, deleteSwa, unmatchSwa } from "../data.js";
 import { specialGroup, COMPONENTS } from "../core/cards.js";
+import { attachmentsCard, attachmentsOf } from "./attachments.js";
 import { printForm, cipLedgerHtml } from "../print.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
@@ -109,6 +110,14 @@ function billingModal(p, b) {
       <div class="spanall small muted" id="tot"></div>
       <div class="spanall modal-actions">${b ? `<button type="button" class="btn danger" id="del" style="margin-right:auto">Delete</button>` : ""}<button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save billing</button></div></form>`, { size: "wide" });
   const f = $("#bf", m);
+  // choosing an SWA fills the billing's amount (by contract) and particulars from it
+  f.swaId.onchange = () => {
+    const w = S.d.swa.find(x => x.id === f.swaId.value); if (!w) return;
+    f.byContract.value = w.cost || "";
+    f.particulars.value = w.particulars || `SWA ${w.swaNo}${w.percent != null ? ` — ${num(w.percent)}% accomplishment` : ""}${w.contractor ? ` (${w.contractor})` : ""}`;
+    if (!f.ref.value) f.ref.value = `SWA ${w.swaNo}`;
+    tot();
+  };
   const tot = () => { $("#tot", m).textContent = `This billing: ${money(billingTotal(Object.fromEntries(new FormData(f).entries())))}`; };
   f.addEventListener("input", tot); tot();
   $("[data-x]", m).onclick = () => m.close();
@@ -179,7 +188,7 @@ export function swaList(main) {
       { label: "Contractor", render: s => esc(s.contractor || "—") },
       { label: "% done", render: s => s.percent == null ? "—" : `${num(s.percent)}%`, cls: "right" },
       { label: "Cost", render: s => money(s.cost), sort: s => s.cost, cls: "right", headCls: "right" },
-      { label: "Document", render: s => safeLink(s.docLink) ? `<a href="${esc(safeLink(s.docLink))}" target="_blank" rel="noopener">Open</a>` : "—" },
+      { label: "Document", render: s => { const n = attachmentsOf([{ type: "swa", id: s.id }]).length; return `${n ? `<span class="badge b-ok">${n} file${n === 1 ? "" : "s"}</span> ` : ""}${safeLink(s.docLink) ? `<a href="${esc(safeLink(s.docLink))}" target="_blank" rel="noopener">Link</a>` : n ? "" : "—"}`; } },
       { label: "Status", render: s => s.matched ? `<a class="badge b-ok" href="#/cip/${esc(s.matchedProjectId)}">Matched</a>${can("manageCip") ? ` <button class="btn sm" data-um="${esc(s.id)}">Unmatch</button>` : ""}` : `<span class="badge b-warn">Not matched</span>` }
     ],
     empty: "No SWAs yet.",
@@ -194,7 +203,7 @@ export function swaList(main) {
   $("#new", main) && ($("#new", main).onclick = () => swaModal(null));
   $("#csv", main).onclick = () => downloadCSV(`SWA-${S.fund}`, ["Date", "SWA No.", "CIP No.", "Contractor", "Percent", "Cost", "Matched", "Document"], t.rows().map(s => [s.date, s.swaNo, s.cipNo, s.contractor, s.percent ?? "", s.cost, s.matched ? "Yes" : "No", s.docLink]));
 }
-swaList.deps = ["r:swa", "r:cip", "fund"];
+swaList.deps = ["r:swa", "r:cip", "r:attachments", "fund"];
 
 function swaModal(s) {
   const cips = S.d.cip.filter(p => p.fund === (s?.fund || S.fund) && p.status !== "completed");
@@ -207,9 +216,13 @@ function swaModal(s) {
       <div><label>Contractor</label><input name="contractor" value="${esc(s?.contractor || "")}"></div>
       <div><label>Cost (₱)</label><input type="number" step="0.01" min="0" name="cost" value="${esc(s?.cost ?? "")}"></div>
       <div><label>Accomplishment (%)</label><input type="number" step="0.01" min="0" max="100" name="percent" value="${esc(s?.percent ?? "")}"></div>
+      <div class="spanall"><label>Particulars</label><input name="particulars" value="${esc(s?.particulars || "")}" placeholder="e.g. 2nd partial billing — 60% accomplishment of the concreting works"></div>
       <div><label>Link to the scanned SWA</label><input name="docLink" value="${esc(s?.docLink || "")}" placeholder="https://drive.google.com/…"></div>
       <div class="spanall"><label>Remarks</label><input name="remarks" value="${esc(s?.remarks || "")}"></div>
-      <div class="spanall modal-actions">${s ? `<button type="button" class="btn danger" id="del" style="margin-right:auto">Delete</button>` : ""}<button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`);
+      <div class="spanall modal-actions">${s ? `<button type="button" class="btn danger" id="del" style="margin-right:auto">Delete</button>` : ""}<button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
+    ${s ? `<div id="swa-att" style="margin-top:1rem"></div>` : `<p class="small muted" style="margin-top:.8rem">Save the SWA first, then open it again to upload the scanned copy.</p>`}`, { size: "wide" });
+  if (s) attachmentsCard($("#swa-att", m), { type: "swa", id: s.id, office: "", fund: s.fund, label: `SWA ${s.swaNo}` },
+    { title: "Scanned SWA", labels: ["Signed SWA", "Photos of the work", "Other"], defaultLabel: "Signed SWA", canAdd: can("encodeSwa") || can("manageCip") });
   $("[data-x]", m).onclick = () => m.close();
   $("#sf", m).onsubmit = e => {
     e.preventDefault();

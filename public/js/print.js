@@ -155,8 +155,13 @@ export function rsmiHtml(r, fund, from, to, opts = {}) {
     <table class="pt"><thead><tr><th>RIS No.</th><th>Responsibility Center</th><th>Stock No.</th><th>Item</th><th>Unit</th><th>Quantity Issued</th><th>Unit Cost</th><th>Amount</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="8" class="c">No issuances in this period</td></tr>`}<tr><td colspan="7" class="r"><b>TOTAL</b></td><td class="r"><b>${num(r.total)}</b></td></tr></tbody></table>
     ${opts.month && r.jevs?.length ? `<div class="pf-ref">RIS posted under JEV No. ${r.jevs.map(esc).join(", ")}</div>` : ""}
-    <div style="margin-top:8px;font-size:11px"><b>Recapitulation</b></div>
-    <table class="pt"><thead><tr><th>Stock No.</th><th>Quantity</th><th>Unit Cost</th><th>Total Cost</th><th>UACS Object Code</th></tr></thead><tbody>${recap}</tbody></table>
+    ${opts.entry ? `<div style="margin-top:8px;font-size:11px"><b>Recapitulation — proposed accounting entry</b></div>
+    <table class="pt"><thead><tr><th style="width:16%">Account Code</th><th>Account Title</th><th style="width:16%">Debit</th><th style="width:16%">Credit</th></tr></thead><tbody>
+      ${opts.entry.debits.map(d => `<tr><td class="c">${esc(d.code || "—")}</td><td>${esc(d.name)}</td><td class="r">${num(d.amount)}</td><td></td></tr>`).join("")}
+      ${opts.entry.credits.map(c => `<tr><td class="c">${esc(c.code)}</td><td style="padding-left:24px">${esc(c.name)}</td><td></td><td class="r">${num(c.amount)}</td></tr>`).join("")}
+      <tr><td colspan="2" class="r"><b>TOTAL</b></td><td class="r"><b>${num(opts.entry.total)}</b></td><td class="r"><b>${num(opts.entry.total)}</b></td></tr></tbody></table>`
+    : `<div style="margin-top:8px;font-size:11px"><b>Recapitulation</b></div>
+    <table class="pt"><thead><tr><th>Stock No.</th><th>Quantity</th><th>Unit Cost</th><th>Total Cost</th><th>UACS Object Code</th></tr></thead><tbody>${recap}</tbody></table>`}
     <div class="sig2">${sig("I hereby certify to the correctness of the above information.", s.signatories.propertyCustodian, "Signature over Printed Name of Supply and/or Property Custodian", s.signatories.propertyCustodianPosition, "Designation")}
       ${sig("Posted by:", s.signatories.accountant, "Signature over Printed Name of Designated Accounting Staff", s.signatories.accountantPosition, "Designation")}</div></div>`;
 }
@@ -390,7 +395,7 @@ export function propertyCardHtml(a, rows) {
 /** Property ID tags with a QR code that opens the item's page; `items` = [{ a, url }]. Sized for 3 × 2 in. sticker labels. */
 export function idTagsHtml(items) {
   const s = settings();
-  return `<div class="tags">${items.map(({ a, url }, i) => `<div class="tag"><div class="qr" data-qr="${esc(url)}" id="qr${i}"></div><div class="tinfo"><div class="xs">${esc(s.entityName)}</div><b>${esc(a.propertyNo || "—")}</b>
+  return `<div class="tags">${items.map(({ a, url }, i) => `<div class="tag"><div class="qrcol"><img class="qrlogo" src="assets/municipal-seal.png" alt=""><div class="qr" data-qr="${esc(url)}" id="qr${i}"></div></div><div class="tinfo"><div class="xs">${esc(s.entityName)}</div><b>${esc(a.propertyNo || "—")}</b>
     <div>${esc(a.description).slice(0, 80)}</div><div class="xs">${esc(a.holder?.name || "")}${a.holder?.office ? ` · ${esc(a.holder.office)}` : ""}</div><div class="xs">${esc(fundName(a.fund))} · ${shortDate(a.dateAcquired)}</div></div></div>`).join("")}</div>`;
 }
 
@@ -427,6 +432,57 @@ export function cipLedgerHtml(p, billingTotal) {
 }
 
 /** History of Repair for one item: every job order, oldest first, with a grand total. */
+/** Pre-Repair and Post-Repair Inspection Report (one page, as the municipal form), seal at the upper centre. */
+export function repairInspectionHtml(r, a) {
+  const pre = r.preInspection || {}, post = r.postInspection || {};
+  const line = (label, value, wide = false) => `<tr><td class="lbl" style="width:${wide ? "34%" : "22%"}">${esc(label)}</td><td style="border-bottom:1px solid #000">${esc(value || "") || "&nbsp;"}</td></tr>`;
+  const insp = (who, date) => `<div style="display:flex;justify-content:flex-end;margin-top:26px"><div style="width:42%;text-align:center">
+      <div style="border-bottom:1px solid #000;font-weight:700;min-height:15px">${esc(who || "") || "&nbsp;"}</div><div class="cap">Property Inspector</div>
+      <div style="margin-top:8px;text-align:left">Date: <span style="border-bottom:1px solid #000;display:inline-block;min-width:60%">${date ? fmtDate(date) : "&nbsp;"}</span></div></div></div>`;
+  const box2 = text => `<div style="border:1px solid #000;min-height:70px;padding:6px;white-space:pre-wrap">${esc(text || "")}</div>`;
+  const parNo = a?.source && ["par", "ics"].includes(a.source.kind) ? `${a.source.kind.toUpperCase()} ${a.source.number}` : "";
+  return `<div class="pf">${head("PRE-REPAIR INSPECTION REPORT")}
+    <table class="pinfo pmeta-t" style="margin-top:6px">
+      ${line("Item / Description:", `${r.description}${r.makeModel && r.makeModel !== r.description ? ` — ${r.makeModel}` : ""}${r.plateNo ? ` (Plate No. ${r.plateNo})` : ""}`)}
+    </table>
+    <table class="pinfo pmeta-t"><tr><td class="lbl" style="width:22%">Property Number:</td><td style="border-bottom:1px solid #000;width:28%">${esc(r.propertyNo || "") || "&nbsp;"}</td>
+      <td class="lbl" style="width:24%">Property Acknowledgment Receipt:</td><td style="border-bottom:1px solid #000">${esc(parNo) || "&nbsp;"}</td></tr>
+      <tr><td class="lbl">Acquisition Cost:</td><td style="border-bottom:1px solid #000">${a ? num(a.cost) : "&nbsp;"}</td>
+      <td class="lbl">Acquisition Date:</td><td style="border-bottom:1px solid #000">${a?.dateAcquired ? fmtDate(a.dateAcquired) : "&nbsp;"}</td></tr></table>
+    <table class="pinfo pmeta-t">${line("Nature and Scope of Last Repair, if any:", r.lastRepair, true)}${line("Complaints/Defects:", r.complaints, true)}${line("Parts/components to be Repaired/Replaced:", r.partsToRepair, true)}</table>
+    <div style="margin-top:8px;font-weight:700">FINDINGS / OBSERVATIONS:</div>${box2(pre.findings)}
+    ${insp(pre.inspector, pre.date)}
+    <div class="ph" style="margin-top:22px"><div class="l3">POST - REPAIR INSPECTION REPORT</div></div>
+    <table class="pinfo pmeta-t"><tr><td class="lbl" style="width:18%">Job Order No.</td><td style="border-bottom:1px solid #000;width:22%">${esc(r.jobOrderNo || "") || "&nbsp;"}</td>
+      <td class="lbl" style="width:10%">Amount:</td><td style="border-bottom:1px solid #000;width:18%">${r.jobOrderNo ? num(r.totalCost) : "&nbsp;"}</td>
+      <td class="lbl" style="width:12%">Invoice No.</td><td style="border-bottom:1px solid #000">${esc(r.invoiceNo || "") || "&nbsp;"}</td></tr></table>
+    <div style="margin-top:8px;font-weight:700">Findings/Comments:</div>${box2(post.findings)}
+    ${insp(post.inspector, post.date)}</div>`;
+}
+
+/** Waste Materials Report: parts replaced during a repair, for disposal. */
+export function wmrHtml(r) {
+  const s = settings(), w = r.wmr || { items: [] }, rows = w.items.map((l, i) => `<tr><td class="c">${i + 1}</td><td class="r">${qty(l.qty)}</td><td>${esc(l.unit)}</td><td>${esc(l.description)}</td>
+    <td class="c">${esc(l.orNo)}</td><td class="c">${l.orDate ? fmtDate(l.orDate) : ""}</td><td class="r">${l.amount ? num(l.amount) : ""}</td></tr>`).join("");
+  const total = w.items.reduce((t, l) => t + (Number(l.amount) || 0), 0);
+  const how = { destroyed: "Destroyed", private: "Sold at private sale", auction: "Sold at public auction", transferred: `Transferred without cost to ${w.transferredTo || ""}` };
+  return `<div class="pf">${head("WASTE MATERIALS REPORT")}
+    <table class="pmeta-t"><tr><td>Department/Office: <b>${esc(r.office)}</b></td><td>Fund: <b>${esc(fundName(r.fund))}</b></td></tr>
+      <tr><td>Place of Storage: <b>${esc(w.placeOfStorage)}</b></td><td>Date: <b>${w.date ? fmtDate(w.date) : ""}</b></td></tr></table>
+    <div class="c" style="font-weight:700;margin-top:4px">ITEMS FOR DISPOSAL</div>
+    <table class="pt"><thead><tr><th rowspan="3">Item</th><th rowspan="3">Quantity</th><th rowspan="3">Unit</th><th rowspan="3">Description</th><th colspan="3">Record of Sales</th></tr>
+      <tr><th colspan="2">Official Receipt</th><th rowspan="2">Amount</th></tr><tr><th>No.</th><th>Date</th></tr></thead>
+      <tbody>${rows}${blanks(10 - w.items.length, 7)}<tr><td colspan="6" class="r"><b>TOTAL</b></td><td class="r"><b>${total ? num(total) : ""}</b></td></tr></tbody></table>
+    <div class="pf-ref">Removed during the repair of ${esc(r.description)}${r.propertyNo ? ` (${esc(r.propertyNo)})` : ""} — Job Order No. ${esc(r.jobOrderNo)}</div>
+    <div class="sig2">${sig("Certified Correct:", s.signatories.propertyCustodian, "Signature over Printed Name of Supply and/or Property Custodian", s.signatories.propertyCustodianPosition, "Designation")}
+      ${sig("Disposal Approved:", s.signatories.approver, "Signature over Printed Name of Head of the Agency/Entity or his/her Authorized Representative", s.signatories.approverPosition, "Designation")}</div>
+    <div class="c" style="font-weight:700;margin-top:14px">CERTIFICATE OF INSPECTION</div>
+    <div style="font-size:11px;margin-top:4px">I hereby certify that the property enumerated above was disposed of as follows:</div>
+    <table class="pmeta-t" style="width:70%;margin-left:6%">${Object.entries(how).map(([k, l]) => `<tr><td style="width:18%">Item ${w.disposal === k ? `<b>${w.items.map((x, i) => i + 1).join(", ")}</b>` : "______"}</td><td>${box(w.disposal === k)} ${esc(l)}</td></tr>`).join("")}</table>
+    <div class="sig2">${sig("Certified Correct:", r.postInspection?.inspector || "", "Signature over Printed Name of Inspection Officer", "", "Designation")}
+      ${sig("Witness to Disposal:", "", "Signature over Printed Name of Witness", "", "Designation")}</div></div>`;
+}
+
 export function repairHistoryHtml(a, records) {
   const list = records.slice().sort((x, y) => String(x.jobOrderDate).localeCompare(String(y.jobOrderDate)));
   const latest = list.at(-1) || {};

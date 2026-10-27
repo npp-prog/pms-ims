@@ -149,6 +149,15 @@ export const INV_ACCOUNTS = [
   ["Inventory Held for Consumption", "10404990", "Other Supplies and Materials Inventory", "50203990"]
 ];
 
+/** Expense accounts debited when supplies are issued (the 4th column of INV_ACCOUNTS). */
+export const SUPPLY_EXPENSE_NAMES = {
+  "50203010": "Office Supplies Expenses", "50203020": "Accountable Forms Expenses", "50203030": "Non-Accountable Forms Expenses",
+  "50203040": "Animal/Zoological Supplies Expenses", "50203050": "Food Supplies Expenses", "50203060": "Welfare Goods Expenses",
+  "50203070": "Drugs and Medicines Expenses", "50203080": "Medical, Dental and Laboratory Supplies Expenses", "50203090": "Fuel, Oil and Lubricants Expenses",
+  "50203100": "Agricultural and Marine Supplies Expenses", "50203110": "Textbooks and Instructional Materials Expenses",
+  "50203120": "Military, Police and Traffic Supplies Expenses", "50203130": "Chemical and Filtering Supplies Expenses",
+  "50203990": "Other Supplies and Materials Expenses", "50299080": "Donations"
+};
 export const ACCOUNTS_BY_CATEGORY = { ppe: PPE_ACCOUNTS, sx: SX_ACCOUNTS, cons: INV_ACCOUNTS };
 const ALL = [...PPE_ACCOUNTS, ...SX_ACCOUNTS, ...INV_ACCOUNTS];
 

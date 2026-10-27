@@ -1,6 +1,6 @@
 // Business rules of the AIR → PAR / ICS / RIS → Accounting posting flow.
 // Pure functions only (no Firebase), so the same code runs in the browser and in the tests.
-import { DEFAULT_THRESHOLDS, DOC_TYPES } from "./catalog.js";
+import { DEFAULT_THRESHOLDS, DOC_TYPES, INV_ACCOUNTS, SUPPLY_EXPENSE_NAMES, accountName } from "./catalog.js";
 
 export const round2 = n => Math.round((Number(n) || 0) * 100 + Number.EPSILON * 100) / 100;
 export const lineAmount = l => round2((Number(l.qty) || 0) * (Number(l.unitCost) || 0));
@@ -191,7 +191,8 @@ export function checkIssue(air, docType, picks) {
 /** Supplies stock cards for one fund: receipts are approved AIR supply lines (on the date received),
  *  issues are RIS lines. Cost is carried per AIR line (specific identification), so the balance in
  *  pesos is exact. */
-export function stockCards(airs, docs, fund, asOf = "") {
+/** Supplies enter the Inventory Registry when Accounting posts their AIR (postedOnly: false also counts AIRs not yet posted). */
+export function stockCards(airs, docs, fund, asOf = "", { postedOnly = true } = {}) {
   const cards = new Map();
   const card = l => {
     const key = String(l.stockNo || "").trim().toUpperCase();
@@ -200,6 +201,7 @@ export function stockCards(airs, docs, fund, asOf = "") {
   };
   for (const a of airs || []) {
     if (a.fund !== fund || !["approved", "issued"].includes(a.status)) continue;
+    if (postedOnly && !a.posting?.posted) continue;
     for (const l of a.lines || []) {
       if (l.category !== "cons") continue;
       card(l).moves.push({ date: a.acceptance?.dateReceived || a.date, ref: `AIR ${a.airNo}`, type: "receipt", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: a.office });
@@ -246,6 +248,68 @@ export function rsmi(docs, fund, from, to, { byJev = false } = {}) {
   }
   return { lines, recap: [...recap.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo)), total: round2(lines.reduce((t, l) => t + l.amount, 0)),
     jevs: [...new Set(lines.map(l => l.jevNo).filter(Boolean))] };
+}
+/* ---------------- stock numbers ---------------- */
+const STOCK_NO = /^(.*?)(\d+)$/;
+/**
+ * Stock No. suggested for a supply line from the Inventory Registry: the item's own stock number if it is already there
+ * (same description), otherwise the next number in its account's series (OS-0012 → OS-0013), or a new series named after
+ * the account (Office Supplies Inventory → OSI-0001). `taken` are numbers already suggested on the same AIR.
+ * cards: [{ stockNo, description, accountCode }]
+ */
+export function suggestStockNo(line, cards, taken = []) {
+  const d = String(line.description || "").trim().toLowerCase();
+  const same = d && (cards || []).find(c => String(c.description || "").trim().toLowerCase() === d && c.stockNo);
+  if (same) return same.stockNo;
+  const used = new Set([...(cards || []).map(c => String(c.stockNo || "").toUpperCase()), ...taken.map(t => String(t).toUpperCase())]);
+  const ofAcct = (cards || []).filter(c => c.accountCode === line.accountCode && STOCK_NO.test(c.stockNo || ""));
+  let prefix, width = 4, n = 0;
+  if (ofAcct.length) {
+    const last = ofAcct.map(c => c.stockNo.match(STOCK_NO)).sort((a, b) => Number(b[2]) - Number(a[2]))[0];
+    prefix = last[1]; width = last[2].length; n = Number(last[2]);
+  } else {
+    const words = String(accountName(line.accountCode) || "").replace(/\b(and|for|of|the)\b/gi, " ").split(/[^A-Za-z]+/).filter(Boolean);
+    prefix = `${(words.map(w => w[0]).join("") || "SN").toUpperCase()}-`;
+  }
+  let next;
+  do next = `${prefix}${String(++n).padStart(width, "0")}`; while (used.has(next.toUpperCase()));
+  return next;
+}
+
+/* ---------------- property numbers ---------------- */
+// Property No. (PPE) / Inventory Item No. (semi-expendable): year purchased - asset group - sub-major account -
+// general ledger - series, e.g. 10705020 (Office Equipment) bought in 2026 → 2026-07-05-02-0001.
+// The series runs per year across all accounts.
+export const propertyNoPrefix = (accountCode, year) => { const c = String(accountCode || ""); return /^\d{8}$/.test(c) ? `${year}-${c.slice(1, 3)}-${c.slice(3, 5)}-${c.slice(5, 7)}` : ""; };
+const PROP_NO = /^(\d{4})-\d{2}-\d{2}-\d{2}-(\d{4,})$/;
+/** The next series number for a year, after every property number already used that year. */
+export function nextPropertySeq(propertyNos, year) {
+  let max = 0;
+  for (const n of propertyNos || []) { const m = String(n || "").match(PROP_NO); if (m && m[1] === String(year)) max = Math.max(max, Number(m[2])); }
+  return max + 1;
+}
+/** Suggested numbers for lines about to be issued: [{ accountCode, qty }] → one number per unit, in order. */
+export function suggestPropertyNos(lines, year, used) {
+  let seq = nextPropertySeq(used, year);
+  return lines.map(l => { const p = propertyNoPrefix(l.accountCode, year); return p ? `${p}-${String(seq++).padStart(4, "0")}` : ""; });
+}
+
+/**
+ * The proposed accounting entry for an RSMI: the supplies issued are charged to the expense account of each inventory
+ * account (debit) and taken out of inventory (credit), one line per account. An inventory account without a set expense
+ * account shows its debit as "to be set".
+ */
+export function rsmiEntry(lines) {
+  const dr = new Map(), cr = new Map();
+  for (const l of lines || []) {
+    const inv = INV_ACCOUNTS.find(a => a[1] === String(l.accountCode)), exp = inv?.[3] || "";
+    const d = dr.get(exp) || { code: exp, name: exp ? SUPPLY_EXPENSE_NAMES[exp] || accountName(exp) || "" : "Expense account to be set", amount: 0 };
+    d.amount = round2(d.amount + l.amount); dr.set(exp, d);
+    const c = cr.get(l.accountCode) || { code: String(l.accountCode || ""), name: accountName(l.accountCode), amount: 0 };
+    c.amount = round2(c.amount + l.amount); cr.set(l.accountCode, c);
+  }
+  const by = (a, b) => (!a.code) - (!b.code) || a.code.localeCompare(b.code);
+  return { debits: [...dr.values()].sort(by), credits: [...cr.values()].sort(by), total: round2([...cr.values()].reduce((t, c) => t + c.amount, 0)) };
 }
 /** The monthly RSMIs of a fund: one per month in which RIS were posted (by JEV date), newest first. */
 export function rsmiMonths(docs, fund) {

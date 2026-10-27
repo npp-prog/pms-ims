@@ -1,5 +1,5 @@
 // Attachments panel: signed PAR / ICS / RIS, PTR and other scanned documents or links, on a document or a register item.
-import { S, can } from "../state.js";
+import { S, can, onChange } from "../state.js";
 import { $, $$, esc, busy, toast, fmtDateTime, opts, confirmBox } from "../ui.js";
 import { addAttachment, attachmentUrl, removeAttachment, ATTACH_TYPES } from "../data.js";
 
@@ -12,20 +12,30 @@ export const attachmentsOf = targets => S.d.attachments.filter(a => targets.some
   .sort((x, y) => (y.at?.seconds || 0) - (x.at?.seconds || 0));
 export const canAttach = () => can("issue") || can("post");
 
+const extOf = a => (String(a.name || "").match(/\.([a-z0-9]{2,5})$/i) || [])[1] || ({ "application/pdf": "pdf", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[a.mime] || "");
+/** The name a file is shown and saved under: as uploaded, or — with a prefix (e.g. the approved AIR No.) — "<prefix>-<document type>". */
+export const attachmentName = (a, prefix = "") => !prefix || a.kind === "link" ? a.name : `${prefix}-${a.label}`.replace(/[\\/:*?"<>|]+/g, "-") + (extOf(a) ? `.${extOf(a)}` : "");
+
 /**
  * A card listing the attachments and, for the GSO and Accounting, a form to add one.
  * target: where new attachments go { type, id, office, fund, label }; also: other targets whose attachments are shown too
  * (e.g. an item's page also shows its signed PAR). defaultLabel preselects the kind of document.
+ * labels: the document types offered; canAdd: who may attach (default GSO and Accounting); canRemove(a): who may remove one;
+ * namePrefix: files are shown and downloaded as "<namePrefix>-<document type>" (e.g. the AIR No. once the GSO gives it).
  */
-export function attachmentsCard(el, target, { also = [], defaultLabel = "Other", title = "Attachments" } = {}) {
+export function attachmentsCard(el, target, options = {}) {
+  const { also = [], defaultLabel = "Other", title = "Attachments", labels = ATTACH_LABELS, canAdd = canAttach(), canRemove = () => canAttach(), namePrefix = "", note = "" } = options;
+  // redraw when attachments change while the card is on screen (pages redraw themselves; a card in a dialog doesn't)
+  if (!el._attWatch) { el._attWatch = true; const off = onChange(k => { if (!el.isConnected) { off(); return; } if (k === "r:attachments" && !el.querySelector("[data-af] :focus")) attachmentsCard(el, target, options); }); }
   const list = attachmentsOf([target, ...also]);
   el.innerHTML = `<div class="card"><div class="card-head"><h3>${esc(title)}</h3><span class="small muted">${list.length || ""}</span></div>
+    ${note ? `<p class="small muted" style="margin-top:0">${note}</p>` : ""}
     ${list.length ? `<ul class="attach">${list.map(a => `<li data-id="${esc(a.id)}"><span class="ic">${ICON}</span><div class="t"><b>${esc(a.label)}</b>${a.target.id !== target.id ? ` <span class="xs muted">· on ${esc(a.about || a.target.type)}</span>` : ""}
-        <div class="xs muted">${esc(a.name)}${a.size ? ` · ${size(a.size)}` : a.kind === "link" ? " · link" : ""} · ${fmtDateTime(a.at)} · ${esc(a.uploadedBy?.name || "")}</div></div>
-        <div class="btn-row"><button class="btn sm" data-open>Open</button>${canAttach() ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`).join("")}</ul>`
-      : `<p class="muted small" style="margin:0">${canAttach() ? "No documents attached yet — attach the signed copy once it comes back." : "No documents attached."}</p>`}
-    ${canAttach() ? `<form class="grid g3" data-af style="margin-top:1rem;align-items:end">
-        <div><label>Document</label><select name="label">${opts(ATTACH_LABELS, defaultLabel)}</select></div>
+        <div class="xs muted">${esc(attachmentName(a, a.target.id === target.id ? namePrefix : ""))}${a.size ? ` · ${size(a.size)}` : a.kind === "link" ? " · link" : ""} · ${fmtDateTime(a.at)} · ${esc(a.uploadedBy?.name || "")}</div></div>
+        <div class="btn-row"><button class="btn sm" data-open>Open</button>${a.kind === "file" ? `<button class="btn sm" data-dl>Download</button>` : ""}${canRemove(a) ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`).join("")}</ul>`
+      : `<p class="muted small" style="margin:0">${canAdd ? "No documents attached yet." : "No documents attached."}</p>`}
+    ${canAdd ? `<form class="grid g3" data-af style="margin-top:1rem;align-items:end">
+        <div><label>Document</label><select name="label">${opts(labels, defaultLabel)}</select></div>
         <div><label>File (PDF, JPG or PNG, up to 5 MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
         <div><label>…or a link</label><input name="url" placeholder="https://drive.google.com/…"></div>
         <div class="spanall btn-row end"><button class="btn primary sm" type="submit">Attach</button></div></form>` : ""}</div>`;
@@ -45,6 +55,14 @@ export function attachmentsCard(el, target, { also = [], defaultLabel = "Other",
       if (w) w.location.href = url; else location.href = url;
       if (url.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(url), 60000);
     }).catch(() => w?.close());
+  });
+  $$("[data-dl]", el).forEach(b => b.onclick = () => {
+    const a = list.find(x => x.id === b.closest("li").dataset.id);
+    busy(b, async () => {
+      const url = await attachmentUrl(a), link = document.createElement("a");
+      link.href = url; link.download = attachmentName(a, a.target.id === target.id ? namePrefix : ""); link.click();
+      if (url.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }).catch(() => {});
   });
   $$("[data-rm]", el).forEach(b => b.onclick = async () => {
     const a = list.find(x => x.id === b.closest("li").dataset.id);

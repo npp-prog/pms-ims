@@ -4,7 +4,7 @@ import { $, $$, esc, money, num, qty, fmtDate, manilaToday, downloadCSV, renderT
 import { accumAsOf, impairmentAsOf, periodOf, periodEnd } from "../core/assets.js";
 import { printCards } from "./assetforms.js";
 import { fundName, accountName, CATEGORIES } from "../core/catalog.js";
-import { rsmi, rsmiMonths, risAwaitingPosting, postingSummary, AIR_STATUS, POSTING_STATE, round2 } from "../core/logic.js";
+import { rsmi, rsmiEntry, rsmiMonths, risAwaitingPosting, postingSummary, AIR_STATUS, POSTING_STATE, round2 } from "../core/logic.js";
 import { printForm, rsmiHtml, tableReportHtml } from "../print.js";
 
 const st = { tab: "rsmi", from: manilaToday().slice(0, 8) + "01", to: manilaToday(), month: "" };
@@ -33,25 +33,38 @@ function draw(main) {
   if (st.tab === "rsmi") {
     // one RSMI a month, made from the RIS Accounting posted that month (by JEV date)
     const months = rsmiMonths(S.d.docs, S.fund), waiting = risAwaitingPosting(S.d.docs, S.fund);
+    const range = st.rmode === "range";
     const month = st.month || months[0]?.period || manilaToday().slice(0, 7);
-    const from = `${month}-01`, to = periodEnd(month);
-    const r = rsmi(S.d.docs, S.fund, from, to, { byJev: true });
-    out.innerHTML = `<p class="small muted">The RSMI is made each month from the RIS that Accounting <b>posted</b> that month: an RIS goes into the month of its JEV date, whatever date it was issued.</p>
+    if (!st.rfrom) { st.rfrom = `${month}-01`; st.rto = periodEnd(month); }
+    const from = range ? st.rfrom : `${month}-01`, to = range ? st.rto : periodEnd(month);
+    const r = rsmi(S.d.docs, S.fund, from, to, { byJev: true }), je = rsmiEntry(r.lines);
+    const entry = `<h4 style="margin:1rem 0 .4rem">Recapitulation — proposed accounting entry</h4>
+      <div class="table-wrap"><table><thead><tr><th>Account</th><th>Account title</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead><tbody>
+        ${je.debits.map(d => `<tr><td><b>${esc(d.code || "—")}</b></td><td>${esc(d.name)}</td><td class="right">${num(d.amount)}</td><td></td></tr>`).join("")}
+        ${je.credits.map(c => `<tr><td><b>${esc(c.code)}</b></td><td style="padding-left:2rem">${esc(c.name)}</td><td></td><td class="right">${num(c.amount)}</td></tr>`).join("")}
+      </tbody><tfoot><tr><td colspan="2" class="right">Total</td><td class="right">${money(je.total)}</td><td class="right">${money(je.total)}</td></tr></tfoot></table></div>
+      <p class="xs muted" style="margin-top:.4rem">To record the supplies and materials issued${range ? ` from ${fmtDate(from)} to ${fmtDate(to)}` : ` for ${esc(monthName(month))}`} per RSMI.</p>`;
+    out.innerHTML = `<p class="small muted">The RSMI is made from the RIS that Accounting <b>posted</b>: an RIS goes into the period of its JEV date, whatever date it was issued. Choose a month, or any date coverage.</p>
+      <div class="tabs" data-nodirty><button type="button" data-rmode="month" class="${range ? "" : "active"}">By month</button><button type="button" data-rmode="range" class="${range ? "active" : ""}">By date coverage</button></div>
       <div class="split rep-split">
         <div><div class="table-wrap"><table><thead><tr><th>Month</th><th class="right">RIS</th><th class="right">Amount</th></tr></thead>
           <tbody>${months.map(m => `<tr class="click ${m.period === month ? "sel" : ""}" data-m="${esc(m.period)}"><td><b>${esc(monthName(m.period))}</b><div class="xs muted">RSMI No. ${esc(m.period)}</div></td><td class="right">${m.ris}</td><td class="right">${num(m.total)}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No RIS posted yet.</td></tr>`}</tbody></table></div>
           <div style="margin-top:.6rem" data-nodirty><label>Other month</label><input type="month" id="rm" value="${esc(month)}"></div>
           ${waiting.length ? `<div class="notice info" style="margin-top:.8rem">${waiting.length} RIS issued but not yet posted (${money(waiting.reduce((t, d) => t + (d.total || 0), 0))}) — ${waiting.length === 1 ? "it goes" : "they go"} into the RSMI of the month Accounting posts ${waiting.length === 1 ? "it" : "them"}.</div>` : ""}</div>
-        <div><h3 style="margin:0 0 .2rem">RSMI No. ${esc(month)} — ${esc(monthName(month))}</h3>
+        <div>${range ? `<div class="table-tools" data-nodirty><div><label>From (JEV date)</label><input type="date" id="rf" value="${esc(from)}"></div><div><label>To</label><input type="date" id="rt" value="${esc(to)}"></div></div>
+          <h3 style="margin:0 0 .2rem">RSMI — ${fmtDate(from)} to ${fmtDate(to)}</h3>` : `<h3 style="margin:0 0 .2rem">RSMI No. ${esc(month)} — ${esc(monthName(month))}</h3>`}
           <p class="xs muted" style="margin:0 0 .6rem">${r.jevs.length ? `JEV ${r.jevs.map(esc).join(", ")}` : "No RIS posted in this month."}</p>
           <div class="table-wrap"><table><thead><tr><th>RIS No.</th><th>JEV date</th><th>Office</th><th>Stock No.</th><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th></tr></thead>
           <tbody>${r.lines.map(l => `<tr><td>${esc(l.risNo)}<div class="xs muted">issued ${fmtDate(l.date)}</div></td><td>${fmtDate(l.jevDate)}<div class="xs muted">${esc(l.jevNo)}</div></td><td>${esc(l.office)}</td><td>${esc(l.stockNo)}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)} ${esc(l.unit)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">Nothing in this month.</td></tr>`}</tbody>
-          <tfoot><tr><td colspan="7" class="right">Total</td><td class="right">${money(r.total)}</td></tr></tfoot></table></div></div></div>`;
-    $$("[data-m]", out).forEach(tr => tr.onclick = () => { st.month = tr.dataset.m; draw(main); });
-    $("#rm", out).onchange = e => { if (e.target.value) { st.month = e.target.value; draw(main); } };
-    $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, from, to, { month }), "landscape");
-    $("#csv", main).onclick = () => downloadCSV(`RSMI-${S.fund}-${month}`, ["RSMI No.", "RIS No.", "RIS Date", "JEV No.", "JEV Date", "Office", "Stock No.", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Account"],
-      r.lines.map(l => [month, l.risNo, l.date, l.jevNo, l.jevDate, l.office, l.stockNo, l.description, l.unit, l.qty, l.unitCost, l.amount, l.accountCode]));
+          <tfoot><tr><td colspan="7" class="right">Total</td><td class="right">${money(r.total)}</td></tr></tfoot></table></div>${r.lines.length ? entry : ""}</div></div>`;
+    $$("[data-rmode]", out).forEach(b => b.onclick = () => { st.rmode = b.dataset.rmode; draw(main); });
+    $("#rf", out) && ($("#rf", out).onchange = e => { st.rfrom = e.target.value; if (st.rto < st.rfrom) st.rto = st.rfrom; draw(main); });
+    $("#rt", out) && ($("#rt", out).onchange = e => { st.rto = e.target.value; draw(main); });
+    $$("[data-m]", out).forEach(tr => tr.onclick = () => { st.month = tr.dataset.m; st.rmode = "month"; draw(main); });
+    $("#rm", out).onchange = e => { if (e.target.value) { st.month = e.target.value; st.rmode = "month"; draw(main); } };
+    $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, from, to, range ? { entry: je } : { month, entry: je }), "landscape");
+    $("#csv", main).onclick = () => downloadCSV(`RSMI-${S.fund}-${range ? `${from}_to_${to}` : month}`, ["RSMI No.", "RIS No.", "RIS Date", "JEV No.", "JEV Date", "Office", "Stock No.", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Account"],
+      r.lines.map(l => [range ? `${from} to ${to}` : month, l.risNo, l.date, l.jevNo, l.jevDate, l.office, l.stockNo, l.description, l.unit, l.qty, l.unitCost, l.amount, l.accountCode]));
   } else if (st.tab === "accounts") {
     const acc = new Map();
     const get = (code, cat) => { if (!acc.has(code)) acc.set(code, { code, cat, received: 0, issued: 0, posted: 0 }); return acc.get(code); };

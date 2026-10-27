@@ -130,6 +130,9 @@ test("GSO issues documents only from approved AIRs, in the same fund and for the
   await assertFails(setDoc(doc(g, "issuances/N5"), baseDoc({ posting: { posted: true } })));
   await assertFails(setDoc(doc(ctx("acc"), "issuances/N6"), baseDoc()));
   await assertFails(setDoc(doc(ctx("eu"), "issuances/N7"), baseDoc()));
+  // supplies (RIS) only once Accounting has posted the AIR
+  await assertFails(setDoc(doc(g, "issuances/N9"), baseDoc({ docType: "ris", number: "2026-10-0006" })));
+  await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), "airs/A_APPR"), { posting: { posted: true } }));
   // the issuance + AIR quantity update run in one transaction
   await assertSucceeds(runTransaction(g, async tx => {
     const ref = doc(g, "airs/A_APPR"); const a = (await tx.get(ref)).data();
@@ -279,30 +282,43 @@ test("Construction in Progress and SWA", async () => {
   await assertFails(setDoc(doc(ctx("acc"), "assets/NOCIP"), asset({ source: { kind: "par" } })), "Accounting can't create other property");
 });
 
-test("History of Repair: End-Users record repairs of their own property; the GSO verifies", async () => {
+test("History of Repair: request, pre-repair inspection, job order, post-repair inspection (+ WMR), Accounting posts, GSO verifies", async () => {
   await env.withSecurityRulesDisabled(async c => {
     const d = c.firestore();
     await setDoc(doc(d, "assets/MINE"), asset({ custodianUid: "eu" }));
     await setDoc(doc(d, "assets/OTHERS"), asset({ custodianUid: "eu2" }));
+    await setDoc(doc(d, "repairs/OLD"), { fund: "GF", assetId: "MINE", endUserUid: "eu", status: "submitted", jobOrderNo: "JO-0", parts: [], totalCost: 50 });
   });
-  const rep = (o = {}) => ({ fund: "GF", assetId: "MINE", endUserUid: "eu", status: "submitted", jobOrderNo: "JO-1", parts: [], totalCost: 100, ...o });
-  const e = ctx("eu");
+  const rep = (o = {}) => ({ fund: "GF", assetId: "MINE", endUserUid: "eu", status: "requested", complaints: "No power", parts: [], totalCost: 0, ...o });
+  const e = ctx("eu"), g = ctx("gso"), acc = ctx("acc");
   await assertSucceeds(setDoc(doc(e, "repairs/R1"), rep()));
   await assertFails(setDoc(doc(e, "repairs/R2"), rep({ assetId: "OTHERS" })), "not their property");
-  await assertFails(setDoc(doc(e, "repairs/R3"), rep({ endUserUid: "eu2" })));
-  await assertFails(setDoc(doc(e, "repairs/R4"), rep({ status: "verified" })));
-  await assertFails(setDoc(doc(ctx("pend"), "repairs/R5"), rep({ endUserUid: "pend" })));
-  await assertSucceeds(setDoc(doc(ctx("gso"), "repairs/R6"), rep({ assetId: "OTHERS", endUserUid: "eu2" })), "the GSO records for anyone");
-  await assertSucceeds(getDocs(query(collection(e, "repairs"), where("endUserUid", "==", "eu"))));
+  await assertFails(setDoc(doc(e, "repairs/R3"), rep({ status: "repaired" })), "a repair starts as a request");
+  await assertFails(setDoc(doc(e, "repairs/R4"), rep({ preInspection: { approved: true } })), "can't inspect it themselves");
+  await assertSucceeds(setDoc(doc(g, "repairs/R6"), rep({ assetId: "OTHERS", endUserUid: "eu2" })), "the GSO requests for anyone");
   await assertFails(getDoc(doc(e, "repairs/R6")));
-  await assertSucceeds(updateDoc(doc(e, "repairs/R1"), { totalCost: 120 }));
-  await assertFails(updateDoc(doc(e, "repairs/R1"), { status: "verified" }), "can't verify their own");
-  await assertFails(updateDoc(doc(ctx("gso"), "repairs/R1"), { status: "verified", totalCost: 1 }), "verification changes nothing else");
-  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R1"), { status: "verified", verifiedBy: { name: "Ramon" } }));
-  await assertFails(updateDoc(doc(e, "repairs/R1"), { totalCost: 5, status: "submitted" }), "verified: locked");
+  // the job order can't be recorded before the pre-repair inspection
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { status: "repaired", jobOrderNo: "JO-1" }));
+  await assertSucceeds(updateDoc(doc(e, "repairs/R1"), { complaints: "No power, burnt smell" }));
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { status: "preinspected", preInspection: { approved: true } }), "only the GSO inspects");
+  await assertFails(updateDoc(doc(g, "repairs/R1"), { status: "preinspected", preInspection: { approved: true }, totalCost: 1 }), "the inspection changes nothing else");
+  await assertSucceeds(updateDoc(doc(g, "repairs/R1"), { status: "preinspected", preInspection: { approved: true, findings: "PSU busted" } }));
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { preInspection: { approved: true, findings: "fine" } }), "the findings are the GSO's");
+  await assertSucceeds(updateDoc(doc(e, "repairs/R1"), { status: "repaired", jobOrderNo: "JO-1", totalCost: 1800 }));
+  await assertFails(updateDoc(doc(acc, "repairs/R1"), { status: "posted", posting: { posted: true } }), "posted only after the post-repair inspection");
+  await assertSucceeds(updateDoc(doc(g, "repairs/R1"), { status: "inspected", postInspection: { approved: true }, wmr: { items: [{ description: "Old PSU" }] } }));
+  await assertFails(updateDoc(doc(g, "repairs/R1"), { status: "verified" }), "verified only after Accounting posts it");
+  await assertFails(updateDoc(doc(g, "repairs/R1"), { status: "posted", posting: { posted: true } }), "the GSO doesn't post");
+  await assertSucceeds(updateDoc(doc(acc, "repairs/R1"), { status: "posted", posting: { posted: true, ref: "JEV-9" } }));
+  await assertFails(updateDoc(doc(e, "repairs/R1"), { totalCost: 5, status: "repaired" }), "posted: locked for the End-User");
+  await assertSucceeds(updateDoc(doc(g, "repairs/R1"), { status: "verified", verifiedBy: { name: "Ramon" } }));
   await assertFails(deleteDoc(doc(e, "repairs/R1")));
-  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "returned", gsoRemarks: "Attach JO" }));
-  await assertSucceeds(updateDoc(doc(ctx("gso"), "repairs/R6"), { status: "submitted", totalCost: 99 }), "corrected and resent");
+  // returned at the pre-repair inspection: back to the request, not to the job order
+  await assertSucceeds(updateDoc(doc(g, "repairs/R6"), { status: "returned", gsoRemarks: "Not repairable", preInspection: { approved: false } }));
+  await assertFails(updateDoc(doc(g, "repairs/R6"), { status: "repaired", jobOrderNo: "x" }));
+  await assertSucceeds(updateDoc(doc(g, "repairs/R6"), { status: "requested", complaints: "Retest" }));
+  // a repair recorded before the inspections continues at the post-repair inspection
+  await assertSucceeds(updateDoc(doc(g, "repairs/OLD"), { status: "inspected", postInspection: { approved: true } }));
 });
 
 test("End-Users see the property and PAR/ICS/RIS of their own office, not other offices'", async () => {
@@ -498,4 +514,44 @@ test("pending PAR / ICS from PMS: only administrators bring them over, unposted,
   await assertFails(setDoc(doc(ad, "issuances/PMS5"), pmsDoc({ number: "2026-10-0011", origin: "other" })));
   // Accounting posts it; the GSO can cancel it while unposted
   await assertSucceeds(updateDoc(doc(ctx("gso"), "issuances/PMS1"), { status: "cancelled", cancel: { reason: "x" }, updatedAt: 1 }));
+});
+
+test("attachments on AIRs (End-Users of the office: photo, invoice) and SWAs (GSO / Accounting)", async () => {
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), "users/eu"), { uid: "eu", role: "enduser", status: "active", office: "MHO" }));
+  const att = (uid, o = {}) => ({ target: { type: "air", id: "A_SUB" }, office: "MHO", fund: "GF", label: "Invoice", kind: "file", name: "inv.pdf", size: 1000, chunks: 1, uploadedBy: { uid }, ...o });
+  const e = ctx("eu");
+  await assertSucceeds(setDoc(doc(e, "attachments/X1/chunks/0"), { data: "JVBERi0=", by: "eu" }));
+  await assertSucceeds(setDoc(doc(e, "attachments/X1"), att("eu")));
+  await assertFails(setDoc(doc(e, "attachments/X2"), att("eu", { office: "MTO" })), "only their own office's AIRs");
+  await assertFails(setDoc(doc(e, "attachments/X3"), att("eu", { target: { type: "issuance", id: "D1" } })), "End-Users attach only to AIRs");
+  await assertSucceeds(setDoc(doc(ctx("gso"), "attachments/X4"), att("gso", { target: { type: "swa", id: "S1" }, office: "" })));
+  await assertFails(setDoc(doc(ctx("eu2"), "attachments/X5"), att("eu2", { office: "" })));
+  await assertSucceeds(deleteDoc(doc(e, "attachments/X1/chunks/0")));
+  await assertSucceeds(deleteDoc(doc(e, "attachments/X1")), "the uploader removes their own");
+  await assertFails(deleteDoc(doc(e, "attachments/X4")));
+});
+
+test("renumbering: the GSO changes the number of a 2026 AIR or PAR / ICS / RIS; the old number is released", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "docNumbers/GF_par_2026-10-0001"), { number: "2026-10-0001", type: "par", path: "issuances/D1", by: "gso" });
+    await setDoc(doc(d, "issuances/D25"), baseDoc({ date: "2025-12-01", number: "2025-12-0001" }));
+    await updateDoc(doc(d, "issuances/D1"), { date: "2026-10-02" });
+    await setDoc(doc(d, "assets/P1"), asset({ source: { kind: "par", docId: "D1", number: "2026-10-0001" } }));
+  });
+  const g = ctx("gso");
+  await assertFails(updateDoc(doc(g, "issuances/D1"), { number: "2026-10-0099", total: 1 }), "only the number");
+  await assertFails(updateDoc(doc(g, "issuances/D25"), { number: "2025-12-0099" }), "2026 only");
+  await assertFails(updateDoc(doc(ctx("acc"), "issuances/D1"), { number: "2026-10-0099" }), "the GSO renumbers");
+  const b = writeBatch(g);
+  b.set(doc(g, "docNumbers/GF_par_2026-10-0099"), { number: "2026-10-0099", type: "par", path: "issuances/D1", by: "gso" });
+  b.update(doc(g, "issuances/D1"), { number: "2026-10-0099", renumbered: [] });
+  b.delete(doc(g, "docNumbers/GF_par_2026-10-0001"));
+  b.update(doc(g, "assets/P1"), { source: { kind: "par", docId: "D1", number: "2026-10-0099" } });
+  await assertSucceeds(b.commit());
+  await env.withSecurityRulesDisabled(c => setDoc(doc(c.firestore(), "docNumbers/GF_par_2026-10-0099x"), { number: "2026-10-0099", type: "par", path: "issuances/D1", by: "gso" }));
+  await assertFails(deleteDoc(doc(g, "docNumbers/GF_par_2026-10-0099x")), "a number still in use stays claimed");
+  await assertFails(updateDoc(doc(g, "assets/P1"), { source: { kind: "par", docId: "OTHER", number: "x" } }), "the item stays linked to its document");
+  await assertSucceeds(updateDoc(doc(g, "airs/A_APPR"), { airNo: "2026-10-0777", history: [] }));
 });

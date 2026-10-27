@@ -137,7 +137,7 @@ export function renderTable(el, cfg) {
     <div class="table-wrap"><table><thead><tr>${cfg.columns.map((c, i) => `<th class="${c.sort ? "sortable" : ""} ${c.headCls || ""}" data-i="${i}">${esc(c.label)}</th>`).join("")}</tr></thead><tbody></tbody><tfoot></tfoot></table></div>
     <div class="pager"></div>`;
   if (fresh) (cfg.filters || []).forEach(f => { if (f.value) st.filters[f.key] = f.value; });
-  const q0 = $("[data-q]", el); if (q0) q0.value = st.q;
+  const q0 = $("[data-q]", el); if (q0) q0.value = st.qText ?? st.q;
   $$("[data-f]", el).forEach(s => { if (st.filters[s.dataset.f] !== undefined) s.value = st.filters[s.dataset.f]; });
   const rows = cfg.rows || [];
   const draw = () => {
@@ -161,7 +161,7 @@ export function renderTable(el, cfg) {
     $$(".pager [data-p]", el).forEach(b => b.onclick = () => { st.page += +b.dataset.p; draw(); });
     el.currentRows = list;
   };
-  const q = $("[data-q]", el); if (q) q.oninput = () => { st.q = q.value.trim().toLowerCase(); st.page = 0; draw(); };
+  const q = $("[data-q]", el); if (q) q.oninput = () => { st.qText = q.value; st.q = q.value.trim().toLowerCase(); st.page = 0; draw(); };
   $$("[data-f]", el).forEach(s => s.onchange = () => { st.filters[s.dataset.f] = s.value; st.page = 0; draw(); });
   $$("th.sortable", el).forEach(th => th.onclick = () => { const i = +th.dataset.i; st.dir = st.sort === i ? -st.dir : 1; st.sort = i; draw(); });
   draw();

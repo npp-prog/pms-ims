@@ -184,3 +184,17 @@ test("property numbers: year purchased - group - sub major - GL - series, one se
   assert.equal(nextPropertySeq([], 2027), 1);
   assert.deepEqual(suggestPropertyNos([{ accountCode: "10705020" }, { accountCode: "10707010" }], 2026, ["2026-07-05-02-0001"]), ["2026-07-05-02-0002", "2026-07-07-01-0003"]);
 });
+
+test("the RSMI lists only the RIS not yet posted by Accounting, by RIS date", async () => {
+  const { rsmi: R, rsmiMonths } = await import("../public/js/core/logic.js");
+  const l = q => ({ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: q, unitCost: 250, accountCode: "10404010" });
+  const docs = [
+    { fund: "GF", docType: "ris", status: "issued", number: "R1", date: "2026-10-05", lines: [l(2)], posting: { posted: true, date: "2026-10-06", ref: "JEV-1" } },
+    { fund: "GF", docType: "ris", status: "issued", number: "R2", date: "2026-10-30", lines: [l(1)], posting: { posted: false } },
+    { fund: "GF", docType: "ris", status: "issued", number: "R3", date: "2026-11-02", lines: [l(3)] },
+    { fund: "GF", docType: "ris", status: "cancelled", number: "R4", date: "2026-10-10", lines: [l(9)] }
+  ];
+  assert.deepEqual(R(docs, "GF", "2026-10-01", "2026-10-31", { unposted: true }).lines.map(x => x.risNo), ["R2"]);
+  assert.deepEqual(R(docs, "GF", "2026-10-01", "2026-11-30", { unposted: true }).lines.map(x => x.risNo), ["R2", "R3"]);
+  assert.deepEqual(rsmiMonths(docs, "GF", { unposted: true }).map(m => [m.period, m.ris]), [["2026-11", 1], ["2026-10", 1]]);
+});

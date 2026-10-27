@@ -185,11 +185,11 @@ continue at step 4.
 - **RIS posted only after its AIR:** the GSO may prepare and issue the RIS any time after approval, but Accounting can
   post an RIS only once its AIR is posted (or together with it). An RIS issued before the AIR is posted counts in the
   Inventory Registry from when the AIR is posted.
-- **RSMI by JEV date — monthly or any date coverage:** Reports → RSMI lists one RSMI per month (RSMI No. = the month,
-  e.g. 2026-10), or choose **By date coverage** for any from–to range. It is made from the RIS that Accounting posted —
-  an RIS goes into the period of its JEV date, whatever date it was issued. The **recapitulation is the proposed
-  accounting entry**: each expense account debited (e.g. 50203010 Office Supplies Expenses) and each inventory account
-  credited, on screen and on the printed RSMI.
+- **RSMI — the RIS not yet posted, monthly or any date coverage:** Reports → RSMI lists, by RIS date, the RIS that
+  Accounting has **not yet posted** (RSMI No. = the month, e.g. 2026-10), or choose **By date coverage** for any from–to
+  range. Once Accounting posts an RIS it drops off the RSMI. The **recapitulation is the proposed accounting entry**:
+  each expense account debited (e.g. 50203010 Office Supplies Expenses) and each inventory account credited, on screen
+  and on the printed RSMI (A4 portrait).
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR, ICS and
   RIS with a tick box: the AIR, PAR and ICS are ticked, RIS are not (they are usually posted on their own; an RIS can be ticked only when its AIR is posted or ticked too). Everything
   ticked is posted under one JEV. Disposals and repairs are posted on their own rows.

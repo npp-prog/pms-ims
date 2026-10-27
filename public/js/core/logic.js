@@ -232,11 +232,12 @@ export function stockCards(airs, docs, fund, asOf = "", { postedOnly = true } = 
  * Report of Supplies and Materials Issued. Default: RIS dated from–to. With { byJev: true } the RIS are taken by the
  * date of the JEV they were posted under (only posted RIS), so each month's RSMI holds what Accounting posted that month.
  */
-export function rsmi(docs, fund, from, to, { byJev = false } = {}) {
+export function rsmi(docs, fund, from, to, { byJev = false, unposted = false } = {}) {
   const lines = [];
   for (const d of docs || []) {
     if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
     if (byJev && !d.posting?.posted) continue;
+    if (unposted && d.posting?.posted) continue; // the RSMI Accounting has yet to post: RIS not posted, by RIS date
     const when = byJev ? String(d.posting.date || "") : d.date;
     if ((from && when < from) || (to && when > to)) continue;
     for (const l of d.lines || []) lines.push({ risNo: d.number, date: d.date, jevNo: d.posting?.ref || "", jevDate: d.posting?.date || "", office: d.recipient?.office || "", stockNo: l.stockNo, description: l.description, unit: l.unit, qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, amount: lineAmount(l), accountCode: l.accountCode });
@@ -314,14 +315,14 @@ export function rsmiEntry(lines) {
   return { debits: [...dr.values()].sort(by), credits: [...cr.values()].sort(by), total: round2([...cr.values()].reduce((t, c) => t + c.amount, 0)) };
 }
 /** The monthly RSMIs of a fund: one per month in which RIS were posted (by JEV date), newest first. */
-export function rsmiMonths(docs, fund) {
+export function rsmiMonths(docs, fund, { unposted = false } = {}) {
   const months = new Map();
   for (const d of docs || []) {
-    if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled" || !d.posting?.posted) continue;
-    const p = String(d.posting.date || "").slice(0, 7);
+    if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled" || !d.posting?.posted === !unposted) continue;
+    const p = String(unposted ? d.date : d.posting.date || "").slice(0, 7);
     if (!/^\d{4}-\d{2}$/.test(p)) continue;
     const m = months.get(p) || { period: p, ris: 0, total: 0, jevs: new Set() };
-    m.ris++; m.total = round2(m.total + (d.lines || []).reduce((t, l) => t + lineAmount(l), 0)); if (d.posting.ref) m.jevs.add(d.posting.ref);
+    m.ris++; m.total = round2(m.total + (d.lines || []).reduce((t, l) => t + lineAmount(l), 0)); if (d.posting?.ref) m.jevs.add(d.posting.ref);
     months.set(p, m);
   }
   return [...months.values()].map(m => ({ ...m, jevs: [...m.jevs] })).sort((a, b) => b.period.localeCompare(a.period));

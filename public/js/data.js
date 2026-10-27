@@ -78,11 +78,18 @@ function airFields(a) {
   };
 }
 
+/** What an AIR still lacks before it can go to the GSO: its delivery photo and its invoice (or delivery receipt). */
+export function airMissingFiles(id) {
+  const labels = new Set((S.d.attachments || []).filter(x => x.target?.type === "air" && x.target?.id === id).map(x => x.label));
+  return [...(labels.has("Photo") ? [] : ["photo"]), ...(labels.has("Invoice") || labels.has("Delivery receipt") ? [] : ["invoice"])];
+}
+
 /** Saves an AIR as a draft, or submits it to the GSO (the AIR number is assigned on first submission). */
 export function saveAir(id, form, submit) {
   return wrap(async () => {
     const fields = airFields(form);
     if (submit) { const errs = validateAir(fields); if (errs.length) throw fail(errs[0]); }
+    if (submit) { const miss = id ? airMissingFiles(id) : ["photo", "invoice"]; if (miss.length) throw fail(`Attach the ${miss.join(" and the ")} of the delivery on the AIR's page before submitting it to the GSO.`); }
     const ref = id ? doc(db, "airs", id) : doc(collection(db, "airs"));
     await runTransaction(db, async tx => {
       const cur = id ? await tx.get(ref) : null;

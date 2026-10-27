@@ -217,7 +217,8 @@ continue at step 4.
 ### Attachments (signed PAR / ICS / RIS and other documents)
 
 **On the AIR**, End-Users of the office (and the GSO / Accounting) attach the **photo** and the **invoice** (also the
-delivery receipt or PO). Once the GSO approves the AIR, each file is shown and downloaded as
+delivery receipt or PO). **An AIR can be submitted to the GSO only once a photo and an invoice (or delivery
+receipt) are attached:** save it as a draft, attach both on its page, then submit. Once the GSO approves the AIR, each file is shown and downloaded as
 *<AIR No.>-<type of document>*, e.g. `2026-10-0007-Invoice.pdf`. **On each SWA**, the GSO and Accounting upload the
 scanned SWA; choosing an SWA on a CIP billing fills in its amount and particulars.
 

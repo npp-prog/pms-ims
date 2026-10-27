@@ -6,7 +6,7 @@ import {
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
 import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir, suggestStockNo } from "../core/logic.js";
-import { saveAir, deleteAir, approveAir, returnAir } from "../data.js";
+import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
@@ -72,9 +72,10 @@ export function form(main, [id]) {
   if (a && (a.endUserUid !== S.user.uid || !["draft", "returned"].includes(a.status))) { location.hash = `#/airs/${id}`; return; }
   const th = settings().thresholds;
   let lines = a ? a.lines.map(l => ({ ...l })) : [{ id: uid(), kind: "equipment", unit: "unit", qty: 1 }];
+  const missing = a ? airMissingFiles(a.id) : ["photo", "invoice"];
   main.innerHTML = `<div class="page-head"><div><h1>${a ? `Edit AIR ${esc(a.airNo || "(draft)")}` : "New Acceptance and Inspection Report"}</h1>
       <p>Encode the delivery exactly as on the supplier's invoice / delivery receipt. The GSO gives the AIR its number when inspecting and approving it.
-        Attach the <b>photo</b> and the <b>invoice</b> on the AIR's page after saving it (as a draft or submitted).</p></div></div>
+        Save it as a draft, then attach the <b>photo</b> and the <b>invoice</b> on the AIR's page — it can be submitted to the GSO only once both are attached.</p></div></div>
     ${a?.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
     <form id="af" class="card" novalidate>
       <div class="grid g4">
@@ -95,11 +96,13 @@ export function form(main, [id]) {
         <tfoot><tr><td colspan="7" class="right">Total</td><td class="tot" id="ltot"></td><td colspan="2"></td></tr></tfoot></table></div>
       <button type="button" class="btn sm" id="add" style="margin-top:.6rem">+ Add item</button>
       <div class="form-msg err" id="msg"></div>
+      ${missing.length ? `<div class="notice warn" style="margin-top:.8rem">No ${missing.join(" or ")} attached yet. Save the AIR, attach the photo and the invoice on its page, then submit it to the GSO.</div>` : ""}
       <div class="modal-actions">
         ${a?.status === "draft" ? `<button type="button" class="btn danger" id="del">Delete draft</button>` : ""}
         <a class="btn" href="#/airs">Cancel</a>
-        <button type="button" class="btn" id="draft">Save as draft</button>
-        <button type="submit" class="btn primary">${a?.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>
+        ${missing.length ? `<button type="button" class="btn primary" id="draft">Save and attach the photo &amp; invoice</button>`
+          : `<button type="button" class="btn" id="draft">Save as draft</button>
+        <button type="submit" class="btn primary">${a?.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>`}
       </div>
     </form>`;
   // items already accepted before: typing a known description fills its Item No. (and unit / type when empty)
@@ -172,20 +175,21 @@ export function form(main, [id]) {
       location.hash = `#/airs/${newId}`;
     }).catch(() => {});
   };
-  $("#af", main).onsubmit = e => { e.preventDefault(); save(e.submitter || $("[type=submit]", main), true); };
+  $("#af", main).onsubmit = e => { e.preventDefault(); if (missing.length) return save($("#draft", main), false); save(e.submitter || $("[type=submit]", main), true); };
   $("#draft", main).onclick = e => save(e.target, false);
   $("#del", main) && ($("#del", main).onclick = async e => {
     if (!(await confirmBox({ title: "Delete this draft AIR?", body: "This cannot be undone.", confirmText: "Delete", danger: true }))) return;
     busy(e.target, async () => { await deleteAir(a.id); clean(); location.hash = "#/airs"; }, "Draft deleted.").catch(() => {});
   });
 }
-form.deps = [];
+form.deps = ["r:attachments"];
 
 /* ---------------- detail ---------------- */
 export function detail(main, [id]) {
   const a = airById(id);
   if (!a) { main.innerHTML = `<div class="notice warn">AIR not found, or you don't have access to it.</div>`; return; }
   const owner = a.endUserUid === S.user.uid;
+  const toSubmit = owner && ["draft", "returned"].includes(a.status), missing = toSubmit ? airMissingFiles(a.id) : [];
   const docs = docsOfAir(a.id).sort((x, y) => (x.createdAt?.seconds || 0) - (y.createdAt?.seconds || 0));
   const ps = postingSummary(a, docs);
   const issuedStage = ["approved", "issued"].includes(a.status);
@@ -225,11 +229,13 @@ export function detail(main, [id]) {
         <div class="btn-row" style="margin-top:1rem" id="acts">
           <button class="btn sm" id="print">Print AIR</button>
           ${a.airNo && canRenumber(a) ? `<button class="btn sm" id="renum">Change AIR No.</button>` : ""}
-          ${owner && ["draft", "returned"].includes(a.status) ? `<a class="btn sm primary" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
+          ${toSubmit ? `<a class="btn sm${missing.length ? " primary" : ""}" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
+          ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>
+        ${missing.length ? `<div class="notice warn">Attach the ${missing.join(" and the ")} of the delivery below — the AIR can be submitted to the GSO only once the photo and the invoice are attached.</div>` : ""}
         <div id="att"></div>
         <div class="card"><h3>History</h3><ul class="timeline">${(a.history || []).slice().reverse().map(h => `<li class="done"><div>${esc(h.action)}${h.note ? ` — <i>${esc(h.note)}</i>` : ""}</div><div class="when">${fmtDateTime(h.at)} · ${esc(h.by)}</div></li>`).join("")}</ul></div>
       </div>
@@ -249,6 +255,7 @@ export function detail(main, [id]) {
     if (v) busy(e.target, () => returnAir(a.id, v.remarks), "AIR returned to the End-User.").catch(() => {});
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
+  $("#sub", main) && ($("#sub", main).onclick = e => busy(e.target, () => saveAir(a.id, a, true), "AIR submitted to the GSO for inspection.").catch(() => {}));
 }
 detail.deps = ["r:airs", "r:docs", "r:attachments"];
 

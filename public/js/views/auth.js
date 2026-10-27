@@ -33,8 +33,8 @@ export function renderSetupNeeded(root) {
  */
 export async function renderPublicTag(root, id, onSignIn) {
   root.innerHTML = `<div class="center-screen"><div class="loading">Loading the property tag…</div></div>`;
-  let a = null;
-  try { const snap = await getDoc(doc(db, "assets", id)); a = snap.exists() ? snap.data() : null; } catch { a = null; }
+  let a = null, denied = false;
+  try { const snap = await getDoc(doc(db, "assets", id)); a = snap.exists() ? snap.data() : null; } catch (e) { denied = e?.code === "permission-denied"; }
   const row = (k, v) => v ? `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>` : "";
   const STATUS = { active: "In use", returned: "Returned to the GSO", disposed: "Disposed" };
   root.innerHTML = `<div class="center-screen"><div class="auth-box public-tag">
@@ -43,6 +43,7 @@ export async function renderPublicTag(root, id, onSignIn) {
         <dl class="kv">${row("Account", a.accountCode ? `${a.accountCode} ${accountName(a.accountCode)}` : "")}${row("Fund", a.fund ? fundName(a.fund) : "")}
           ${row("Type", a.itemType === "sx" ? "Semi-expendable property" : "Property, plant and equipment")}${row("Date acquired", a.dateAcquired ? fmtDate(a.dateAcquired) : "")}
           ${row("Accountable officer", a.holder?.name)}${row("Office", a.holder?.office)}${row("Location", a.location)}${row("Condition", a.condition)}${row("Status", STATUS[a.status] || a.status)}</dl>`
+        : denied ? `<h2>Property tag</h2><p class="muted">This item can't be shown without signing in. It may have been cancelled — or, if every tag shows this, the administrator still needs to publish the current Firestore security rules. Sign in to see the item.</p>`
         : `<h2>Property tag</h2><p class="muted">This item could not be found. It may have been cancelled, or the tag is from another system.</p>`}
       <button class="btn primary block" id="pt-signin" style="margin-top:1.2rem">Sign in for the full record</button></div></div>`;
   $("#pt-signin", root).onclick = onSignIn;

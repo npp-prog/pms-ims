@@ -185,6 +185,9 @@ continue at step 4.
 - **RIS from the Inventory Registry:** the GSO ticks items on hand in the Inventory Registry and clicks **Issue RIS**.
   Each quantity is drawn from the posted AIRs holding that stock number, oldest delivery first (one RIS may draw from
   several AIRs; the RIS shows which). Cancelling it returns the quantities to those AIRs.
+- **Reserved, not deducted:** an RIS issued but not yet posted by Accounting does not reduce the Inventory Registry
+  balance; it shows as **Reserved**, and **Available** = balance − reserved (what can still be issued). When Accounting
+  posts the RIS it becomes an issue on the Stock Card and reduces the balance.
 - **RIS posted only after its AIR:** the GSO may prepare and issue the RIS any time after approval, but Accounting can
   post an RIS only once its AIR is posted (or together with it). An RIS issued before the AIR is posted counts in the
   Inventory Registry from when the AIR is posted.

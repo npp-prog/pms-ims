@@ -211,6 +211,11 @@ export function stockCards(airs, docs, fund, asOf = "", { postedOnly = true } = 
     if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
     // an RIS prepared before its AIR is posted counts once the AIR is (its supplies aren't in the registry before)
     if (postedOnly && d.airId && !(airs || []).some(a => a.id === d.airId && a.posting?.posted)) continue;
+    // an RIS issued but not yet posted by Accounting is a reserve, not a deduction
+    if (postedOnly && !d.posting?.posted) {
+      for (const l of d.lines || []) { if (asOf && String(d.date) > asOf) continue; const c = card(l); c.reserved = round2((c.reserved || 0) + (Number(l.qty) || 0)); }
+      continue;
+    }
     for (const l of d.lines || []) card(l).moves.push({ date: d.date, ref: `RIS ${d.number}`, type: "issue", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: d.recipient?.office || "" });
   }
   for (const c of cards.values()) {
@@ -222,7 +227,7 @@ export function stockCards(airs, docs, fund, asOf = "", { postedOnly = true } = 
       if (m.type === "receipt") { q = round2(q + m.qty); v = round2(v + amt); } else { q = round2(q - m.qty); v = round2(v - amt); }
       Object.assign(m, { amount: amt, balQty: q, balValue: v });
     }
-    c.balQty = q; c.balValue = v;
+    c.balQty = q; c.balValue = v; c.reserved = c.reserved || 0; c.available = round2(q - c.reserved);
   }
   return [...cards.values()].sort((a, b) => a.stockNo.localeCompare(b.stockNo));
 }

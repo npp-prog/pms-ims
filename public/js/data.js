@@ -252,7 +252,7 @@ export function issueRisFromStock(fund, picks, header) {
             need = round2(need - q); first = false;
           }
         }
-        if (need > 0) throw fail(`Only ${round2(p.qty - need)} of ${p.stockNo} are on hand.`);
+        if (need > 0) throw fail(`Only ${round2(p.qty - need)} of ${p.stockNo} are available.`);
       }
       const c = await readCounter(tx, fund, "ris", header.date, "", header.numbers?.main);
       const primaryId = lines[0].airId, primary = airs.get(primaryId), ref = doc(collection(db, "issuances"));

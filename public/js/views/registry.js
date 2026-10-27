@@ -37,7 +37,7 @@ export function stock(main) {
       { key: "b", label: "Balance", options: [["on", "On hand"], ["zero", "Fully issued"]], value: "on", test: (c, v) => v === "on" ? c.balQty > 0 : c.balQty <= 0 }
     ],
     columns: [
-      ...(canIssue ? [{ label: "", render: c => c.balQty > 0 ? `<input type="checkbox" data-nodirty data-sel="${esc(c.stockNo)}" ${sel.has(c.stockNo) ? "checked" : ""} title="Tick to issue on an RIS">` : "" }] : []),
+      ...(canIssue ? [{ label: "", render: c => c.available > 0 ? `<input type="checkbox" data-nodirty data-sel="${esc(c.stockNo)}" ${sel.has(c.stockNo) ? "checked" : ""} title="Tick to issue on an RIS">` : "" }] : []),
       { label: "Stock No.", render: c => `<b>${esc(c.stockNo || "—")}</b>`, sort: c => c.stockNo },
       { label: "Description", render: c => `${esc(c.description)}<div class="xs muted">${esc(c.accountCode)} ${esc(accountName(c.accountCode))}</div>`, sort: c => c.description },
       { label: "Type", render: c => `<span class="badge ${TYPE[typeOf(c)][1]}">${TYPE[typeOf(c)][0]}</span>`, sort: c => typeOf(c) },
@@ -45,11 +45,14 @@ export function stock(main) {
       { label: "Received", render: c => qty(sumMoves(c, "receipt")), sort: c => sumMoves(c, "receipt"), cls: "right", headCls: "right" },
       { label: "Issued", render: c => qty(sumMoves(c, "issue")), sort: c => sumMoves(c, "issue"), cls: "right", headCls: "right" },
       { label: "Balance", render: c => `<b>${qty(c.balQty)}</b>`, sort: c => c.balQty, cls: "right", headCls: "right" },
+      // RIS issued but not yet posted by Accounting: reserved, not deducted
+      { label: "Reserved", render: c => c.reserved ? `<span class="badge b-warn" title="On RIS not yet posted by Accounting">${qty(c.reserved)}</span>` : "", sort: c => c.reserved, cls: "right", headCls: "right" },
+      { label: "Available", render: c => qty(c.available), sort: c => c.available, cls: "right", headCls: "right" },
       { label: "Unit cost", render: c => num(lastCost(c)), cls: "right", headCls: "right" },
       { label: "Value", render: c => money(c.balValue), sort: c => c.balValue, cls: "right", headCls: "right" }
     ],
     empty: "No supplies in this view.",
-    footer: list => `<tr><td colspan="${canIssue ? 9 : 8}" class="right">Total (${list.length})</td><td class="right">${money(list.reduce((x, c) => x + c.balValue, 0))}</td></tr>`,
+    footer: list => `<tr><td colspan="${canIssue ? 11 : 10}" class="right">Total (${list.length})</td><td class="right">${money(list.reduce((x, c) => x + c.balValue, 0))}</td></tr>`,
     onRow: c => cardModal(c)
   });
   // RIS for the ticked items on hand
@@ -63,12 +66,12 @@ export function stock(main) {
     $("#ris", main).onclick = () => risModal(cards.filter(c => sel.has(c.stockNo)));
   }
   $("#asof", main).onchange = e => { st.asOf = e.target.value; stock(main); };
-  const headers = ["Stock No.", "Description", "Type", "Account", "Unit", "Received", "Issued", "Balance Qty", "Unit Cost", "Balance Value"];
-  const data = () => t.rows().map(c => [c.stockNo, c.description, TYPE[typeOf(c)][0], c.accountCode, c.unit, sumMoves(c, "receipt"), sumMoves(c, "issue"), c.balQty, lastCost(c), c.balValue]);
+  const headers = ["Stock No.", "Description", "Type", "Account", "Unit", "Received", "Issued", "Balance Qty", "Reserved (RIS not posted)", "Available", "Unit Cost", "Balance Value"];
+  const data = () => t.rows().map(c => [c.stockNo, c.description, TYPE[typeOf(c)][0], c.accountCode, c.unit, sumMoves(c, "receipt"), sumMoves(c, "issue"), c.balQty, c.reserved, c.available, lastCost(c), c.balValue]);
   $("#csv", main).onclick = () => downloadCSV(`Inventory-Registry-${S.fund}-${asOf || "today"}`, headers, data());
   $("#pr", main).onclick = () => printForm(tableReportHtml("INVENTORY REGISTRY — SUPPLIES (CONSUMABLE AND FOR DISTRIBUTION)", `${fundName(S.fund)} · as of ${fmtDate(asOf || new Date())}`,
-    headers, data().map(r => [r[0], r[1], r[2], `${r[3]} ${accountName(r[3])}`, r[4], qty(r[5]), qty(r[6]), qty(r[7]), num(r[8]), num(r[9])]),
-    ["", `TOTAL (${t.rows().length})`, "", "", "", "", "", "", "", num(t.rows().reduce((x, c) => x + c.balValue, 0))]), "landscape");
+    headers, data().map(r => [r[0], r[1], r[2], `${r[3]} ${accountName(r[3])}`, r[4], qty(r[5]), qty(r[6]), qty(r[7]), r[8] ? qty(r[8]) : "", qty(r[9]), num(r[10]), num(r[11])]),
+    ["", `TOTAL (${t.rows().length})`, "", "", "", "", "", "", "", "", "", num(t.rows().reduce((x, c) => x + c.balValue, 0))]), "landscape");
   const bulk = ledger => { const list = t.rows(); if (!list.length) return toast("No items to print.", "err"); printForm(list.map(c => stockCardHtml(c, S.fund, ledger)).join(""), "landscape"); };
   $("#bsc", main).onclick = () => bulk(false);
   $("#bslc", main).onclick = () => bulk(true);
@@ -76,7 +79,7 @@ export function stock(main) {
 stock.deps = ["r:airs", "r:docs", "fund"];
 
 function cardModal(c) {
-  const m = openModal(`<h2>${esc(c.stockNo)} — ${esc(c.description)}</h2><p class="muted small">${esc(c.accountCode)} ${esc(accountName(c.accountCode))} · balance ${qty(c.balQty)} ${esc(c.unit)} · ${money(c.balValue)}</p>
+  const m = openModal(`<h2>${esc(c.stockNo)} — ${esc(c.description)}</h2><p class="muted small">${esc(c.accountCode)} ${esc(accountName(c.accountCode))} · balance ${qty(c.balQty)} ${esc(c.unit)} · ${money(c.balValue)}${c.reserved ? ` · <b>${qty(c.reserved)} reserved</b> on RIS not yet posted · ${qty(c.available)} available` : ""}</p>
     <div class="table-wrap"><table><thead><tr><th>Date</th><th>Reference</th><th class="right">Receipt</th><th class="right">Issue</th><th>Office</th><th class="right">Unit cost</th><th class="right">Balance qty</th><th class="right">Balance value</th></tr></thead>
     <tbody>${c.moves.map(x => `<tr><td>${fmtDate(x.date)}</td><td>${esc(x.ref)}</td><td class="right">${x.type === "receipt" ? qty(x.qty) : ""}</td><td class="right">${x.type === "issue" ? qty(x.qty) : ""}</td>
       <td class="small">${x.type === "issue" ? esc(x.office) : ""}</td><td class="right">${num(x.unitCost)}</td><td class="right">${qty(x.balQty)}</td><td class="right">${num(x.balValue)}</td></tr>`).join("")}</tbody></table></div>
@@ -89,11 +92,11 @@ function cardModal(c) {
 /** RIS for supplies on hand, chosen in the Inventory Registry: each quantity is drawn from the posted AIRs holding it. */
 function risModal(items) {
   const s = settings(), manual = numberingFor(S.settings, "ris").mode === "manual";
-  const m = openModal(`<h2>Requisition and Issue Slip</h2><p class="muted small">Supplies on hand in the Inventory Registry. Each quantity is taken from the AIRs that hold the item, oldest delivery first.</p>
+  const m = openModal(`<h2>Requisition and Issue Slip</h2><p class="muted small">Supplies available in the Inventory Registry (on hand, less what is reserved on RIS not yet posted). Each quantity is taken from the AIRs that hold the item, oldest delivery first.</p>
     <form id="rsf" class="grid" novalidate>
-      <div class="table-wrap"><table class="lines"><thead><tr><th>Stock No.</th><th>Item</th><th class="right">On hand</th><th class="right">Requested</th><th class="right">Issue qty</th></tr></thead><tbody>
-        ${items.map(c => `<tr data-sn="${esc(c.stockNo)}"><td><b>${esc(c.stockNo)}</b></td><td>${esc(c.description)}<div class="xs muted">${esc(c.unit)}</div></td><td class="right">${qty(c.balQty)}</td>
-          <td><input type="number" class="w-xs" data-rq min="0" step="any" value="${c.balQty}"></td><td><input type="number" class="w-xs" data-q min="0" max="${c.balQty}" step="any" value=""></td></tr>`).join("")}
+      <div class="table-wrap"><table class="lines"><thead><tr><th>Stock No.</th><th>Item</th><th class="right">Available</th><th class="right">Requested</th><th class="right">Issue qty</th></tr></thead><tbody>
+        ${items.map(c => `<tr data-sn="${esc(c.stockNo)}"><td><b>${esc(c.stockNo)}</b></td><td>${esc(c.description)}<div class="xs muted">${esc(c.unit)}</div></td><td class="right">${qty(c.available)}</td>
+          <td><input type="number" class="w-xs" data-rq min="0" step="any" value="${c.available}"></td><td><input type="number" class="w-xs" data-q min="0" max="${c.available}" step="any" value=""></td></tr>`).join("")}
       </tbody></table></div>
       <div class="grid g3">
         <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
@@ -117,8 +120,8 @@ function risModal(items) {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(f).entries());
     const picks = $$("tbody tr", f).map(tr => ({ stockNo: tr.dataset.sn, qty: Number($("[data-q]", tr).value) || 0, qtyRequested: Number($("[data-rq]", tr).value) || 0 }));
-    const over = picks.find(p => p.qty > (items.find(c => c.stockNo === p.stockNo)?.balQty || 0));
-    if (over) { $("#rsm", m).textContent = `Only ${qty(items.find(c => c.stockNo === over.stockNo).balQty)} of ${over.stockNo} are on hand.`; return; }
+    const over = picks.find(p => p.qty > (items.find(c => c.stockNo === p.stockNo)?.available || 0));
+    if (over) { $("#rsm", m).textContent = `Only ${qty(items.find(c => c.stockNo === over.stockNo).available)} of ${over.stockNo} are available.`; return; }
     const header = { date: v.date, purpose: v.purpose || "", numbers: { main: v.no_main },
       recipient: { uid: activeUsers().find(u => u.displayName === v.rname.trim())?.id || "", name: v.rname.trim(), position: v.rpos.trim(), office: v.roffice.trim(), rcc: (v.rcc || "").trim() },
       issuedBy: { name: v.iname.trim(), position: v.ipos.trim() }, approvedBy: { name: (v.aname || "").trim(), position: (v.apos || "").trim() } };

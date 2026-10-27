@@ -93,8 +93,8 @@ test("posting summary covers the supply receipt and every live document", () => 
 test("stock cards and RSMI use the exact cost of each AIR line", () => {
   const air2 = { ...air, id: "A2", airNo: "2026-10-0002", date: "2026-10-05", acceptance: { dateReceived: "2026-10-05" }, lines: [{ ...air.lines[3], id: "L9", qty: 4, unitCost: 260 }] };
   const docs = [
-    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0001", date: "2026-10-03", recipient: { office: "MHO" }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 6, unitCost: 250, amount: 1500, accountCode: "10404010" }] },
-    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0002", date: "2026-10-06", recipient: { office: "MTO" }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 4, unitCost: 260, amount: 1040, accountCode: "10404010" }] },
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0001", date: "2026-10-03", recipient: { office: "MHO" }, posting: { posted: true }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 6, unitCost: 250, amount: 1500, accountCode: "10404010" }] },
+    { fund: "GF", docType: "ris", status: "issued", number: "2026-10-0002", date: "2026-10-06", recipient: { office: "MTO" }, posting: { posted: true }, lines: [{ stockNo: "OS-1", description: "Bond paper", unit: "ream", qty: 4, unitCost: 260, amount: 1040, accountCode: "10404010" }] },
     { fund: "GF", docType: "ris", status: "cancelled", number: "2026-10-0003", date: "2026-10-06", lines: [{ stockNo: "OS-1", qty: 99, unitCost: 1 }] }
   ];
   const posted = { posted: true, date: "2026-10-05", ref: "JEV-1" };
@@ -102,10 +102,13 @@ test("stock cards and RSMI use the exact cost of each AIR line", () => {
   // supplies enter the Inventory Registry only when Accounting posts the AIR
   assert.equal(stockCards([air, air2], [], "GF").length, 0);
   assert.equal(stockCards([air, air2], [], "GF", "", { postedOnly: false })[0].balQty, 14);
-  // an RIS issued before its AIR is posted waits with it
+  // an RIS issued but not posted is a reserve, not a deduction; once posted it is deducted
   const early = [{ fund: "GF", docType: "ris", status: "issued", airId: air.id, number: "R9", date: "2026-10-02", lines: [{ stockNo: "OS-1", qty: 2, unitCost: 250 }] }];
   assert.equal(stockCards([air], early, "GF").length, 0);
-  assert.equal(stockCards([{ ...air, posting: posted }], early, "GF")[0].balQty, 8);
+  const [res] = stockCards([{ ...air, posting: posted }], early, "GF");
+  assert.deepEqual([res.balQty, res.reserved, res.available], [10, 2, 8]);
+  const [ded] = stockCards([{ ...air, posting: posted }], [{ ...early[0], posting: posted }], "GF");
+  assert.deepEqual([ded.balQty, ded.reserved, ded.available], [8, 0, 8]);
   assert.equal(card.stockNo, "OS-1");
   assert.equal(card.balQty, 4);
   assert.equal(card.balValue, round2(2500 + 1040 - 1500 - 1040));

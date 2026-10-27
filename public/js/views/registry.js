@@ -71,8 +71,8 @@ export function stock(main) {
   $("#csv", main).onclick = () => downloadCSV(`Inventory-Registry-${S.fund}-${asOf || "today"}`, headers, data());
   $("#pr", main).onclick = () => printForm(tableReportHtml("INVENTORY REGISTRY — SUPPLIES (CONSUMABLE AND FOR DISTRIBUTION)", `${fundName(S.fund)} · as of ${fmtDate(asOf || new Date())}`,
     headers, data().map(r => [r[0], r[1], r[2], `${r[3]} ${accountName(r[3])}`, r[4], qty(r[5]), qty(r[6]), qty(r[7]), r[8] ? qty(r[8]) : "", qty(r[9]), num(r[10]), num(r[11])]),
-    ["", `TOTAL (${t.rows().length})`, "", "", "", "", "", "", "", "", "", num(t.rows().reduce((x, c) => x + c.balValue, 0))]), "landscape");
-  const bulk = ledger => { const list = t.rows(); if (!list.length) return toast("No items to print.", "err"); printForm(list.map(c => stockCardHtml(c, S.fund, ledger)).join(""), "landscape"); };
+    ["", `TOTAL (${t.rows().length})`, "", "", "", "", "", "", "", "", "", num(t.rows().reduce((x, c) => x + c.balValue, 0))]), "portrait");
+  const bulk = ledger => { const list = t.rows(); if (!list.length) return toast("No items to print.", "err"); printForm(list.map(c => stockCardHtml(c, S.fund, ledger)).join(""), "portrait"); };
   $("#bsc", main).onclick = () => bulk(false);
   $("#bslc", main).onclick = () => bulk(true);
 }
@@ -85,8 +85,8 @@ function cardModal(c) {
       <td class="small">${x.type === "issue" ? esc(x.office) : ""}</td><td class="right">${num(x.unitCost)}</td><td class="right">${qty(x.balQty)}</td><td class="right">${num(x.balValue)}</td></tr>`).join("")}</tbody></table></div>
     <div class="modal-actions"><button class="btn" id="sc">Print Stock Card</button><button class="btn" id="slc">Print Supplies Ledger Card</button><button class="btn primary" data-x>Close</button></div>`, { size: "wide" });
   $("[data-x]", m).onclick = () => m.close();
-  $("#sc", m).onclick = () => printForm(stockCardHtml(c, S.fund, false), "landscape");
-  $("#slc", m).onclick = () => printForm(stockCardHtml(c, S.fund, true), "landscape");
+  $("#sc", m).onclick = () => printForm(stockCardHtml(c, S.fund, false), "portrait");
+  $("#slc", m).onclick = () => printForm(stockCardHtml(c, S.fund, true), "portrait");
 }
 
 /** RIS for supplies on hand, chosen in the Inventory Registry: each quantity is drawn from the posted AIRs holding it. */

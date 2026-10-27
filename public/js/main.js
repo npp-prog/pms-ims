@@ -50,7 +50,14 @@ const P = {
   profile: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'
 };
 const navIcon = k => `<svg class="nav-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[k] || P.home}</svg>`;
-let screen = "", current = null, dirty = false, renderTimer = null, activeRole = null;
+let screen = "", current = null, dirty = false, renderTimer = null, activeRole = null, wantLogin = false;
+/** A scanned QR tag (#/assets/<id>) opens a public view of the item for someone not signed in. */
+const publicTagId = () => (location.hash.match(/^#\/assets\/([A-Za-z0-9]+)$/) || [])[1] || "";
+function signedOut() {
+  const id = publicTagId();
+  if (id && !wantLogin) { screen = "public"; Auth.renderPublicTag($("#app"), id, () => { wantLogin = true; screen = "login"; Auth.renderLogin($("#app")); }); return; }
+  screen = "login"; Auth.renderLogin($("#app"));
+}
 
 if (!CONFIGURED) Auth.renderSetupNeeded($("#app"));
 else {
@@ -59,7 +66,7 @@ else {
     stop(); closeModals();
     Object.assign(S, { user, account: undefined, settings: null, d: emptyData() });
     S.ready.clear(); screen = ""; activeRole = null;
-    if (!user) { screen = "login"; Auth.renderLogin($("#app")); return; }
+    if (!user) { wantLogin = false; signedOut(); return; }
     $("#app").innerHTML = `<div class="center-screen"><div class="loading">Loading your account…</div></div>`;
     startAccount(user.uid);
   });
@@ -156,7 +163,7 @@ function renderShell() {
   $("#app").innerHTML = `
     <div class="shell">
       <aside class="side" aria-label="Main">
-        <a class="side-brand" href="#/home"><img class="seal" src="assets/municipal-seal.png" alt=""><span class="brand"><b>PMS-IMS</b><span>Municipal Government of Candoni</span></span></a>
+        <a class="side-brand" href="#/home"><img class="seal" src="assets/municipal-seal.png" alt=""><span class="brand"><b>PIM</b><span>Property &amp; Inventory Management<br>Municipal Government of Candoni</span></span></a>
         <div class="fund"><label for="fund-sel">Fund</label><select id="fund-sel" class="fund-select" data-nodirty>${opts(FUNDS.map(f => [f.code, f.name]), S.fund)}</select></div>
         <nav id="nav" class="side-nav"></nav>
         <div class="side-foot"><a class="me" id="me" href="#/profile" title="My Profile"></a>
@@ -191,6 +198,7 @@ function renderShell() {
 const trail = [], scrollAt = {};
 let lastHash = location.hash, restoreTo = null;
 function goBack() { if (trail.length) location.hash = trail[trail.length - 1]; }
+window.addEventListener("hashchange", () => { if (screen === "public" && publicTagId()) signedOut(); });
 window.addEventListener("hashchange", () => {
   scrollAt[lastHash] = window.scrollY;
   const back = trail.length && trail[trail.length - 1] === location.hash; // our Back button or the browser's

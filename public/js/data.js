@@ -28,6 +28,7 @@ function numberTaken(fund, type, number) {
   const n = number.toLowerCase(), same = x => x.fund === fund && String(x.number ?? x.airNo ?? "").toLowerCase() === n;
   if (type === "air") return S.d.airs.some(a => a.fund === fund && String(a.airNo || "").toLowerCase() === n);
   if (["par", "ics", "ris"].includes(type)) return S.d.docs.some(d => d.docType === type && same(d));
+  if (type === "rsmi") return S.d.rsmis.some(x => x.status !== "cancelled" && same(x));
   return S.d.movements.some(m => m.docType === type && same(m));
 }
 /**
@@ -366,19 +367,81 @@ export function renumber(kind, id, newNumber, reason = "") {
 /* ---------------- Accounting posting ---------------- */
 /** kind: "air" (the receipt of supplies) or "doc" (a PAR / ICS / RIS). */
 export function setPosting(kind, id, posting) {
+  if (kind === "rsmi") return postRsmi(id, posting);
   return wrap(async () => {
     const coll = kind === "air" ? "airs" : kind === "movement" ? "movements" : kind === "repair" ? "repairs" : "issuances";
     const data = posting
       ? { posted: true, date: posting.date, ref: String(posting.ref || "").trim(), remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() }
       : { posted: false, unpostedBy: me(), unpostedAt: new Date().toISOString() };
     if (posting && !posting.date) throw fail("Enter the posting date.");
-    if (posting && kind === "doc") { const d = S.d.docs.find(x => x.id === id); if (d?.docType === "ris" && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted) throw fail(`RIS ${d.number} can be posted only once its AIR is posted.`); }
+    if (kind === "doc" && S.d.docs.find(x => x.id === id)?.docType === "ris") throw fail("An RIS is posted (or unposted) with its RSMI — Reports → RSMI.");
     if (posting && !data.ref) throw fail("Enter the JEV / reference number.");
     const patch = { posting: data, updatedAt: serverTimestamp() };
     if (kind === "air") patch.history = arrayUnion(stamp(posting ? "Receipt posted by Accounting" : "Receipt unposted by Accounting", posting ? data.ref : ""));
     if (kind === "repair") patch.status = posting ? "posted" : "inspected";
     await updateDoc(doc(db, coll, id), patch);
     audit(posting ? "post" : "unpost", kind === "doc" ? "issuance" : kind, id, posting ? { ref: data.ref, date: data.date } : {});
+  });
+}
+
+/* ---------------- RSMI: the GSO puts unposted RIS on an RSMI; Accounting posts the RSMI with its RIS ---------------- */
+export function createRsmi(fund, risIds, period) {
+  return wrap(async () => {
+    if (!risIds.length) throw fail("Tick the RIS to include in the RSMI.");
+    let out = null;
+    await runTransaction(db, async tx => {
+      const ris = [];
+      for (const id of risIds) {
+        const snap = await tx.get(doc(db, "issuances", id)), d = snap.data();
+        if (!d || d.docType !== "ris" || d.fund !== fund || d.status === "cancelled") throw fail("An RIS chosen is no longer available.");
+        if (d.posting?.posted) throw fail(`RIS ${d.number} is already posted.`);
+        if (d.rsmiId) throw fail(`RIS ${d.number} is already on RSMI ${d.rsmiNo}.`);
+        ris.push({ id, ...d });
+      }
+      const date = period.to || new Date().toISOString().slice(0, 10);
+      const c = await readCounter(tx, fund, "rsmi", date, "", period.number);
+      const ref = doc(collection(db, "rsmis"));
+      useNumber(tx, c, ref, "rsmi");
+      const total = round2(ris.reduce((t, d) => t + (d.lines || []).reduce((x, l) => x + lineAmount(l), 0), 0));
+      tx.set(ref, { fund, number: c.number, month: period.month || "", from: period.from || "", to: period.to || "", date, risIds, total, status: "submitted",
+        posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      for (const d of ris) tx.update(doc(db, "issuances", d.id), { rsmiId: ref.id, rsmiNo: c.number, updatedAt: serverTimestamp() });
+      out = { id: ref.id, number: c.number };
+    });
+    audit("rsmi_create", "rsmi", out.id, { number: out.number, ris: risIds.length });
+    return out;
+  });
+}
+/** The GSO withdraws an RSMI Accounting has not posted: its RIS can go on another one. */
+export function cancelRsmi(id, reason = "") {
+  return wrap(async () => {
+    const r = S.d.rsmis.find(x => x.id === id);
+    if (!r || r.status !== "submitted") throw fail("Only an RSMI not yet posted can be cancelled.");
+    const { writeBatch } = await import("./fb.js"), b = writeBatch(db);
+    b.update(doc(db, "rsmis", id), { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
+    for (const rid of r.risIds) if (S.d.docs.find(d => d.id === rid)?.rsmiId === id) b.update(doc(db, "issuances", rid), { rsmiId: "", rsmiNo: "", updatedAt: serverTimestamp() });
+    await b.commit();
+    audit("rsmi_cancel", "rsmi", id, { reason });
+  });
+}
+/** Accounting posts (or, with null, unposts) an RSMI: every RIS on it is posted under the same JEV. */
+export function postRsmi(id, posting) {
+  return wrap(async () => {
+    const r = S.d.rsmis.find(x => x.id === id);
+    if (!r || r.status === "cancelled") throw fail("This RSMI is cancelled.");
+    if (posting) {
+      if (!posting.date) throw fail("Enter the posting date.");
+      if (!String(posting.ref || "").trim()) throw fail("Enter the JEV / reference number.");
+      const unpostedAir = r.risIds.map(x => S.d.docs.find(d => d.id === x)).find(d => d && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted);
+      if (unpostedAir) throw fail(`RIS ${unpostedAir.number} can be posted only once its AIR (${unpostedAir.airNo}) is posted.`);
+    }
+    const data = posting ? { posted: true, date: posting.date, ref: String(posting.ref).trim(), remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() }
+      : { posted: false, unpostedBy: me(), unpostedAt: new Date().toISOString() };
+    const { writeBatch } = await import("./fb.js"), b = writeBatch(db);
+    b.update(doc(db, "rsmis", id), { posting: data, status: posting ? "posted" : "submitted", updatedAt: serverTimestamp() });
+    for (const rid of r.risIds) b.update(doc(db, "issuances", rid), { posting: data, updatedAt: serverTimestamp() });
+    await b.commit();
+    audit(posting ? "post" : "unpost", "rsmi", id, posting ? { ref: data.ref, date: data.date } : {});
   });
 }
 
@@ -391,8 +454,7 @@ export function postSelected(items, posting) {
     if (!ref) throw fail("Enter the JEV / reference number.");
     for (const i of items) {
       const d = i.kind === "doc" ? S.d.docs.find(x => x.id === i.id) : null;
-      if (d?.docType === "ris" && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted && !items.some(x => x.kind === "air" && x.id === d.airId))
-        throw fail(`RIS ${d.number} can be posted only once its AIR is posted — tick the AIR too, or post the AIR first.`);
+      if (d?.docType === "ris") throw fail(`RIS ${d.number} is posted with its RSMI — Reports → RSMI.`);
     }
     const { writeBatch } = await import("./fb.js");
     const data = { posted: true, date: posting.date, ref, remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() };
@@ -400,6 +462,16 @@ export function postSelected(items, posting) {
     for (const i of items) {
       if (i.kind === "air") b.update(doc(db, "airs", i.id), { posting: data, history: arrayUnion(stamp("AIR posted by Accounting", ref)), updatedAt: serverTimestamp() });
       else if (i.kind === "repair") b.update(doc(db, "repairs", i.id), { posting: data, status: "posted", updatedAt: serverTimestamp() });
+      else if (i.kind === "rsmi") {
+        const r = S.d.rsmis.find(x => x.id === i.id);
+        for (const rid of r.risIds) {
+          const d = S.d.docs.find(x => x.id === rid);
+          if (d && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted && !items.some(x => x.kind === "air" && x.id === d.airId))
+            throw fail(`RSMI ${r.number}: RIS ${d.number} can be posted only once its AIR (${d.airNo}) is posted.`);
+          b.update(doc(db, "issuances", rid), { posting: data, updatedAt: serverTimestamp() });
+        }
+        b.update(doc(db, "rsmis", i.id), { posting: data, status: "posted", updatedAt: serverTimestamp() });
+      }
       else b.update(doc(db, i.kind === "movement" ? "movements" : "issuances", i.id), { posting: data, updatedAt: serverTimestamp() });
     }
     await b.commit();
@@ -1185,7 +1257,7 @@ export { remainingQty };
 
 // ---------------- clearing the records (Super Administrator) ----------------
 // Everything recorded in the app. Users, invitations, settings and the audit trail are kept.
-export const RECORD_COLLECTIONS = ["airs", "issuances", "assets", "movements", "repairs", "cipProjects", "swa", "depreciation", "tbSnapshots", "attachments", "items", "docNumbers", "counters"];
+export const RECORD_COLLECTIONS = ["airs", "issuances", "assets", "movements", "repairs", "cipProjects", "swa", "depreciation", "tbSnapshots", "attachments", "items", "docNumbers", "counters", "rsmis"];
 
 /** Deletes every record in RECORD_COLLECTIONS (attachments with their file chunks); onStep(name, count) after each. */
 export async function clearRecords(onStep = () => {}) {

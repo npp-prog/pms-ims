@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], attachments: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], attachments: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [], rsmis: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -82,6 +82,7 @@ export function startRole() {
     live("r:cip", collection(db, "cipProjects"), v => { S.d.cip = v; });
     live("r:swa", collection(db, "swa"), v => { S.d.swa = v; });
     live("r:repairs", collection(db, "repairs"), v => { S.d.repairs = v; });
+    live("r:rsmis", collection(db, "rsmis"), v => { S.d.rsmis = v; });
     live("r:users", collection(db, "users"), v => { S.d.users = v; });
     live("r:attachments", collection(db, "attachments"), v => { S.d.attachments = v; });
   }

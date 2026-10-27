@@ -8,12 +8,16 @@ export function postingItems() {
   for (const a of fundAirs()) if (["approved", "issued"].includes(a.status))
     items.push({ kind: "air", id: a.id, label: "AIR", number: a.airNo, date: a.acceptance?.dateReceived || a.date, airId: a.id, airNo: a.airNo, office: a.office,
       amount: Number(a.total) || 0, posting: a.posting || { posted: false } });
-  for (const d of fundDocs()) if (d.status !== "cancelled")
+  for (const d of fundDocs()) if (d.status !== "cancelled" && d.docType !== "ris") // RIS are posted with their RSMI
     items.push({ kind: "doc", docType: d.docType, id: d.id, label: d.docType.toUpperCase(), number: d.number, date: d.date, airId: d.airId, airNo: d.airNo,
       office: d.recipient?.office || d.office, recipient: d.recipient?.name, amount: d.total, posting: d.posting || { posted: false } });
   for (const m of S.d.movements) if (m.fund === S.fund && m.needsPosting && m.status !== "cancelled")
     items.push({ kind: "movement", docType: m.docType, id: m.id, label: m.docType === "dsp" ? "Disposal" : `${m.docType.toUpperCase()} (donation)`, number: m.number, date: m.date,
       airId: "", airNo: "", office: m.from?.office || "", recipient: m.from?.name, amount: m.carryingTotal ?? m.total, posting: m.posting || { posted: false } });
+  // RSMIs the GSO has prepared: posting one posts its RIS
+  for (const r of S.d.rsmis || []) if (r.fund === S.fund && r.status !== "cancelled")
+    items.push({ kind: "rsmi", docType: "rsmi", id: r.id, label: "RSMI", number: r.number, date: r.date, airId: "", airNo: "", office: `${r.risIds.length} RIS`, recipient: "",
+      amount: r.total, posting: r.posting || { posted: false } });
   // repairs, once the GSO has inspected them after the repair
   for (const r of S.d.repairs || []) if (r.fund === S.fund && ["inspected", "posted", "verified"].includes(r.status))
     items.push({ kind: "repair", docType: "repair", id: r.id, label: "Repair JO", number: r.jobOrderNo, date: r.postInspection?.date || r.jobOrderDate, airId: "", airNo: "",

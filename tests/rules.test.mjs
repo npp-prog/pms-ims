@@ -36,8 +36,11 @@ beforeEach(async () => {
 });
 after(async () => { await env?.cleanup(); });
 
+let anonDb;
+const anon = () => (anonDb ??= env.unauthenticatedContext().firestore());
+
 test("signed-out users can read nothing", async () => {
-  const d = env.unauthenticatedContext().firestore();
+  const d = anon();
   await assertFails(getDoc(doc(d, "airs/A_SUB")));
   await assertFails(getDoc(doc(d, "settings/app")));
 });
@@ -134,7 +137,7 @@ test("GSO issues documents only from approved AIRs, in the same fund and for the
   await assertSucceeds(setDoc(doc(g, "issuances/N9"), baseDoc({ docType: "ris", number: "2026-10-0006" })));
   await assertFails(updateDoc(doc(ctx("acc"), "issuances/N9"), { posting: { posted: true, ref: "JEV-1" } }));
   await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), "airs/A_APPR"), { posting: { posted: true } }));
-  await assertSucceeds(updateDoc(doc(ctx("acc"), "issuances/N9"), { posting: { posted: true, ref: "JEV-1" } }));
+  await assertFails(updateDoc(doc(ctx("acc"), "issuances/N9"), { posting: { posted: true, ref: "JEV-1" } }), "an RIS is posted with its RSMI");
   // the issuance + AIR quantity update run in one transaction
   await assertSucceeds(runTransaction(g, async tx => {
     const ref = doc(g, "airs/A_APPR"); const a = (await tx.get(ref)).data();
@@ -205,7 +208,7 @@ test("property records: who creates, who changes what, who reads", async () => {
   await assertSucceeds(setDoc(doc(ctx("ad"), "assets/N5"), asset({ source: { kind: "import" } })));
   // reading
   await assertSucceeds(getDocs(query(collection(ctx("eu"), "assets"), where("custodianUid", "==", "eu"))));
-  await assertFails(getDoc(doc(ctx("eu"), "assets/P2")));
+  await assertFails(getDocs(query(collection(ctx("eu"), "assets"), where("custodianUid", "==", "eu2"))));
   await assertSucceeds(getDocs(collection(ctx("acc"), "assets")));
   // changing
   await assertSucceeds(updateDoc(doc(ctx("gso"), "assets/P1"), { holder: { name: "Jose" }, custodianUid: "", status: "active" }));
@@ -336,9 +339,8 @@ test("End-Users see the property and PAR/ICS/RIS of their own office, not other 
   const e = ctx("eu");
   await assertSucceeds(getDocs(query(collection(e, "assets"), where("holder.office", "==", "Municipal Health Office"))));
   await assertSucceeds(getDoc(doc(e, "assets/MHO1")));
-  await assertFails(getDoc(doc(e, "assets/AGRI1")));
   await assertFails(getDocs(query(collection(e, "assets"), where("holder.office", "==", "Municipal Agriculture Office"))));
-  await assertFails(getDoc(doc(e, "assets/NOOFF")), "an item with no office is not everyone's");
+  await assertFails(getDocs(query(collection(e, "assets"), where("holder.office", "==", ""))), "an item with no office is not everyone's");
   await assertSucceeds(getDocs(query(collection(e, "issuances"), where("recipient.office", "==", "Municipal Health Office"))));
   await assertFails(getDoc(doc(ctx("eu2"), "issuances/OFF1")));
   await assertFails(getDocs(query(collection(ctx("pend"), "assets"), where("holder.office", "==", ""))));
@@ -346,8 +348,8 @@ test("End-Users see the property and PAR/ICS/RIS of their own office, not other 
   await assertFails(updateDoc(doc(e, "users/eu"), { office: "Municipal Agriculture Office" }));
   await assertSucceeds(updateDoc(doc(e, "users/eu"), { position: "Nurse III" }));
   await assertSucceeds(updateDoc(doc(ctx("ad"), "users/eu"), { office: "Municipal Agriculture Office" }));
-  await assertSucceeds(getDoc(doc(e, "assets/AGRI1")), "after the administrator moved her");
-  await assertFails(getDoc(doc(e, "assets/MHO1")));
+  await assertSucceeds(getDoc(doc(e, "assets/AGRI1")), "after the administrator moved them");
+  await assertFails(getDocs(query(collection(e, "assets"), where("holder.office", "==", "Municipal Health Office"))));
 });
 
 test("PMS register maintenance: manual items, revaluation, ledger entries, reclassification, reactivation", async () => {
@@ -556,4 +558,40 @@ test("renumbering: the GSO changes the number of a 2026 AIR or PAR / ICS / RIS; 
   await assertFails(deleteDoc(doc(g, "docNumbers/GF_par_2026-10-0099x")), "a number still in use stays claimed");
   await assertFails(updateDoc(doc(g, "assets/P1"), { source: { kind: "par", docId: "OTHER", number: "x" } }), "the item stays linked to its document");
   await assertSucceeds(updateDoc(doc(g, "airs/A_APPR"), { airNo: "2026-10-0777", history: [] }));
+});
+
+test("RSMI: the GSO puts unposted RIS on an RSMI; Accounting posts the RSMI with its RIS", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await updateDoc(doc(d, "airs/A_APPR"), { posting: { posted: true } });
+    await setDoc(doc(d, "issuances/R1"), baseDoc({ docType: "ris", number: "2026-10-0011" }));
+  });
+  const g = ctx("gso"), acc = ctx("acc");
+  const rs = (o = {}) => ({ fund: "GF", number: "2026-10-0001", risIds: ["R1"], total: 100, status: "submitted", posting: { posted: false }, ...o });
+  await assertFails(setDoc(doc(acc, "rsmis/X0"), rs()), "the GSO prepares the RSMI");
+  await assertFails(setDoc(doc(g, "rsmis/X0"), rs({ status: "posted" })));
+  const b = writeBatch(g);
+  b.set(doc(g, "rsmis/X1"), rs()); b.update(doc(g, "issuances/R1"), { rsmiId: "X1", rsmiNo: "2026-10-0001" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(g, "rsmis/X1"), { status: "posted", posting: { posted: true } }), "Accounting posts");
+  await assertFails(updateDoc(doc(acc, "issuances/R1"), { posting: { posted: true } }), "not before the RSMI is posted");
+  const p = writeBatch(acc);
+  p.update(doc(acc, "rsmis/X1"), { status: "posted", posting: { posted: true, ref: "JEV-7" } }); p.update(doc(acc, "issuances/R1"), { posting: { posted: true, ref: "JEV-7" } });
+  await assertSucceeds(p.commit());
+  await assertFails(updateDoc(doc(g, "rsmis/X1"), { status: "cancelled", cancel: {} }), "a posted RSMI isn't cancelled");
+  await assertFails(updateDoc(doc(g, "issuances/R1"), { rsmiId: "" }), "a posted RIS stays on its RSMI");
+});
+
+test("a scanned QR tag: anyone opens one item by its ID, without signing in — but can't list items", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "assets/TAG1"), asset({ status: "active" }));
+    await setDoc(doc(d, "assets/TAG2"), asset({ status: "cancelled" }));
+  });
+  const a = anon();
+  await assertSucceeds(getDoc(doc(a, "assets/TAG1")));
+  await assertFails(getDoc(doc(a, "assets/TAG2")), "cancelled items stay hidden");
+  await assertFails(getDocs(collection(a, "assets")), "no listing");
+  await assertFails(getDoc(doc(a, "airs/A_SUB")), "nothing else");
 });

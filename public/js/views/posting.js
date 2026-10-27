@@ -7,7 +7,7 @@ import { setPosting, postSelected } from "../data.js";
 import { postingItems } from "./common.js";
 
 const REGISTRY = { air: "AIR — everything received", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
-  repair: "Repairs and maintenance — History of Repair", dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
+  repair: "Repairs and maintenance — History of Repair", rsmi: "Supplies issued (RSMI) — expense and inventory", dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
 const itemLabel = i => i.kind === "air" ? `AIR ${i.number}` : `${i.label} ${i.number}`;
 const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
@@ -52,7 +52,7 @@ function queueRows() {
   }
   for (const r of byAir.values()) {
     const airOpen = r.items.some(i => i.kind === "air");
-    r.sub = airOpen ? "AIR and its PAR / ICS / RIS" : "Issued after the AIR was posted";
+    r.sub = airOpen ? "AIR and its PAR / ICS" : "Issued after the AIR was posted";
     if (!airOpen) r.amount = r.items.reduce((t, i) => t + i.amount, 0);
   }
   return rows;
@@ -61,19 +61,19 @@ const chip = i => `<span class="badge ${i.kind === "air" ? "b-gold" : "b-warn"}"
 
 export function queue(main) {
   const rows = queueRows();
-  main.innerHTML = `<div class="page-head"><div><h1>For Posting</h1><p>What Accounting has not yet posted in the ${esc(fundName(S.fund))}. Posting an <b>AIR</b> also posts every PAR, ICS and RIS issued from it, under one JEV; documents issued later from an AIR already posted appear here to be posted the same way. Select several rows to post them together.</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>For Posting</h1><p>What Accounting has not yet posted in the ${esc(fundName(S.fund))}. Posting an <b>AIR</b> also posts its PAR and ICS, under one JEV; documents issued later from an AIR already posted appear here to be posted the same way. <b>RIS</b> are posted with their <b>RSMI</b>, once the GSO puts them on one (Reports → RSMI). Select several rows to post them together.</p></div>
     <button class="btn primary" id="bulk" disabled>Post selected</button></div><div class="card" id="t"></div>`;
   const sel = new Set();
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"]],
-      test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"], ["rsmi", "RSMI (supplies issued)"]],
+      test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair", "rsmi"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },
       { label: "Date", render: r => fmtDate(r.date), sort: r => r.date || "" },
       { label: "AIR / document", render: r => `<b>${r.airId ? `<a href="#/airs/${esc(r.airId)}">${esc(r.title)}</a>` : esc(r.title)}</b><div class="xs muted">${esc(r.sub)}</div>`, sort: r => r.title },
-      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "repair" ? `<a href="#/repairs/${esc(r.items[0].id)}">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
+      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "repair" ? `<a href="#/repairs/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "rsmi" ? `<a href="#/reports">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
       { label: "Office / recipient", render: r => `${esc(r.office)}${r.recipient ? `<div class="xs muted">${esc(r.recipient)}</div>` : ""}` },
       { label: "Amount", render: r => money(r.amount), sort: r => r.amount, cls: "right", headCls: "right" },
       { label: "", render: r => `<button class="btn sm primary" data-post="${esc(r.key)}">${r.items.length > 1 ? `Post all (${r.items.length})` : "Post"}</button>` }
@@ -88,7 +88,7 @@ export function queue(main) {
   });
   $("#bulk", main).onclick = () => postRows([...sel].map(find).filter(Boolean));
 }
-queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "fund"];
+queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "r:rsmis", "fund"];
 
 /** Posting form for queue rows: a checklist of what goes under this JEV — the AIR and its PAR / ICS are ticked, RIS are
  *  not (they are usually posted on their own); other rows post their one document. */
@@ -96,7 +96,7 @@ function postRows(rows) {
   const items = rows.flatMap(r => r.items.map(i => ({ ...i, row: r })));
   const ticked = i => i.kind !== "doc" || i.docType !== "ris" || (items.every(x => x.kind === "doc" && x.docType === "ris") && !!S.d.airs.find(a => a.id === i.airId)?.posting?.posted);
   const m = openModal(`<h2>Post ${rows.length === 1 ? esc(rows[0].title) : `${rows.length} rows`}</h2>
-    <p class="muted small">Tick what is posted under this JEV. RIS are usually posted separately, so they are not ticked; an RIS can be posted only once its AIR is posted (or with it).</p>
+    <p class="muted small">Tick what is posted under this JEV. An RSMI posts every RIS on it; an RIS can be posted only once its AIR is posted (or with it).</p>
     <div class="table-wrap" style="margin-bottom:.8rem"><table><thead><tr><th></th><th>Document</th><th>Registry</th><th class="right">Amount</th></tr></thead><tbody>
       ${items.map((i, k) => `<tr><td><input type="checkbox" data-k="${k}" ${ticked(i) ? "checked" : ""}></td><td><b>${esc(i.kind === "air" ? `AIR ${i.number}` : itemLabel(i))}</b>${rows.length > 1 && i.kind !== "air" && i.row.airId ? `<div class="xs muted">${esc(i.row.title)}</div>` : ""}</td>
         <td class="small">${esc(regOf(i))}</td><td class="right">${money(i.amount)}</td></tr>`).join("")}

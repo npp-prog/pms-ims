@@ -1,4 +1,4 @@
-/* PMS-IMS — Property and Inventory Management, Municipal Government of Candoni
+/* PIM — Property & Inventory Management, Municipal Government of Candoni
    Green sidebar (collapses to an icon rail) and green header with a gold rule; light content pages with KPI cards
    and compact tables, in the municipal green and gold. Inter throughout, Plus Jakarta
    Sans for the brand mark. Light theme only. */
@@ -228,6 +228,8 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line-2); background: va
 .auth-hero .lgu b { display: block; color: #fff; font-family: var(--display); font-size: 1.05rem; letter-spacing: 0; text-transform: none; }
 .auth-hero h1 { color: #fff; font-size: 2.5rem; margin-bottom: .6rem; max-width: 16ch; }
 .auth-hero h1 em { font-style: normal; color: var(--gold); }
+.auth-hero h1 .pim { display: block; font-size: 3.4rem; letter-spacing: .02em; color: var(--sand); line-height: 1; margin-bottom: .35rem; }
+.auth-hero h1 em { color: var(--gold-soft-2); }
 .auth-hero .sub { color: #d5e5da; margin: 0 0 1.4rem; max-width: 54ch; font-size: 1.02rem; }
 .auth-hero .feats { list-style: none; padding: 0; margin: 0 0 1.6rem; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .55rem 1.2rem; max-width: 560px; }
 .auth-hero .feats li { display: flex; gap: .55rem; align-items: flex-start; color: #e8f1eb; font-size: .9rem; }
@@ -237,6 +239,11 @@ tfoot td { font-weight: 650; border-top: 1px solid var(--line-2); background: va
 .auth-box { width: 100%; max-width: 430px; }
 .auth-panel .auth-box { background: #fff; border: 1px solid var(--line); border-radius: 20px; padding: 2rem 2rem 1.6rem; box-shadow: var(--shadow-lg); }
 .auth-box.wide { max-width: 740px; }
+.public-tag { max-width: 520px; background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 1.6rem 1.6rem 1.4rem; box-shadow: var(--shadow-lg); }
+.public-tag .pt-head { display: flex; align-items: center; gap: .75rem; padding-bottom: 1rem; margin-bottom: 1rem; border-bottom: 1px solid var(--line); }
+.public-tag .pt-head img { width: 48px; height: 48px; }
+.public-tag .pt-head b { display: block; color: var(--green); font-size: 1.2rem; font-weight: 800; }
+.public-tag .pt-head span { font-size: .78rem; color: var(--muted); }
 .auth-box h2 { margin-bottom: .25rem; font-size: 1.6rem; }
 .gbtn { width: 100%; min-height: 46px; display: flex; align-items: center; justify-content: center; gap: .6rem; padding: .7rem; border: 1px solid var(--line-2); border-radius: 12px; background: #fff; font-weight: 600; transition: background .15s, border-color .15s, box-shadow .15s; }
 .gbtn:hover { background: var(--hover); border-color: #94a3b8; box-shadow: var(--shadow); }

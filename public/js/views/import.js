@@ -201,7 +201,7 @@ function usersImport(el) {
   const invited = new Map(S.d.invites.map(i => [i.email, i]));
   const state = r => { const u = known.get(r.email); return u ? (u.status === "active" ? ["Already active here", "b-ok"] : ["Registered here — will be approved", "b-info"]) : invited.has(r.email) ? (invited.get(r.email).acceptedUid ? ["Signed in already", "b-ok"] : ["Invited — will be updated", "b-gold"]) : ["New — invited", ""]; };
   el.innerHTML = `<div class="card" data-nodirty>
-      <p class="small">Brings the people who use PMS into PMS-IMS with a role and an office. Load any of these (several at once is fine — they are merged by email):</p>
+      <p class="small">Brings the people who use PMS into PIM with a role and an office. Load any of these (several at once is fine — they are merged by email):</p>
       <ul class="small" style="margin-top:0">
         <li><b>The PMS backup</b> <code>firestore-export.json</code> (the PMS daily backup — it holds <code>user_roles</code>: who is approved, Admin, and which tabs each person can edit).</li>
         <li><b>The PMS sign-in accounts</b>, exported by the Firebase project owner with <code>firebase auth:export pms-users.json --project mgo-candoni-ppe</code> — this also includes PMS email/password accounts that have no role record.</li>

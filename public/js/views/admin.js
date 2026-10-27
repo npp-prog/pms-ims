@@ -105,10 +105,10 @@ export function settingsPage(main) {
   };
   $("#bk", main).onclick = () => {
     const d = S.d, ts = new Date().toISOString();
-    const data = { app: "PMS-IMS", exportedAt: ts, exportedBy: S.account?.email || S.user.email, settings: S.settings,
+    const data = { app: "PIM", exportedAt: ts, exportedBy: S.account?.email || S.user.email, settings: S.settings,
       assets: d.assets, airs: d.airs, issuances: d.docs, movements: d.movements, depreciation: d.depr, tbSnapshots: d.tb, cipProjects: d.cip, swa: d.swa, repairs: d.repairs, users: d.users };
     const blob = new Blob([JSON.stringify(data, (k, v) => v && typeof v === "object" && typeof v.toDate === "function" ? v.toDate().toISOString() : v, 1)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `pms-ims-backup-${ts.slice(0, 10)}.json`; a.click();
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `pim-backup-${ts.slice(0, 10)}.json`; a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     toast(`Backup downloaded: ${d.assets.length} property records, ${d.airs.length} AIRs, ${d.docs.length} documents.`, "ok");
   };

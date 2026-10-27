@@ -220,10 +220,15 @@ service cloud.firestore {
         (issuer() && resource.data.status == 'issued' && resource.data.posting.posted == false
           && request.resource.data.status == 'cancelled'
           && onlyChanged(['status', 'cancel', 'updatedAt']))
-        // Accounting posts / unposts — an RIS only once its AIR is posted (or in the same batch)
+        // Accounting posts / unposts — an RIS only with its RSMI, and once its AIR is posted (or in the same batch)
         || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt'])
           && (resource.data.docType != 'ris' || request.resource.data.posting.posted != true
-            || getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.get('posting', {}).get('posted', false) == true))
+            || (getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.get('posting', {}).get('posted', false) == true
+              && resource.data.get('rsmiId', '') != ''
+              && getAfter(/databases/$(database)/documents/rsmis/$(resource.data.rsmiId)).data.status == 'posted')))
+        // the GSO puts an unposted RIS on an RSMI, or takes it off when the RSMI is cancelled
+        || (issuer() && resource.data.docType == 'ris' && resource.data.status == 'issued' && resource.data.posting.posted == false
+          && onlyChanged(['rsmiId', 'rsmiNo', 'updatedAt']))
         // GSO renumbers a PAR / ICS / RIS dated 2026, or it follows its AIR's new number
         || (issuer() && in2026(resource.data) && request.resource.data.number is string && request.resource.data.number.size() > 0
           && onlyChanged(['number', 'renumbered', 'updatedAt']))
@@ -237,6 +242,8 @@ service cloud.firestore {
     // One record per PAR / ICS line (created in the issuance transaction), per import row, or per split.
     match /assets/{id} {
       allow read: if viewer() || (active() && resource.data.custodianUid == request.auth.uid) || sameOffice(resource.data.holder.office);
+      // a scanned QR tag: anyone may open one item by its ID (not list or search them); cancelled items stay hidden
+      allow get: if resource.data.status in ['active', 'returned', 'disposed'];
       // Items come into the register only from a PAR / ICS (created with it, in the same transaction), a split of an
       // existing item (part of a semi-expendable record moved), a completed CIP project, or Data Import — never by hand.
       allow create: if ((issuer() && request.resource.data.source.kind in ['par', 'ics']
@@ -365,11 +372,24 @@ service cloud.firestore {
       allow delete: if active() && (resource.data.endUserUid == request.auth.uid || issuer()) && resource.data.status in ['requested', 'returned'];
     }
 
+    // ---------------- RSMI: prepared by the GSO from unposted RIS, posted by Accounting ----------------
+    match /rsmis/{id} {
+      allow read: if viewer();
+      allow create: if issuer() && validFund(request.resource.data.fund) && request.resource.data.status == 'submitted'
+        && request.resource.data.posting.posted == false && request.resource.data.risIds is list && request.resource.data.risIds.size() > 0;
+      allow update: if (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'cancelled'
+          && onlyChanged(['status', 'cancel', 'updatedAt']))
+        || (poster() && ((resource.data.status == 'submitted' && request.resource.data.status == 'posted')
+            || (resource.data.status == 'posted' && request.resource.data.status == 'submitted'))
+          && onlyChanged(['posting', 'status', 'updatedAt']));
+      allow delete: if false;
+    }
+
     // ---------------- clearing the records (Settings → Clear recorded data) ----------------
     // Only the Super Administrator, and only the record collections: users, invites, settings and auditLogs are never cleared.
     match /{coll}/{id} {
       allow delete: if isSuper() && coll in ['airs', 'issuances', 'assets', 'movements', 'repairs', 'cipProjects', 'swa',
-        'depreciation', 'tbSnapshots', 'attachments', 'items', 'docNumbers', 'counters'];
+        'depreciation', 'tbSnapshots', 'attachments', 'items', 'docNumbers', 'counters', 'rsmis'];
     }
 
     // ---------------- audit trail (append-only) ----------------

@@ -1,6 +1,8 @@
 // Reports: RSMI, summary by account (for reconciliation with the Trial Balance), and AIR monitoring.
-import { S, fundAirs, fundDocs, docsOfAir, fundAssets } from "../state.js";
-import { $, $$, esc, money, num, qty, fmtDate, manilaToday, downloadCSV, renderTable } from "../ui.js";
+import { S, can, fundAirs, fundDocs, docsOfAir, fundAssets } from "../state.js";
+import { $, $$, esc, money, num, qty, fmtDate, manilaToday, downloadCSV, renderTable, busy, confirmBox, toast } from "../ui.js";
+import { createRsmi, cancelRsmi, postRsmi } from "../data.js";
+import { numberingFor } from "../core/logic.js";
 import { accumAsOf, impairmentAsOf, periodOf, periodEnd } from "../core/assets.js";
 import { printCards } from "./assetforms.js";
 import { fundName, accountName, CATEGORIES } from "../core/catalog.js";
@@ -11,7 +13,7 @@ const st = { tab: "rsmi", from: manilaToday().slice(0, 8) + "01", to: manilaToda
 const monthName = p => new Date(`${p}-01T00:00:00`).toLocaleDateString("en-PH", { month: "long", year: "numeric" });
 
 export function reports(main) {
-  main.innerHTML = `<div class="page-head"><div><h1>Reports</h1><p>${esc(fundName(S.fund))}. The RSMI is made monthly by JEV date; for the other reports choose the period. Then print or download.</p></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Reports</h1><p>${esc(fundName(S.fund))}. The GSO puts the RIS not yet posted on an RSMI, and Accounting posts the RSMI; for the other reports choose the period. Then print or download.</p></div></div>
     <div class="tabs">${[["rsmi", "RSMI"], ["accounts", "Summary by Account"], ["monitor", "AIR Monitoring"], ["accountability", "Accountability"], ["disposed", "Disposed / Retired"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
     <div class="card"><div class="table-tools" data-nodirty ${["accountability", "disposed"].includes(st.tab) ? "hidden" : ""}>
       <div ${st.tab === "rsmi" ? "hidden" : ""}><label>From</label><input type="date" id="from" value="${st.from}"></div><div ${st.tab === "rsmi" ? "hidden" : ""}><label>To</label><input type="date" id="to" value="${st.to}"></div>
@@ -22,7 +24,7 @@ export function reports(main) {
   $("#to", main).onchange = e => { st.to = e.target.value; draw(main); };
   draw(main);
 }
-reports.deps = ["r:airs", "r:docs", "r:assets", "r:depr", "r:movements", "r:repairs", "fund"];
+reports.deps = ["r:airs", "r:docs", "r:assets", "r:depr", "r:movements", "r:repairs", "r:rsmis", "fund"];
 
 const inRange = d => (!st.from || d >= st.from) && (!st.to || d <= st.to);
 
@@ -30,42 +32,8 @@ function draw(main) {
   const out = $("#out", main);
   if (st.tab === "accountability") return accountability(out);
   if (st.tab === "disposed") return disposed(out);
-  if (st.tab === "rsmi") {
-    // the RSMI is made from the RIS Accounting has not yet posted (by RIS date), for Accounting to post
-    const months = rsmiMonths(S.d.docs, S.fund, { unposted: true });
-    const range = st.rmode === "range";
-    const month = st.month || months[0]?.period || manilaToday().slice(0, 7);
-    if (!st.rfrom) { st.rfrom = `${month}-01`; st.rto = periodEnd(month); }
-    const from = range ? st.rfrom : `${month}-01`, to = range ? st.rto : periodEnd(month);
-    const r = rsmi(S.d.docs, S.fund, from, to, { unposted: true }), je = rsmiEntry(r.lines);
-    const entry = `<h4 style="margin:1rem 0 .4rem">Recapitulation — proposed accounting entry</h4>
-      <div class="table-wrap"><table><thead><tr><th>Account</th><th>Account title</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead><tbody>
-        ${je.debits.map(d => `<tr><td><b>${esc(d.code || "—")}</b></td><td>${esc(d.name)}</td><td class="right">${num(d.amount)}</td><td></td></tr>`).join("")}
-        ${je.credits.map(c => `<tr><td><b>${esc(c.code)}</b></td><td style="padding-left:2rem">${esc(c.name)}</td><td></td><td class="right">${num(c.amount)}</td></tr>`).join("")}
-      </tbody><tfoot><tr><td colspan="2" class="right">Total</td><td class="right">${money(je.total)}</td><td class="right">${money(je.total)}</td></tr></tfoot></table></div>
-      <p class="xs muted" style="margin-top:.4rem">To record the supplies and materials issued${range ? ` from ${fmtDate(from)} to ${fmtDate(to)}` : ` for ${esc(monthName(month))}`} per RSMI.</p>`;
-    out.innerHTML = `<p class="small muted">The RSMI is made from the RIS that Accounting has <b>not yet posted</b>, by RIS date. Once Accounting posts an RIS it no longer appears here. Choose a month, or any date coverage.</p>
-      <div class="tabs" data-nodirty><button type="button" data-rmode="month" class="${range ? "" : "active"}">By month</button><button type="button" data-rmode="range" class="${range ? "active" : ""}">By date coverage</button></div>
-      <div class="split rep-split">
-        <div><div class="table-wrap"><table><thead><tr><th>Month</th><th class="right">RIS</th><th class="right">Amount</th></tr></thead>
-          <tbody>${months.map(m => `<tr class="click ${m.period === month ? "sel" : ""}" data-m="${esc(m.period)}"><td><b>${esc(monthName(m.period))}</b><div class="xs muted">RSMI No. ${esc(m.period)}</div></td><td class="right">${m.ris}</td><td class="right">${num(m.total)}</td></tr>`).join("") || `<tr><td colspan="3" class="empty">No RIS waiting to be posted.</td></tr>`}</tbody></table></div>
-          <div style="margin-top:.6rem" data-nodirty><label>Other month</label><input type="month" id="rm" value="${esc(month)}"></div>
-          </div>
-        <div>${range ? `<div class="table-tools" data-nodirty><div><label>From (RIS date)</label><input type="date" id="rf" value="${esc(from)}"></div><div><label>To</label><input type="date" id="rt" value="${esc(to)}"></div></div>
-          <h3 style="margin:0 0 .2rem">RSMI — ${fmtDate(from)} to ${fmtDate(to)}</h3>` : `<h3 style="margin:0 0 .2rem">RSMI No. ${esc(month)} — ${esc(monthName(month))}</h3>`}
-          <p class="xs muted" style="margin:0 0 .6rem">${r.lines.length ? "RIS not yet posted by Accounting" : "No RIS waiting to be posted in this period."}</p>
-          <div class="table-wrap"><table><thead><tr><th>RIS No.</th><th>RIS date</th><th>Office</th><th>Stock No.</th><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th></tr></thead>
-          <tbody>${r.lines.map(l => `<tr><td>${esc(l.risNo)}</td><td>${fmtDate(l.date)}</td><td>${esc(l.office)}</td><td>${esc(l.stockNo)}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)} ${esc(l.unit)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td></tr>`).join("") || `<tr><td colspan="8" class="empty">Nothing in this month.</td></tr>`}</tbody>
-          <tfoot><tr><td colspan="7" class="right">Total</td><td class="right">${money(r.total)}</td></tr></tfoot></table></div>${r.lines.length ? entry : ""}</div></div>`;
-    $$("[data-rmode]", out).forEach(b => b.onclick = () => { st.rmode = b.dataset.rmode; draw(main); });
-    $("#rf", out) && ($("#rf", out).onchange = e => { st.rfrom = e.target.value; if (st.rto < st.rfrom) st.rto = st.rfrom; draw(main); });
-    $("#rt", out) && ($("#rt", out).onchange = e => { st.rto = e.target.value; draw(main); });
-    $$("[data-m]", out).forEach(tr => tr.onclick = () => { st.month = tr.dataset.m; st.rmode = "month"; draw(main); });
-    $("#rm", out).onchange = e => { if (e.target.value) { st.month = e.target.value; st.rmode = "month"; draw(main); } };
-    $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, from, to, range ? { entry: je } : { month, entry: je }), "portrait");
-    $("#csv", main).onclick = () => downloadCSV(`RSMI-${S.fund}-${range ? `${from}_to_${to}` : month}`, ["RSMI No.", "RIS No.", "RIS Date", "JEV No.", "JEV Date", "Office", "Stock No.", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Account"],
-      r.lines.map(l => [range ? `${from} to ${to}` : month, l.risNo, l.date, l.jevNo, l.jevDate, l.office, l.stockNo, l.description, l.unit, l.qty, l.unitCost, l.amount, l.accountCode]));
-  } else if (st.tab === "accounts") {
+  if (st.tab === "rsmi") return rsmiTab(main, out);
+  if (st.tab === "accounts") {
     const acc = new Map();
     const get = (code, cat) => { if (!acc.has(code)) acc.set(code, { code, cat, received: 0, issued: 0, posted: 0 }); return acc.get(code); };
     for (const a of fundAirs()) if (["approved", "issued"].includes(a.status) && inRange(a.acceptance?.dateReceived || a.date))
@@ -169,4 +137,92 @@ function disposed(out) {
   $("#dcsv", out).onclick = () => downloadCSV(`Disposed-${S.fund}-${manilaToday()}`, headers, data());
   $("#dpr", out).onclick = () => printForm(tableReportHtml("DISPOSED / RETIRED PROPERTY", `${fundName(S.fund)} · as of ${fmtDate(manilaToday())}`,
     ["Disposed", "Property No.", "Description", "Mode", "Reference", "Last Officer", "Cost", "Carrying"], data().map(r => [fmtDate(r[0]), r[1], r[2], r[5], r[6], r[7], num(r[8]), r[9] === "" ? "" : num(r[9])])), "landscape");
+}
+
+/* ---------------- RSMI ---------------- */
+// The GSO ticks the RIS not yet posted (by RIS date, a month or any date coverage) and saves them as an RSMI;
+// Accounting posts the RSMI, which posts every RIS on it under one JEV.
+const RSMI_BADGE = { submitted: ["For Accounting posting", "b-warn"], posted: ["Posted", "b-ok"], cancelled: ["Cancelled", "b-bad"] };
+const entryHtml = (je, note) => `<h4 style="margin:1rem 0 .4rem">Recapitulation — proposed accounting entry</h4>
+  <div class="table-wrap"><table><thead><tr><th>Account</th><th>Account title</th><th class="right">Debit</th><th class="right">Credit</th></tr></thead><tbody>
+    ${je.debits.map(d => `<tr><td><b>${esc(d.code || "—")}</b></td><td>${esc(d.name)}</td><td class="right">${num(d.amount)}</td><td></td></tr>`).join("")}
+    ${je.credits.map(c => `<tr><td><b>${esc(c.code)}</b></td><td style="padding-left:2rem">${esc(c.name)}</td><td></td><td class="right">${num(c.amount)}</td></tr>`).join("")}
+  </tbody><tfoot><tr><td colspan="2" class="right">Total</td><td class="right">${money(je.total)}</td><td class="right">${money(je.total)}</td></tr></tfoot></table></div>
+  <p class="xs muted" style="margin-top:.4rem">${note}</p>`;
+const linesHtml = (r, tick) => `<div class="table-wrap"><table><thead><tr>${tick ? "<th></th>" : ""}<th>RIS No.</th><th>RIS date</th><th>Office</th><th>Stock No.</th><th>Item</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th></tr></thead>
+  <tbody>${r.lines.map((l, i) => `<tr>${tick ? `<td>${i === 0 || r.lines[i - 1].risId !== l.risId ? `<input type="checkbox" data-nodirty data-ris="${esc(l.risId)}" ${tick.has(l.risId) ? "checked" : ""}>` : ""}</td>` : ""}<td>${esc(l.risNo)}</td><td>${fmtDate(l.date)}</td><td>${esc(l.office)}</td><td>${esc(l.stockNo)}</td><td>${esc(l.description)}</td><td class="right">${qty(l.qty)} ${esc(l.unit)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td></tr>`).join("")
+    || `<tr><td colspan="${tick ? 9 : 8}" class="empty">No RIS waiting to be posted in this period.</td></tr>`}</tbody>
+  <tfoot><tr><td colspan="${tick ? 8 : 7}" class="right">Total</td><td class="right">${money(r.total)}</td></tr></tfoot></table></div>`;
+const csvOf = (name, r) => downloadCSV(name, ["RIS No.", "RIS Date", "Office", "Stock No.", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Account"],
+  r.lines.map(l => [l.risNo, l.date, l.office, l.stockNo, l.description, l.unit, l.qty, l.unitCost, l.amount, l.accountCode]));
+const withIds = (docs, r) => { r.lines.forEach(l => { l.risId = docs.find(d => d.number === l.risNo && d.docType === "ris")?.id || ""; }); return r; };
+
+function rsmiTab(main, out) {
+  const list = S.d.rsmis.filter(x => x.fund === S.fund).sort((a, b) => String(b.number).localeCompare(String(a.number), undefined, { numeric: true }));
+  const cur = st.rsmiId && list.find(x => x.id === st.rsmiId);
+  out.innerHTML = `<p class="small muted">The GSO ticks the RIS not yet posted by Accounting and saves them as an <b>RSMI</b>; Accounting then posts the RSMI, which posts every RIS on it under one JEV. An RIS is posted only through its RSMI.</p>
+    <div class="split rep-split">
+      <div><div class="table-wrap"><table><thead><tr><th>RSMI</th><th class="right">Amount</th></tr></thead><tbody>
+        <tr class="click ${cur ? "" : "sel"}" data-r=""><td><b>New RSMI</b><div class="xs muted">RIS not yet on an RSMI</div></td><td></td></tr>
+        ${list.map(x => `<tr class="click ${cur?.id === x.id ? "sel" : ""}" data-r="${esc(x.id)}"><td><b>RSMI ${esc(x.number)}</b><div class="xs muted">${x.risIds.length} RIS · <span class="badge ${RSMI_BADGE[x.status]?.[1] || ""}">${esc(RSMI_BADGE[x.status]?.[0] || x.status)}</span></div></td><td class="right">${num(x.total)}</td></tr>`).join("")}
+      </tbody></table></div></div>
+      <div id="rpane"></div></div>`;
+  $$("[data-r]", out).forEach(tr => tr.onclick = () => { st.rsmiId = tr.dataset.r; draw(main); });
+  return cur ? savedRsmi(main, $("#rpane", out), cur) : newRsmi(main, $("#rpane", out));
+}
+
+function newRsmi(main, pane) {
+  const range = st.rmode === "range", gso = can("issue");
+  const months = rsmiMonths(S.d.docs.filter(d => !d.rsmiId), S.fund, { unposted: true });
+  const month = st.month || months[0]?.period || manilaToday().slice(0, 7);
+  if (!st.rfrom) { st.rfrom = `${month}-01`; st.rto = periodEnd(month); }
+  const from = range ? st.rfrom : `${month}-01`, to = range ? st.rto : periodEnd(month);
+  const pool = S.d.docs.filter(d => !d.rsmiId);
+  const all = withIds(pool, rsmi(pool, S.fund, from, to, { unposted: true }));
+  const ids = [...new Set(all.lines.map(l => l.risId))];
+  if (!st.tick || st.tickKey !== `${from}|${to}`) { st.tick = new Set(ids); st.tickKey = `${from}|${to}`; }
+  const tick = new Set(ids.filter(id => st.tick.has(id)));
+  const picked = { ...all, lines: all.lines.filter(l => tick.has(l.risId)) };
+  picked.total = round2(picked.lines.reduce((t, l) => t + l.amount, 0));
+  const je = rsmiEntry(picked.lines), manual = numberingFor(S.settings, "rsmi").mode === "manual";
+  pane.innerHTML = `<div class="tabs" data-nodirty><button type="button" data-rmode="month" class="${range ? "" : "active"}">By month</button><button type="button" data-rmode="range" class="${range ? "active" : ""}">By date coverage</button></div>
+    <div class="table-tools" data-nodirty>${range ? `<div><label>From (RIS date)</label><input type="date" id="rf" value="${esc(from)}"></div><div><label>To</label><input type="date" id="rt" value="${esc(to)}"></div>`
+      : `<div><label>Month (RIS date)</label><input type="month" id="rm" value="${esc(month)}"></div><div class="small muted" style="align-self:center">${months.map(m => `${esc(monthName(m.period))}: ${m.ris} RIS`).join(" · ") || "No RIS waiting."}</div>`}</div>
+    <h3 style="margin:0 0 .2rem">New RSMI — ${range ? `${fmtDate(from)} to ${fmtDate(to)}` : esc(monthName(month))}</h3>
+    <p class="xs muted" style="margin:0 0 .6rem">${gso ? "Tick the RIS to include, then save the RSMI for Accounting to post." : "RIS not yet on an RSMI. The GSO prepares the RSMI."}</p>
+    ${linesHtml(all, gso ? tick : null)}
+    ${picked.lines.length ? entryHtml(je, "Proposed entry for the ticked RIS.") : ""}
+    ${gso && ids.length ? `<div class="btn-row end" style="margin-top:1rem" data-nodirty>${manual ? `<input id="rsno" placeholder="RSMI No." style="width:auto">` : ""}<button class="btn primary" id="mkrsmi" ${tick.size ? "" : "disabled"}>Save RSMI with ${tick.size} RIS</button></div>` : ""}`;
+  $$("[data-rmode]", pane).forEach(b => b.onclick = () => { st.rmode = b.dataset.rmode; draw(main); });
+  $("#rf", pane) && ($("#rf", pane).onchange = e => { st.rfrom = e.target.value; if (st.rto < st.rfrom) st.rto = st.rfrom; draw(main); });
+  $("#rt", pane) && ($("#rt", pane).onchange = e => { st.rto = e.target.value; draw(main); });
+  $("#rm", pane) && ($("#rm", pane).onchange = e => { if (e.target.value) { st.month = e.target.value; draw(main); } });
+  $$("[data-ris]", pane).forEach(c => c.onchange = () => { c.checked ? st.tick.add(c.dataset.ris) : st.tick.delete(c.dataset.ris); draw(main); });
+  $("#mkrsmi", pane) && ($("#mkrsmi", pane).onclick = e => busy(e.target, async () => {
+    const r = await createRsmi(S.fund, [...tick], { from, to, month: range ? "" : month, number: $("#rsno", pane)?.value || "" });
+    st.rsmiId = r.id; st.tick = null; toast(`RSMI ${r.number} saved — waiting for Accounting to post it.`, "ok"); draw(main);
+  }).catch(() => {}));
+  $("#pr", main).onclick = () => printForm(rsmiHtml(picked, S.fund, from, to, range ? { entry: je } : { month, entry: je }), "portrait");
+  $("#csv", main).onclick = () => csvOf(`RSMI-draft-${S.fund}-${range ? `${from}_to_${to}` : month}`, picked);
+}
+
+function savedRsmi(main, pane, x) {
+  const docs = x.risIds.map(id => S.d.docs.find(d => d.id === id)).filter(Boolean);
+  const r = withIds(docs, rsmi(docs, S.fund, "", "")), je = rsmiEntry(r.lines);
+  const [label, cls] = RSMI_BADGE[x.status] || [x.status, ""];
+  pane.innerHTML = `<div class="card-head" style="margin-bottom:.4rem"><h3 style="margin:0">RSMI No. ${esc(x.number)}</h3><span class="badge ${cls}">${esc(label)}</span></div>
+    <p class="xs muted" style="margin:0 0 .6rem">${x.month ? esc(monthName(x.month)) : `${fmtDate(x.from)} to ${fmtDate(x.to)}`} · prepared by ${esc(x.createdBy?.name || "")}${x.posting?.posted ? ` · posted ${fmtDate(x.posting.date)}, ${esc(x.posting.ref)}` : ""}</p>
+    ${linesHtml(r, null)}${r.lines.length ? entryHtml(je, `To record the supplies and materials issued per RSMI No. ${esc(x.number)}.`) : ""}
+    ${can("post") && x.status === "submitted" ? `<form class="grid g3" id="rpf" style="margin-top:1rem" data-nodirty><div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
+      <div><label class="req">JEV / reference no.</label><input name="ref"></div><div style="align-self:end"><button class="btn primary" type="submit">Post RSMI and its ${x.risIds.length} RIS</button></div></form>` : ""}
+    <div class="btn-row end" style="margin-top:1rem">${can("post") && x.status === "posted" ? `<button class="btn" id="rup">Unpost</button>` : ""}${can("issue") && x.status === "submitted" ? `<button class="btn danger" id="rcx">Cancel RSMI</button>` : ""}</div>`;
+  const f = $("#rpf", pane);
+  if (f) f.onsubmit = e => { e.preventDefault(); const v = Object.fromEntries(new FormData(f).entries()); busy(e.submitter, () => postRsmi(x.id, v), `RSMI ${x.number} posted with its RIS.`).catch(() => {}); };
+  $("#rup", pane) && ($("#rup", pane).onclick = async e => { if (await confirmBox({ title: `Unpost RSMI ${x.number}?`, body: "Its RIS are unposted too.", confirmText: "Unpost", danger: true })) busy(e.target, () => postRsmi(x.id, null), "RSMI unposted.").catch(() => {}); });
+  $("#rcx", pane) && ($("#rcx", pane).onclick = async e => {
+    const v = await confirmBox({ title: `Cancel RSMI ${x.number}?`, body: "Its RIS go back to the list, to be put on another RSMI.", fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: "Cancel RSMI", danger: true });
+    if (v) busy(e.target, async () => { await cancelRsmi(x.id, v.reason); st.rsmiId = ""; draw(main); }, "RSMI cancelled.").catch(() => {});
+  });
+  $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, x.from, x.to, { month: x.month, serial: x.number, entry: je }), "portrait");
+  $("#csv", main).onclick = () => csvOf(`RSMI-${S.fund}-${x.number}`, r);
 }

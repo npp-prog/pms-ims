@@ -1,12 +1,12 @@
 // Bringing the PMS users over: reads the PMS backup (firestore-export.json → user_roles), a Firebase Authentication
-// export (firebase auth:export) or a pasted list, and proposes a PMS-IMS role for each person. Pure functions only.
+// export (firebase auth:export) or a pasted list, and proposes a PIM role for each person. Pure functions only.
 import { SUPERADMIN_EMAILS } from "./catalog.js";
 
 export const IMPORT_ROLES = ["enduser", "gso", "accounting", "admin"];
 const EDIT = v => v === "edit";
 const emailOk = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
-/** PMS access → PMS-IMS role: Admin stays Admin; edit rights on the register, depreciation, reconciliation, CIP or SWA
+/** PMS access → PIM role: Admin stays Admin; edit rights on the register, depreciation, reconciliation, CIP or SWA
  *  are Accounting's work here; edit rights on PAR / ICS, PTR / ITR or History of Repair only are the GSO's; anyone else
  *  (view-only) starts as End-User. The administrator can change any of them before importing. */
 export function suggestRole(r) {

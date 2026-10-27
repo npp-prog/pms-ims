@@ -1,4 +1,4 @@
-# PMS-IMS — Property and Inventory Management, MGO Candoni
+# PIM — Property & Inventory Management, Municipal Government of Candoni
 
 One app that merges the **Property Management System** (PMS / PPE Ledger) and the
 **Inventory Management System** (IMS). Every delivery starts as an **Acceptance and Inspection
@@ -154,6 +154,9 @@ continue at step 4.
   history: acquisition, balance forward, depreciation by month, revaluations and CIP additions,
   impairments, transfers, verified repairs, disposal and reactivation.
 - **QR ID tags** (3 × 2 in. stickers), with the municipal seal above each QR code, that open the item's page when scanned.
+  Anyone who scans a tag sees the item's basic details (Property No., description, account, fund, date acquired,
+  accountable officer, office, location, condition and status) without signing in; cancelled items stay hidden, and
+  the list of items still needs an account.
 - **Transfers:** the printed details of a PTR / ITR / PRS / RRSP / disposal (reason, signatories,
   reference) can be edited without touching the items.
 - **CIP completion** can split the cost by building or road component, or **add the project to an
@@ -189,16 +192,18 @@ continue at step 4.
   balance; it shows as **Reserved**, and **Available** = balance − reserved (what can still be issued). When Accounting
   posts the RIS it becomes an issue on the Stock Card and reduces the balance.
 - **RIS posted only after its AIR:** the GSO may prepare and issue the RIS any time after approval, but Accounting can
-  post an RIS only once its AIR is posted (or together with it). An RIS issued before the AIR is posted counts in the
+  post an RIS (through its RSMI) only once its AIR is posted. An RIS issued before the AIR is posted counts in the
   Inventory Registry from when the AIR is posted.
-- **RSMI — the RIS not yet posted, monthly or any date coverage:** Reports → RSMI lists, by RIS date, the RIS that
-  Accounting has **not yet posted** (RSMI No. = the month, e.g. 2026-10), or choose **By date coverage** for any from–to
-  range. Once Accounting posts an RIS it drops off the RSMI. The **recapitulation is the proposed accounting entry**:
-  each expense account debited (e.g. 50203010 Office Supplies Expenses) and each inventory account credited, on screen
-  and on the printed RSMI (A4 portrait).
+- **RSMI — the GSO picks the RIS, Accounting posts them:** Reports → RSMI → New RSMI lists, by RIS date, the RIS that
+  Accounting has **not yet posted** and that are on no other RSMI, for a month or any from–to date coverage. The GSO
+  ticks the RIS to include and saves the RSMI (numbered like the other forms). Accounting then posts the RSMI — from the
+  RSMI itself or from For Posting — and that posts every RIS on it with the same JEV; an RIS is never posted on its own.
+  Each RIS's AIR must be posted first. A submitted RSMI can be cancelled by the GSO, which frees its RIS. The
+  **recapitulation is the proposed accounting entry**: each expense account debited (e.g. 50203010 Office Supplies
+  Expenses) and each inventory account credited, on screen and on the printed RSMI (A4 portrait).
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR, ICS and
-  RIS with a tick box: the AIR, PAR and ICS are ticked, RIS are not (they are usually posted on their own; an RIS can be ticked only when its AIR is posted or ticked too). Everything
-  ticked is posted under one JEV. Disposals and repairs are posted on their own rows.
+  ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
+  row in For Posting). Disposals and repairs are posted on their own rows.
 - **Property No. / Inventory Item No.** are suggested on the PAR / ICS as *year purchased – asset group – sub-major
   account – general ledger – series*, e.g. 10705020 Office Equipment bought in 2026 → **2026-07-05-02-0001**; the series
   runs per year across all accounts, and a number can't be used twice.
@@ -280,7 +285,8 @@ For Posting · Posting Status · Depreciation · TB Reconciliation · Reports (R
 Account, AIR Monitoring, Accountability, Disposed / Retired) · Users & Roles · Data Import · Settings · Audit Trail ·
 My Profile.
 Every list can be downloaded as a CSV. **Everything prints on A4**: forms such as the AIR, PAR, ICS, RIS, PTR and JEV
-in portrait; Ledger / Property / Stock / CIP cards and the wide reports in landscape; ID tags on an A4 sheet. Chrome and
+in portrait; the Inventory Registry — Supplies, Stock Cards, Supplies Ledger Cards and the RSMI in portrait;
+Ledger / Property / CIP cards and the wide reports in landscape; ID tags on an A4 sheet. Chrome and
 Edge pick A4 and the orientation automatically; Safari and Firefox show a reminder to choose A4 (and Landscape) in the
 print dialog.
 

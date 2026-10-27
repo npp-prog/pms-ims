@@ -163,7 +163,6 @@ export function issueDocs(airId, docType, picks, header) {
       const airRef = doc(db, "airs", airId); const snap = await tx.get(airRef);
       if (!snap.exists()) throw fail("This AIR no longer exists.");
       const air = { id: airId, ...snap.data() };
-      if (docType === "ris" && !air.posting?.posted) throw fail("Supplies are issued (RIS) only after Accounting posts the AIR: they enter the Inventory Registry then.");
       const { errors, lines } = checkIssue(air, docType, picks);
       if (errors.length) throw fail(errors[0]);
       const groups = new Map();
@@ -311,6 +310,7 @@ export function setPosting(kind, id, posting) {
       ? { posted: true, date: posting.date, ref: String(posting.ref || "").trim(), remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() }
       : { posted: false, unpostedBy: me(), unpostedAt: new Date().toISOString() };
     if (posting && !posting.date) throw fail("Enter the posting date.");
+    if (posting && kind === "doc") { const d = S.d.docs.find(x => x.id === id); if (d?.docType === "ris" && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted) throw fail(`RIS ${d.number} can be posted only once its AIR is posted.`); }
     if (posting && !data.ref) throw fail("Enter the JEV / reference number.");
     const patch = { posting: data, updatedAt: serverTimestamp() };
     if (kind === "air") patch.history = arrayUnion(stamp(posting ? "Receipt posted by Accounting" : "Receipt unposted by Accounting", posting ? data.ref : ""));
@@ -327,6 +327,11 @@ export function postSelected(items, posting) {
     if (!posting?.date) throw fail("Enter the posting date.");
     const ref = String(posting.ref || "").trim();
     if (!ref) throw fail("Enter the JEV / reference number.");
+    for (const i of items) {
+      const d = i.kind === "doc" ? S.d.docs.find(x => x.id === i.id) : null;
+      if (d?.docType === "ris" && !S.d.airs.find(a => a.id === d.airId)?.posting?.posted && !items.some(x => x.kind === "air" && x.id === d.airId))
+        throw fail(`RIS ${d.number} can be posted only once its AIR is posted — tick the AIR too, or post the AIR first.`);
+    }
     const { writeBatch } = await import("./fb.js");
     const data = { posted: true, date: posting.date, ref, remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() };
     const b = writeBatch(db);

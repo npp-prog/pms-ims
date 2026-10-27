@@ -182,15 +182,16 @@ continue at step 4.
   them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
   reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
   Items brought in through Data Import or completed from CIP are in the registry from the start.
-- **Supplies wait for the AIR's posting:** the RIS for an AIR's supplies can be issued only after Accounting posts the
-  AIR (they are in the Inventory Registry then). PAR and ICS are issued right after approval.
+- **RIS posted only after its AIR:** the GSO may prepare and issue the RIS any time after approval, but Accounting can
+  post an RIS only once its AIR is posted (or together with it). An RIS issued before the AIR is posted counts in the
+  Inventory Registry from when the AIR is posted.
 - **RSMI by JEV date — monthly or any date coverage:** Reports → RSMI lists one RSMI per month (RSMI No. = the month,
   e.g. 2026-10), or choose **By date coverage** for any from–to range. It is made from the RIS that Accounting posted —
   an RIS goes into the period of its JEV date, whatever date it was issued. The **recapitulation is the proposed
   accounting entry**: each expense account debited (e.g. 50203010 Office Supplies Expenses) and each inventory account
   credited, on screen and on the printed RSMI.
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR, ICS and
-  RIS with a tick box: the AIR, PAR and ICS are ticked, RIS are not (they are usually posted on their own). Everything
+  RIS with a tick box: the AIR, PAR and ICS are ticked, RIS are not (they are usually posted on their own; an RIS can be ticked only when its AIR is posted or ticked too). Everything
   ticked is posted under one JEV. Disposals and repairs are posted on their own rows.
 - **Property No. / Inventory Item No.** are suggested on the PAR / ICS as *year purchased – asset group – sub-major
   account – general ledger – series*, e.g. 10705020 Office Equipment bought in 2026 → **2026-07-05-02-0001**; the series

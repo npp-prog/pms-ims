@@ -29,7 +29,7 @@ export function queue(main, [airId]) {
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>` },
       { label: "PAR (PPE)", render: a => count(left(a, "ppe")), cls: "right", headCls: "right" },
       { label: "ICS (Semi-Exp.)", render: a => count(left(a, "sx")), cls: "right", headCls: "right" },
-      { label: "RIS (Supplies)", render: a => left(a, "cons").length && !a.posting?.posted ? `${count(left(a, "cons"))}<div class="xs muted">after posting</div>` : count(left(a, "cons")), cls: "right", headCls: "right" }
+      { label: "RIS (Supplies)", render: a => count(left(a, "cons")), cls: "right", headCls: "right" }
     ],
     empty: "Nothing waiting for issuance.",
     onRow: a => { location.hash = `#/issue/${a.id}`; }
@@ -52,10 +52,6 @@ function issuePanel(main, airId) {
   $$(".tabs [data-t]", main).forEach(b => b.onclick = () => { st.type = b.dataset.t; issuePanel(main, airId); });
   const t = st.type, cat = DOC_TYPES[t].category, prop = t !== "ris";
   const lines = left(a, cat);
-  if (t === "ris" && !a.posting?.posted) {
-    $("#isf", main).innerHTML = `<h3>${esc(DOC_TYPES[t].label)}</h3><div class="notice info" style="margin:0">The supplies on this AIR are issued with an RIS only after Accounting posts the AIR — they enter the Inventory Registry then. ${lines.length} item${lines.length === 1 ? " is" : "s are"} waiting.</div>`;
-    return;
-  }
   // Property No. / Inventory Item No. suggested in the year-group-sub major-GL-series format, after every number used that year
   const year = String(a.acceptance?.dateReceived || a.date || manilaToday()).slice(0, 4);
   const suggested = prop ? suggestPropertyNos(lines, year, S.d.assets.map(x => x.propertyNo)) : [];

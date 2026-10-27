@@ -94,9 +94,9 @@ queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "fund"];
  *  not (they are usually posted on their own); other rows post their one document. */
 function postRows(rows) {
   const items = rows.flatMap(r => r.items.map(i => ({ ...i, row: r })));
-  const ticked = i => i.kind !== "doc" || i.docType !== "ris" || items.every(x => x.kind === "doc" && x.docType === "ris");
+  const ticked = i => i.kind !== "doc" || i.docType !== "ris" || (items.every(x => x.kind === "doc" && x.docType === "ris") && !!S.d.airs.find(a => a.id === i.airId)?.posting?.posted);
   const m = openModal(`<h2>Post ${rows.length === 1 ? esc(rows[0].title) : `${rows.length} rows`}</h2>
-    <p class="muted small">Tick what is posted under this JEV. RIS are usually posted separately, so they are not ticked.</p>
+    <p class="muted small">Tick what is posted under this JEV. RIS are usually posted separately, so they are not ticked; an RIS can be posted only once its AIR is posted (or with it).</p>
     <div class="table-wrap" style="margin-bottom:.8rem"><table><thead><tr><th></th><th>Document</th><th>Registry</th><th class="right">Amount</th></tr></thead><tbody>
       ${items.map((i, k) => `<tr><td><input type="checkbox" data-k="${k}" ${ticked(i) ? "checked" : ""}></td><td><b>${esc(i.kind === "air" ? `AIR ${i.number}` : itemLabel(i))}</b>${rows.length > 1 && i.kind !== "air" && i.row.airId ? `<div class="xs muted">${esc(i.row.title)}</div>` : ""}</td>
         <td class="small">${esc(regOf(i))}</td><td class="right">${money(i.amount)}</td></tr>`).join("")}
@@ -108,7 +108,14 @@ function postRows(rows) {
       <div class="spanall form-msg err" id="pm"></div>
       <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit" id="pgo">Post</button></div></form>`, { size: "wide" });
   const boxes = () => $$("[data-k]", m).filter(b => b.checked).map(b => items[+b.dataset.k]);
-  const label = () => { const n = boxes().length; $("#pgo", m).textContent = n === 1 ? "Post 1 document" : `Post ${n} documents`; $("#pgo", m).disabled = !n; };
+  // an RIS needs its AIR posted, or ticked in this same posting
+  const airPosted = id => !!S.d.airs.find(a => a.id === id)?.posting?.posted;
+  const sync = () => $$("[data-k]", m).forEach(b => {
+    const i = items[+b.dataset.k]; if (i.kind !== "doc" || i.docType !== "ris") return;
+    const ok = airPosted(i.airId) || $$("[data-k]", m).some(x => x.checked && items[+x.dataset.k].kind === "air" && items[+x.dataset.k].id === i.airId);
+    b.disabled = !ok; if (!ok) b.checked = false; b.title = ok ? "" : "Post the AIR first (or tick it too)";
+  });
+  const label = () => { sync(); const n = boxes().length; $("#pgo", m).textContent = n === 1 ? "Post 1 document" : `Post ${n} documents`; $("#pgo", m).disabled = !n; };
   m.addEventListener("change", e => { if (e.target.matches("[data-k]")) label(); }); label();
   $("[data-x]", m).onclick = () => m.close();
   $("#pf", m).onsubmit = e => {

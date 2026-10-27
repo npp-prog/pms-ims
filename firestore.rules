@@ -213,18 +213,17 @@ service cloud.firestore {
         && request.resource.data.posting.posted == false
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.status in ['approved', 'issued']
         && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.fund == request.resource.data.fund
-        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid
-        // supplies: only once Accounting has posted the AIR (they are in the Inventory Registry then)
-        && (request.resource.data.docType != 'ris'
-          || getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.get('posting', {}).get('posted', false) == true));
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.airId)).data.endUserUid == request.resource.data.endUserUid);
 
       allow update: if
         // GSO cancels a document Accounting has not posted
         (issuer() && resource.data.status == 'issued' && resource.data.posting.posted == false
           && request.resource.data.status == 'cancelled'
           && onlyChanged(['status', 'cancel', 'updatedAt']))
-        // Accounting posts / unposts
-        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt']))
+        // Accounting posts / unposts — an RIS only once its AIR is posted (or in the same batch)
+        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt'])
+          && (resource.data.docType != 'ris' || request.resource.data.posting.posted != true
+            || getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.get('posting', {}).get('posted', false) == true))
         // GSO renumbers a PAR / ICS / RIS dated 2026, or it follows its AIR's new number
         || (issuer() && in2026(resource.data) && request.resource.data.number is string && request.resource.data.number.size() > 0
           && onlyChanged(['number', 'renumbered', 'updatedAt']))

@@ -209,6 +209,8 @@ export function stockCards(airs, docs, fund, asOf = "", { postedOnly = true } = 
   }
   for (const d of docs || []) {
     if (d.fund !== fund || d.docType !== "ris" || d.status === "cancelled") continue;
+    // an RIS prepared before its AIR is posted counts once the AIR is (its supplies aren't in the registry before)
+    if (postedOnly && d.airId && !(airs || []).some(a => a.id === d.airId && a.posting?.posted)) continue;
     for (const l of d.lines || []) card(l).moves.push({ date: d.date, ref: `RIS ${d.number}`, type: "issue", qty: Number(l.qty) || 0, unitCost: Number(l.unitCost) || 0, office: d.recipient?.office || "" });
   }
   for (const c of cards.values()) {

@@ -130,9 +130,11 @@ test("GSO issues documents only from approved AIRs, in the same fund and for the
   await assertFails(setDoc(doc(g, "issuances/N5"), baseDoc({ posting: { posted: true } })));
   await assertFails(setDoc(doc(ctx("acc"), "issuances/N6"), baseDoc()));
   await assertFails(setDoc(doc(ctx("eu"), "issuances/N7"), baseDoc()));
-  // supplies (RIS) only once Accounting has posted the AIR
-  await assertFails(setDoc(doc(g, "issuances/N9"), baseDoc({ docType: "ris", number: "2026-10-0006" })));
+  // an RIS may be prepared before the AIR is posted, but Accounting posts it only once the AIR is posted
+  await assertSucceeds(setDoc(doc(g, "issuances/N9"), baseDoc({ docType: "ris", number: "2026-10-0006" })));
+  await assertFails(updateDoc(doc(ctx("acc"), "issuances/N9"), { posting: { posted: true, ref: "JEV-1" } }));
   await env.withSecurityRulesDisabled(c => updateDoc(doc(c.firestore(), "airs/A_APPR"), { posting: { posted: true } }));
+  await assertSucceeds(updateDoc(doc(ctx("acc"), "issuances/N9"), { posting: { posted: true, ref: "JEV-1" } }));
   // the issuance + AIR quantity update run in one transaction
   await assertSucceeds(runTransaction(g, async tx => {
     const ref = doc(g, "airs/A_APPR"); const a = (await tx.get(ref)).data();

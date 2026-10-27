@@ -102,6 +102,10 @@ test("stock cards and RSMI use the exact cost of each AIR line", () => {
   // supplies enter the Inventory Registry only when Accounting posts the AIR
   assert.equal(stockCards([air, air2], [], "GF").length, 0);
   assert.equal(stockCards([air, air2], [], "GF", "", { postedOnly: false })[0].balQty, 14);
+  // an RIS issued before its AIR is posted waits with it
+  const early = [{ fund: "GF", docType: "ris", status: "issued", airId: air.id, number: "R9", date: "2026-10-02", lines: [{ stockNo: "OS-1", qty: 2, unitCost: 250 }] }];
+  assert.equal(stockCards([air], early, "GF").length, 0);
+  assert.equal(stockCards([{ ...air, posting: posted }], early, "GF")[0].balQty, 8);
   assert.equal(card.stockNo, "OS-1");
   assert.equal(card.balQty, 4);
   assert.equal(card.balValue, round2(2500 + 1040 - 1500 - 1040));

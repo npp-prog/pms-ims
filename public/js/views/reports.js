@@ -115,7 +115,7 @@ function accountability(out) {
       { key: "c", label: "Category", options: [["ppe", "PPE"], ["sx", "Semi-expendable"]], test: (a, v) => a.itemType === v },
       { key: "t", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
       { key: "o", label: "Officer", options: [["__none", "No officer"], ...officers], test: (a, v) => v === "__none" ? !a.holder?.name : a.holder?.name === v },
-      { key: "f", label: "Office", options: offices, test: (a, v) => a.holder?.office === v },
+      { key: "f", label: "Office", options: [...offices.map(x => [x, x]), ["__none", "No office"]], test: (a, v) => v === "__none" ? !String(a.holder?.office || "").trim() : a.holder?.office === v },
       { key: "s", label: "Status", options: [["onhand", "On hand"], ...Object.entries(STATUS_NAMES)], value: "onhand", test: (a, v) => v === "onhand" ? a.status !== "disposed" : a.status === v }
     ],
     columns: [

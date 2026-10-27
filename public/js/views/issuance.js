@@ -156,7 +156,7 @@ export function detail(main, [id]) {
   const d = docById(id);
   if (!d) { main.innerHTML = `<div class="notice warn">Document not found, or you don't have access to it.</div>`; return; }
   const t = DOC_TYPES[d.docType];
-  main.innerHTML = `<div class="page-head"><div><h1>${esc(t.short)} ${esc(d.number)}</h1><p>${esc(t.label)} · ${esc(fundName(d.fund))} · ${d.airId ? `from <a href="#/airs/${d.airId}">AIR ${esc(d.airNo)}</a>` : d.origin === "pms" ? "brought over from PMS, where it was still pending (no AIR)" : "for items already in the register"}</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>${esc(t.short)} ${esc(d.number)}</h1><p>${esc(t.label)} · ${esc(fundName(d.fund))} · ${d.fromRegistry ? `from the Inventory Registry — ${[...new Map(d.lines.map(l => [l.airId, l.airNo])).entries()].map(([id, no]) => `<a href="#/airs/${esc(id)}">AIR ${esc(no)}</a>`).join(", ")}` : d.airId ? `from <a href="#/airs/${d.airId}">AIR ${esc(d.airNo)}</a>` : d.origin === "pms" ? "brought over from PMS, where it was still pending (no AIR)" : "for items already in the register"}</p></div>
       <div class="btn-row">${docStatusBadge(d)}</div></div>
     ${d.status === "cancelled" ? `<div class="notice bad"><b>Cancelled</b> ${fmtDateTime(d.cancel?.at)} by ${esc(d.cancel?.by?.name)} — ${esc(d.cancel?.reason)}</div>` : ""}
     <div class="split"><div>

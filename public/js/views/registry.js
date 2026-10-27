@@ -1,9 +1,10 @@
 // Inventory Registry of supplies (consumable and for distribution): AIR receipts (and imported beginning balances) less
 // RIS issues, with each item's Stock Card and Supplies Ledger Card. Property registers are in property.js.
-import { S } from "../state.js";
-import { $, esc, money, num, qty, fmtDate, renderTable, openModal, downloadCSV, toast } from "../ui.js";
+import { S, can, settings, activeUsers } from "../state.js";
+import { $, $$, esc, money, num, qty, fmtDate, manilaToday, renderTable, openModal, downloadCSV, toast, busy, officeSelect } from "../ui.js";
 import { fundName, accountName, isDistributionAccount } from "../core/catalog.js";
-import { stockCards } from "../core/logic.js";
+import { stockCards, numberingFor } from "../core/logic.js";
+import { issueRisFromStock } from "../data.js";
 import { printForm, stockCardHtml, tableReportHtml } from "../print.js";
 
 const st = { asOf: "" };
@@ -15,7 +16,7 @@ const lastCost = c => [...c.moves].reverse().find(m => m.type === "receipt")?.un
 /** Inventory Registry: every consumable and for-distribution item (supplies) — received on AIRs or brought over from IMS,
  *  less what was issued on RIS — with its Stock Card and Supplies Ledger Card. */
 export function stock(main) {
-  const asOf = st.asOf || "";
+  const asOf = st.asOf || "", canIssue = can("issue") && !asOf, sel = new Set();
   const cards = stockCards(S.d.airs, S.d.docs, S.fund, asOf).filter(c => c.moves.length);
   const val = t => cards.filter(c => typeOf(c) === t).reduce((x, c) => x + c.balValue, 0);
   main.innerHTML = `<div class="page-head"><div><h1>Inventory Registry</h1><p>Consumable and for-distribution items in the ${esc(fundName(S.fund))}: received on approved AIRs (or brought over from IMS), less what was issued on RIS — one row per Stock No. Open an item for its Stock Card (GSO) and Supplies Ledger Card (Accounting).</p></div></div>
@@ -27,7 +28,7 @@ export function stock(main) {
     <div class="card"><div class="table-tools" data-nodirty><div><label>As of</label><input type="date" id="asof" value="${esc(asOf)}"></div><div class="grow small muted" style="align-self:center">${asOf ? "Balances at the end of that day." : "Leave blank for today's balances."}</div></div><div id="t"></div></div>
     <div class="btn-row end"><span class="small muted" style="align-self:center">For the items listed (filters apply):</span><button class="btn sm" id="bsc">Stock Cards</button><button class="btn sm" id="bslc">Supplies Ledger Cards</button><button class="btn sm" id="csv">CSV</button><button class="btn sm primary" id="pr">Print registry</button></div>`;
   const t = renderTable($("#t", main), {
-    id: "stock", rows: cards, pageSize: 50, defaultSort: 0,
+    id: canIssue ? "stock-issue" : "stock", rows: cards, pageSize: 50, defaultSort: canIssue ? 1 : 0, // the tick box comes first when the GSO can issue
     searchText: c => `${c.stockNo} ${c.description} ${c.accountCode} ${accountName(c.accountCode)}`,
     searchPlaceholder: "Stock No., item, account",
     filters: [
@@ -36,6 +37,7 @@ export function stock(main) {
       { key: "b", label: "Balance", options: [["on", "On hand"], ["zero", "Fully issued"]], value: "on", test: (c, v) => v === "on" ? c.balQty > 0 : c.balQty <= 0 }
     ],
     columns: [
+      ...(canIssue ? [{ label: "", render: c => c.balQty > 0 ? `<input type="checkbox" data-nodirty data-sel="${esc(c.stockNo)}" ${sel.has(c.stockNo) ? "checked" : ""} title="Tick to issue on an RIS">` : "" }] : []),
       { label: "Stock No.", render: c => `<b>${esc(c.stockNo || "—")}</b>`, sort: c => c.stockNo },
       { label: "Description", render: c => `${esc(c.description)}<div class="xs muted">${esc(c.accountCode)} ${esc(accountName(c.accountCode))}</div>`, sort: c => c.description },
       { label: "Type", render: c => `<span class="badge ${TYPE[typeOf(c)][1]}">${TYPE[typeOf(c)][0]}</span>`, sort: c => typeOf(c) },
@@ -47,9 +49,19 @@ export function stock(main) {
       { label: "Value", render: c => money(c.balValue), sort: c => c.balValue, cls: "right", headCls: "right" }
     ],
     empty: "No supplies in this view.",
-    footer: list => `<tr><td colspan="8" class="right">Total (${list.length})</td><td class="right">${money(list.reduce((x, c) => x + c.balValue, 0))}</td></tr>`,
+    footer: list => `<tr><td colspan="${canIssue ? 9 : 8}" class="right">Total (${list.length})</td><td class="right">${money(list.reduce((x, c) => x + c.balValue, 0))}</td></tr>`,
     onRow: c => cardModal(c)
   });
+  // RIS for the ticked items on hand
+  if (canIssue) {
+    $(".page-head", main).insertAdjacentHTML("beforeend", `<button class="btn primary" id="ris" disabled>Issue RIS</button>`);
+    $("#t", main).addEventListener("click", e => {
+      const b = e.target.closest("[data-sel]"); if (!b) return;
+      e.stopPropagation(); b.checked ? sel.add(b.dataset.sel) : sel.delete(b.dataset.sel);
+      $("#ris", main).disabled = !sel.size; $("#ris", main).textContent = sel.size ? `Issue RIS (${sel.size})` : "Issue RIS";
+    }, true);
+    $("#ris", main).onclick = () => risModal(cards.filter(c => sel.has(c.stockNo)));
+  }
   $("#asof", main).onchange = e => { st.asOf = e.target.value; stock(main); };
   const headers = ["Stock No.", "Description", "Type", "Account", "Unit", "Received", "Issued", "Balance Qty", "Unit Cost", "Balance Value"];
   const data = () => t.rows().map(c => [c.stockNo, c.description, TYPE[typeOf(c)][0], c.accountCode, c.unit, sumMoves(c, "receipt"), sumMoves(c, "issue"), c.balQty, lastCost(c), c.balValue]);
@@ -72,4 +84,47 @@ function cardModal(c) {
   $("[data-x]", m).onclick = () => m.close();
   $("#sc", m).onclick = () => printForm(stockCardHtml(c, S.fund, false), "landscape");
   $("#slc", m).onclick = () => printForm(stockCardHtml(c, S.fund, true), "landscape");
+}
+
+/** RIS for supplies on hand, chosen in the Inventory Registry: each quantity is drawn from the posted AIRs holding it. */
+function risModal(items) {
+  const s = settings(), manual = numberingFor(S.settings, "ris").mode === "manual";
+  const m = openModal(`<h2>Requisition and Issue Slip</h2><p class="muted small">Supplies on hand in the Inventory Registry. Each quantity is taken from the AIRs that hold the item, oldest delivery first.</p>
+    <form id="rsf" class="grid" novalidate>
+      <div class="table-wrap"><table class="lines"><thead><tr><th>Stock No.</th><th>Item</th><th class="right">On hand</th><th class="right">Requested</th><th class="right">Issue qty</th></tr></thead><tbody>
+        ${items.map(c => `<tr data-sn="${esc(c.stockNo)}"><td><b>${esc(c.stockNo)}</b></td><td>${esc(c.description)}<div class="xs muted">${esc(c.unit)}</div></td><td class="right">${qty(c.balQty)}</td>
+          <td><input type="number" class="w-xs" data-rq min="0" step="any" value="${c.balQty}"></td><td><input type="number" class="w-xs" data-q min="0" max="${c.balQty}" step="any" value=""></td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="grid g3">
+        <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
+        ${manual ? `<div><label class="req">RIS No.</label><input name="no_main" placeholder="as on the printed form"></div>` : ""}
+        <div><label class="req">Requested / received by</label><input name="rname" list="rulist" autocomplete="off"></div>
+        <datalist id="rulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
+        <div><label>Position / designation</label><input name="rpos"></div>
+        <div><label>Office</label>${officeSelect("roffice", "", s.offices)}</div>
+        <div><label>Responsibility Center Code</label><input name="rcc"></div>
+        <div><label>Purpose</label><input name="purpose"></div>
+        <div><label>Approved by</label><input name="aname" value="${esc(s.signatories.approver)}"></div><div><label>Designation</label><input name="apos" value="${esc(s.signatories.approverPosition)}"></div>
+        <div><label>Issued by</label><input name="iname" value="${esc(s.signatories.propertyCustodian || S.account?.displayName || "")}"></div>
+        <div><label>Designation</label><input name="ipos" value="${esc(s.signatories.propertyCustodianPosition)}"></div>
+      </div>
+      <div class="form-msg err" id="rsm"></div>
+      <div class="modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Issue RIS</button></div></form>`, { size: "wide" });
+  const f = $("#rsf", m);
+  f.rname.addEventListener("change", () => { const u = activeUsers().find(x => x.displayName === f.rname.value); if (u) { f.rpos.value = u.position || ""; f.roffice.value = u.office || f.roffice.value; } });
+  $("[data-x]", m).onclick = () => m.close();
+  f.onsubmit = e => {
+    e.preventDefault();
+    const v = Object.fromEntries(new FormData(f).entries());
+    const picks = $$("tbody tr", f).map(tr => ({ stockNo: tr.dataset.sn, qty: Number($("[data-q]", tr).value) || 0, qtyRequested: Number($("[data-rq]", tr).value) || 0 }));
+    const over = picks.find(p => p.qty > (items.find(c => c.stockNo === p.stockNo)?.balQty || 0));
+    if (over) { $("#rsm", m).textContent = `Only ${qty(items.find(c => c.stockNo === over.stockNo).balQty)} of ${over.stockNo} are on hand.`; return; }
+    const header = { date: v.date, purpose: v.purpose || "", numbers: { main: v.no_main },
+      recipient: { uid: activeUsers().find(u => u.displayName === v.rname.trim())?.id || "", name: v.rname.trim(), position: v.rpos.trim(), office: v.roffice.trim(), rcc: (v.rcc || "").trim() },
+      issuedBy: { name: v.iname.trim(), position: v.ipos.trim() }, approvedBy: { name: (v.aname || "").trim(), position: (v.apos || "").trim() } };
+    busy(e.submitter, async () => {
+      try { const out = await issueRisFromStock(S.fund, picks, header); m.close(); window.dispatchEvent(new Event("app:clean")); toast(`RIS ${out.number} issued.`, "ok"); location.hash = `#/issuances/${out.id}`; }
+      catch (err) { $("#rsm", m).textContent = err.message; throw err; }
+    }).catch(() => {});
+  };
 }

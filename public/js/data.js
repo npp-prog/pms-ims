@@ -216,6 +216,63 @@ export function issueDocs(airId, docType, picks, header) {
   });
 }
 
+/**
+ * RIS from the Inventory Registry: supplies on hand, by Stock No. Each quantity is drawn from the posted AIRs that still
+ * hold that stock number, oldest delivery first, so one RIS may draw from several AIRs (its lines say which).
+ * picks: [{ stockNo, qty, qtyRequested }]
+ */
+export function issueRisFromStock(fund, picks, header) {
+  return wrap(async () => {
+    if (!header.date) throw fail("Enter the date issued.");
+    if (!String(header.recipient?.name || "").trim()) throw fail("Enter who requested / received the items.");
+    picks = (picks || []).map(p => ({ ...p, stockNo: String(p.stockNo || "").trim().toUpperCase(), qty: Number(p.qty) || 0 })).filter(p => p.qty > 0);
+    if (!picks.length) throw fail("Enter the quantity to issue for at least one item.");
+    const key = l => String(l.stockNo || "").trim().toUpperCase();
+    const wanted = new Set(picks.map(p => p.stockNo));
+    const ids = S.d.airs.filter(a => a.fund === fund && ["approved", "issued"].includes(a.status) && a.posting?.posted
+      && (a.lines || []).some(l => l.category === "cons" && wanted.has(key(l))))
+      .sort((x, y) => String(x.acceptance?.dateReceived || x.date).localeCompare(String(y.acceptance?.dateReceived || y.date))).map(a => a.id);
+    let out = null;
+    await runTransaction(db, async tx => {
+      const airs = new Map();
+      for (const id of ids) { const snap = await tx.get(doc(db, "airs", id)); if (snap.exists()) airs.set(id, snap.data()); }
+      const lines = [], take = new Map();
+      for (const p of picks) {
+        let need = p.qty, first = true;
+        for (const id of ids) {
+          const a = airs.get(id); if (!a?.posting?.posted || !["approved", "issued"].includes(a.status)) continue;
+          for (const l of a.lines) {
+            if (need <= 0) break;
+            if (l.category !== "cons" || key(l) !== p.stockNo) continue;
+            const q = round2(Math.min(remainingQty(l), need)); if (q <= 0) continue;
+            lines.push({ airId: id, airNo: a.airNo, airLineId: l.id, description: l.description, specs: l.specs || "", unit: l.unit, qty: q, unitCost: l.unitCost,
+              amount: round2(q * l.unitCost), accountCode: l.accountCode, stockNo: l.stockNo, propertyNo: "", usefulLife: "", qtyRequested: first ? Number(p.qtyRequested) || p.qty : 0 });
+            if (!take.has(id)) take.set(id, new Map());
+            take.get(id).set(l.id, round2((take.get(id).get(l.id) || 0) + q));
+            need = round2(need - q); first = false;
+          }
+        }
+        if (need > 0) throw fail(`Only ${round2(p.qty - need)} of ${p.stockNo} are on hand.`);
+      }
+      const c = await readCounter(tx, fund, "ris", header.date, "", header.numbers?.main);
+      const primaryId = lines[0].airId, primary = airs.get(primaryId), ref = doc(collection(db, "issuances"));
+      useNumber(tx, c, ref, "ris");
+      tx.set(ref, {
+        docType: "ris", number: c.number, fund, date: header.date, sxClass: null, airId: primaryId, airNo: primary.airNo, sources: [...take.keys()], fromRegistry: true,
+        endUserUid: primary.endUserUid, office: header.recipient.office || "", supplier: "", recipient: header.recipient, issuedBy: header.issuedBy || {}, approvedBy: header.approvedBy || {},
+        purpose: header.purpose || "", lines, total: linesTotal(lines), status: "issued", posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+      });
+      for (const [id, byLine] of take) {
+        const a = airs.get(id), newLines = a.lines.map(l => byLine.has(l.id) ? { ...l, issuedQty: round2((Number(l.issuedQty) || 0) + byLine.get(l.id)) } : l);
+        tx.update(doc(db, "airs", id), { lines: newLines, status: statusAfterIssue(newLines), history: [...(a.history || []), stamp(`RIS ${c.number} issued from the Inventory Registry`)], updatedAt: serverTimestamp() });
+      }
+      out = { id: ref.id, number: c.number };
+    });
+    audit("ris_issue_registry", "issuance", out.id, { number: out.number });
+    return out;
+  });
+}
+
 /** Cancels an unposted PAR/ICS/RIS and returns its quantities to the AIR so they can be issued again. */
 export function cancelDoc(docId, reason) {
   return wrap(async () => {
@@ -241,17 +298,22 @@ export function cancelDoc(docId, reason) {
         snaps.forEach(x => { if (x.exists()) tx.update(x.ref, { status: "cancelled", history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
         return;
       }
-      const airRef = doc(db, "airs", d.airId); const airSnap = await tx.get(airRef);
-      const air = airSnap.data();
+      // the quantities go back to each AIR the document drew from (an RIS from the Inventory Registry may draw from several)
+      const srcIds = [...new Set(d.lines.map(l => l.airId || d.airId))];
+      const srcs = [];
+      for (const id of srcIds) { const x = await tx.get(doc(db, "airs", id)); if (x.exists()) srcs.push(x); }
       const assetRefs = d.lines.filter(l => l.assetId).map(l => doc(db, "assets", l.assetId));
       const assets = [];
       for (const r of assetRefs) assets.push(await tx.get(r));
       if (assets.some(x => x.exists() && (x.data().status !== "active" || (x.data().history || []).length > 1)))
         throw fail("Some of this property was already transferred, returned or disposed. Reverse those first.");
-      const lines = air.lines.map(l => { const back = d.lines.filter(x => x.airLineId === l.id).reduce((t, x) => t + x.qty, 0); return back ? { ...l, issuedQty: Math.max(0, round2((Number(l.issuedQty) || 0) - back)) } : l; });
       tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
       assets.forEach(x => { if (x.exists()) tx.update(x.ref, { status: "cancelled", history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
-      tx.update(airRef, { lines, status: statusAfterIssue(lines), history: [...(air.history || []), stamp(`${DOC_TYPES[d.docType].short} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() });
+      for (const x of srcs) {
+        const air = x.data();
+        const lines = air.lines.map(l => { const back = d.lines.filter(y => (y.airId || d.airId) === x.id && y.airLineId === l.id).reduce((t, y) => t + y.qty, 0); return back ? { ...l, issuedQty: Math.max(0, round2((Number(l.issuedQty) || 0) - back)) } : l; });
+        tx.update(x.ref, { lines, status: statusAfterIssue(lines), history: [...(air.history || []), stamp(`${DOC_TYPES[d.docType].short} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() });
+      }
     });
     audit("issuance_cancel", "issuance", docId, { reason });
   });

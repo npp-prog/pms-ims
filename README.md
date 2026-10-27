@@ -182,6 +182,9 @@ continue at step 4.
   them in Office Property marked "Awaiting Accounting posting", and they aren't counted in depreciation, the
   reconciliation, reports or the dashboard, nor transferred, disposed of or revalued. Unposting takes them out again.
   Items brought in through Data Import or completed from CIP are in the registry from the start.
+- **RIS from the Inventory Registry:** the GSO ticks items on hand in the Inventory Registry and clicks **Issue RIS**.
+  Each quantity is drawn from the posted AIRs holding that stock number, oldest delivery first (one RIS may draw from
+  several AIRs; the RIS shows which). Cancelling it returns the quantities to those AIRs.
 - **RIS posted only after its AIR:** the GSO may prepare and issue the RIS any time after approval, but Accounting can
   post an RIS only once its AIR is posted (or together with it). An RIS issued before the AIR is posted counts in the
   Inventory Registry from when the AIR is posted.

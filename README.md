@@ -390,6 +390,11 @@ Asset Register).
 row, with its header row), or PMS's *CIP Projects → Export CSV* (one total per project). Projects
 already transferred in PMS are skipped.
 
+**SWA (bulk upload):** upload many Statements of Work Accomplished at once — one per row with Fund, Date, SWA No.,
+CIP No., Contractor, Percent, Cost, Particulars, Document (link to the scanned SWA) and Remarks. Use the template, or
+the **SWA → CSV** download. Each SWA comes in unmatched, for Accounting to match to its CIP billing; an SWA No. already
+in the fund, or repeated in the file, is skipped.
+
 **Supplies from IMS:**
 1. In IMS, open the **Inventory Registry** and click **Download CSV**.
 2. Upload it here with the date the balances are as of.

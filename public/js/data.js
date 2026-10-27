@@ -1184,6 +1184,19 @@ export function saveSwa(id, f) {
   });
 }
 export const deleteSwa = id => wrap(() => deleteDoc(doc(db, "swa", id)));
+/** Data Import: brings in many SWAs at once, each unmatched (Accounting matches them to CIP billings as usual). */
+export function importSwa(swas) {
+  return wrap(async () => {
+    const { writeBatch } = await import("./fb.js");
+    for (let i = 0; i < swas.length; i += 400) {
+      const b = writeBatch(db);
+      for (const w of swas.slice(i, i + 400))
+        b.set(doc(collection(db, "swa")), { ...w, matched: false, matchedProjectId: null, matchedBillingId: null, imported: true, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      await b.commit();
+    }
+    audit("import_swa", "swa", "-", { count: swas.length });
+  });
+}
 
 /* ---------------- History of Repair ---------------- */
 /** End-Users record repairs of property under their name; the GSO verifies (or returns) them. */

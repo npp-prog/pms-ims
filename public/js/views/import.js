@@ -2,8 +2,8 @@
 import { S, settings, isSuper } from "../state.js";
 import { $, $$, esc, busy, toast, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
 import { FUNDS, fundName, accountName, PPE_ACCOUNTS, SX_ACCOUNTS } from "../core/catalog.js";
-import { normalizeAssets, normalizeStock, normalizeCip, normalizeParIcs, isPeriod, cipTotal } from "../core/assets.js";
-import { importAssets, importStock, importCip, importParIcs, importUsers, deleteInvite } from "../data.js";
+import { normalizeAssets, normalizeStock, normalizeCip, normalizeParIcs, normalizeSwa, isPeriod, cipTotal } from "../core/assets.js";
+import { importAssets, importStock, importCip, importParIcs, importSwa, importUsers, deleteInvite } from "../data.js";
 import { parsePmsUsers, IMPORT_ROLES } from "../core/users.js";
 import { ROLE_NAMES } from "../core/catalog.js";
 
@@ -11,17 +11,18 @@ const st = { tab: "assets", fund: "GF", baseline: "2025-12", asOf: "", parsed: n
 
 export function importPage(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Data Import</h1><p>One-time transfer of your existing records into this system. Nothing is saved until you review the preview and click Import.</p></div></div>
-    <div class="tabs">${[["assets", "Property from PMS"], ["parics", "Pending PAR / ICS from PMS"], ["cip", "CIP from PMS"], ["stock", "Supplies from IMS"], ["users", "Users from PMS"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
+    <div class="tabs">${[["assets", "Property from PMS"], ["parics", "Pending PAR / ICS from PMS"], ["cip", "CIP from PMS"], ["swa", "SWA (bulk upload)"], ["stock", "Supplies from IMS"], ["users", "Users from PMS"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
     ${st.tab === "users" ? `<div id="users"></div>` : `<div class="card" data-nodirty>
       ${st.tab === "assets" ? `<p class="small">Use the <b>PMS Asset Register → Export CSV</b> file (one per fund, or one with a Fund column), the PMS <code>data/seed_assets.json</code> file, or the template. PPE and semi-expendable items are recognised by their account. Items marked <i>retired</i> come in as disposed, so they stay in the history but not in the totals.</p>
         <p class="small"><b>Accumulated depreciation:</b> the "Accum. Depr." column is taken as the balance at the end of the month below, normally the <b>last month posted in PMS</b>. Depreciation here continues from the following month. Post nothing in PMS after you export.</p>`
       : st.tab === "parics" ? `<p class="small">Brings over the PAR and ICS that PMS still shows as <b>Pending</b> (issued, not yet recorded in its Asset Register). Use the PMS daily backup <code>firestore-export.json</code> — it has everything, including who received the property — or the PMS <b>PAR / ICS → Download CSV</b> file (set the status filter to Pending or All), or the template. PAR / ICS shown as <i>Recorded</i> in PMS are skipped: their items come in with the property register.</p>
         <p class="small">Each one keeps its PMS number and comes in as an issued PAR / ICS waiting for Accounting. Its item enters the registry when Accounting posts it on <b>For Posting</b>, like any PAR / ICS issued here.</p>`
       : st.tab === "cip" ? `<p class="small">Use the file you load into PMS with <b>Bulk import CIP billings</b> (one billing per row: account_code, cip_code, project_name, location, contractor, date, ref, by_contract, admin_materials, admin_labor, admin_overhead, admin_consultancy, admin_others, transfers_adjustments, remarks — with that header row), or the PMS <b>CIP Projects → Export CSV</b> file, which brings each project's total billed to date as one "balance brought forward" billing. Projects PMS shows as <i>Transferred</i> are skipped — they are already in the property register.</p>`
+      : st.tab === "swa" ? `<p class="small">Upload many <b>Statements of Work Accomplished</b> at once: one SWA per row with Fund, Date, SWA No., CIP No., Contractor, Percent, Cost, Particulars, Document (link to the scanned SWA) and Remarks — use the template, or the <b>SWA → CSV</b> download. Each comes in unmatched; Accounting matches it to its CIP billing as usual. An SWA No. already in the fund is skipped.</p>`
       : `<p class="small">Use the <b>IMS Inventory Registry → Download CSV</b> file (with Balance Qty and Unit Cost) or the template. Each fund's supplies on hand come in as one already-posted <b>beginning-balance AIR</b>, so the GSO issues them with a RIS like any delivery, and the Stock Cards start from these balances.</p>`}
       <div class="table-tools">
         <div><label>Fund (when the file has no Fund column)</label><select id="fund">${opts(FUNDS.map(f => [f.code, f.name]), st.fund)}</select></div>
-        ${st.tab === "parics" ? "" : st.tab === "assets" ? `<div><label>Accumulated depreciation as of</label><input type="month" id="bp" value="${esc(st.baseline)}"></div>`
+        ${["parics", "swa"].includes(st.tab) ? "" : st.tab === "assets" ? `<div><label>Accumulated depreciation as of</label><input type="month" id="bp" value="${esc(st.baseline)}"></div>`
           : `<div><label>${st.tab === "cip" ? "Date for brought-forward totals" : "Balances as of (date)"}</label><input type="date" id="asof" value="${esc(st.asOf)}"></div>`}
         <div class="grow"><label>File (.csv, .xlsx${["assets", "parics"].includes(st.tab) ? ", .json" : ""})</label><input type="file" id="file" accept=".csv,.xlsx,.xls${["assets", "parics"].includes(st.tab) ? ",.json" : ""}"></div>
         <div style="align-self:flex-end"><button class="btn" id="tpl">Download template</button></div>
@@ -33,7 +34,10 @@ export function importPage(main) {
   $("#fund", main).onchange = e => { st.fund = e.target.value; reparse(main); };
   $("#bp", main) && ($("#bp", main).onchange = e => { st.baseline = e.target.value; reparse(main); });
   $("#asof", main) && ($("#asof", main).onchange = e => { st.asOf = e.target.value; st.tab === "cip" ? reparse(main) : draw(main); });
-  $("#tpl", main).onclick = () => st.tab === "parics"
+  $("#tpl", main).onclick = () => st.tab === "swa"
+    ? downloadCSV("SWA-import-template", ["Fund", "Date", "SWA No.", "CIP No.", "Contractor", "Percent", "Cost", "Particulars", "Document", "Remarks"],
+      [["GF", "2026-03-15", "SWA-2026-001", "2026-020-01", "ABC Builders", "30", "1200000", "1st partial billing — 30% accomplishment", "https://drive.google.com/…", ""]])
+    : st.tab === "parics"
     ? downloadCSV("PMS-PAR-ICS-import-template", ["Fund", "Type", "Number", "Date Issued", "Account Code", "Description", "Qty", "Unit", "Amount", "Property No./SEN", "Dept/Office or Entity", "Received by", "Position", "Status"],
       [["GF", "PAR", "2026-10-0007", "2026-10-15", "10705030", "Desktop computer", "1", "unit", "65000", "PPE-2026-0101", "Municipal Accounting Office", "Juan Dela Cruz", "Accounting Clerk", "Pending"],
         ["GF", "ICS", "SPLV-2026-10-0003", "2026-10-15", "10405020", "Office chair", "2", "pc", "7000", "", "Municipal Accounting Office", "Juan Dela Cruz", "Accounting Clerk", "Pending"]])
@@ -56,7 +60,7 @@ export function importPage(main) {
   };
   draw(main);
 }
-importPage.deps = ["r:users", "r:invites"];
+importPage.deps = ["r:users", "r:invites", "r:swa"];
 
 function reparse(main) {
   if (!st.raw) return draw(main);
@@ -64,7 +68,8 @@ function reparse(main) {
   if (st.tab === "cip" && !st.asOf) { toast("Enter the date for brought-forward totals first.", "err"); return; }
   st.parsed = st.tab === "parics" ? normalizeParIcs(st.raw, { fund: st.fund, offices: settings().offices, thresholds: settings().thresholds, accountMap: st.accountMap })
     : st.tab === "assets" ? normalizeAssets(st.raw, { fund: st.fund, baselinePeriod: st.baseline, offices: settings().offices, accountMap: st.accountMap })
-    : st.tab === "cip" ? normalizeCip(st.raw, { fund: st.fund, asOf: st.asOf }) : normalizeStock(st.raw, { fund: st.fund });
+    : st.tab === "cip" ? normalizeCip(st.raw, { fund: st.fund, asOf: st.asOf })
+    : st.tab === "swa" ? normalizeSwa(st.raw, { fund: st.fund }) : normalizeStock(st.raw, { fund: st.fund });
   draw(main);
 }
 
@@ -87,6 +92,22 @@ function draw(main) {
         <tbody>${fresh.map(p => `<tr><td>${esc(p.fund)}</td><td>${esc(p.cipNo)}</td><td>${esc(p.name)}</td><td class="small">${esc(p.accountCode)}</td><td>${esc(p.contractor)}</td><td class="right">${p.billings.length}</td><td class="right">${num(cipTotal(p))}</td></tr>`).join("")}</tbody></table></div>
       <div class="btn-row end" style="margin-top:1rem"><button class="btn primary" id="go" ${fresh.length ? "" : "disabled"}>Import ${fresh.length} projects</button></div>`;
     $("#go", out).onclick = e => busy(e.target, async () => { await importCip(fresh); st.parsed = null; st.raw = null; importPage(main); }, `${fresh.length} CIP projects imported.`).catch(() => {});
+    return;
+  }
+  if (st.tab === "swa") {
+    const { swas } = st.parsed, key = w => `${w.fund}|${String(w.swaNo).toLowerCase()}`;
+    const have = new Set(S.d.swa.map(key));
+    const fresh = swas.filter(w => !have.has(key(w))), dup = swas.length - fresh.length;
+    out.innerHTML = `<div class="stats"><div class="stat"><span class="n">${fresh.length}</span><span class="l">SWAs to import from ${esc(st.file)}</span></div>
+        <div class="stat"><span class="n">${money(fresh.reduce((t, w) => t + w.cost, 0))}</span><span class="l">total cost</span></div>
+        <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div>
+        <div class="stat"><span class="n">${dup}</span><span class="l">already here (skipped)</span></div></div>
+      ${problems(errors)}
+      <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Date</th><th>SWA No.</th><th>CIP No.</th><th>Contractor</th><th class="right">%</th><th class="right">Cost</th><th>Particulars</th></tr></thead>
+        <tbody>${fresh.slice(0, 100).map(w => `<tr><td>${esc(w.fund)}</td><td>${esc(w.date)}</td><td>${esc(w.swaNo)}</td><td>${esc(w.cipNo)}</td><td>${esc(w.contractor)}</td><td class="right">${w.percent == null ? "" : num(w.percent)}</td><td class="right">${num(w.cost)}</td><td class="small">${esc(w.particulars)}</td></tr>`).join("")}</tbody></table></div>
+      ${fresh.length > 100 ? `<p class="small muted">Showing the first 100 of ${fresh.length}.</p>` : ""}
+      <div class="btn-row end" style="margin-top:1rem"><button class="btn primary" id="go" ${fresh.length ? "" : "disabled"}>Import ${fresh.length} SWA${fresh.length === 1 ? "" : "s"}</button></div>`;
+    $("#go", out).onclick = e => busy(e.target, async () => { await importSwa(fresh); st.parsed = null; st.raw = null; importPage(main); }, `${fresh.length} SWA${fresh.length === 1 ? "" : "s"} imported.`).catch(() => {});
     return;
   }
   if (st.tab === "parics") {

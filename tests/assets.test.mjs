@@ -136,7 +136,7 @@ test("import of IMS supplies on hand", () => {
   assert.match(errors[0].problem, /not an inventory account/);
 });
 
-import { billingTotal, cipTotal, cipStatus, cipTransferAccount, cipOpenAt, normalizeCip, repairTotal } from "../public/js/core/assets.js";
+import { billingTotal, cipTotal, cipStatus, cipTransferAccount, cipOpenAt, normalizeCip, normalizeSwa, repairTotal } from "../public/js/core/assets.js";
 
 test("CIP: billing totals, status, default transfer account (PMS rules)", () => {
   const p = { billings: [{ date: "2026-03-15", ref: "1ST BILLING", byContract: 1200000 }, { date: "2026-05-02", ref: "2ND BILLING", materials: 1000.5, labor: 500, adjustments: -0.5 }] };
@@ -174,6 +174,18 @@ test("CIP import: PMS bulk-billing rows and the CIP Projects export", () => {
     { Fund: "General Fund", "CIP No.": "2020-020-06", "Account Code": "10710030", "Name of Project": "MPB", "Project Cost": "5,000,000", "Total Billed to Date": "3500000.00", Status: "In progress" },
     { Fund: "General Fund", "CIP No.": "2019-1", "Account Code": "10710030", "Name of Project": "Old", "Total Billed to Date": "1", Status: "Transferred" }], { fund: "GF", asOf: "2025-12-31" });
   assert.deepEqual([b.projects.length, b.skipped, cipTotal(b.projects[0]), b.projects[0].billings[0].ref, b.projects[0].projectCost], [1, 1, 3500000, "Balance brought forward", 5000000]);
+});
+
+test("SWA bulk upload: the template and the SWA list's CSV download", () => {
+  const r = normalizeSwa([
+    { Fund: "GF", Date: "3/15/2026", "SWA No.": "SWA-001", "CIP No.": "2026-020-01", Contractor: "ABC Builders", Percent: "30%", Cost: "1,200,000.00", Particulars: "1st billing" },
+    { Date: "2026-05-02", "SWA No.": "SWA-002", Cost: "800000", Document: "https://drive.google.com/x" },
+    { Date: "2026-05-02", "SWA No.": "swa-002", Cost: "5" },
+    { Date: "May 2", "SWA No.": "SWA-003" },
+    { Date: "2026-05-02", Cost: "1" },
+    { Date: "2026-05-02", "SWA No.": "SWA-004", Document: "drive/x" }], { fund: "SEF" });
+  assert.deepEqual(r.swas.map(s => [s.fund, s.date, s.swaNo, s.cost, s.percent]), [["GF", "2026-03-15", "SWA-001", 1200000, 30], ["SEF", "2026-05-02", "SWA-002", 800000, null]]);
+  assert.deepEqual(r.errors.map(e => [e.line, e.problem]), [[4, "SWA No. repeated in the file"], [5, 'date "May 2" not recognised'], [6, "no SWA No."], [7, "the document link must start with https://"]]);
 });
 
 test("repair totals", () => {

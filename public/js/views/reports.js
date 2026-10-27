@@ -62,7 +62,7 @@ function draw(main) {
     $("#rt", out) && ($("#rt", out).onchange = e => { st.rto = e.target.value; draw(main); });
     $$("[data-m]", out).forEach(tr => tr.onclick = () => { st.month = tr.dataset.m; st.rmode = "month"; draw(main); });
     $("#rm", out).onchange = e => { if (e.target.value) { st.month = e.target.value; st.rmode = "month"; draw(main); } };
-    $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, from, to, range ? { entry: je } : { month, entry: je }), "landscape");
+    $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, from, to, range ? { entry: je } : { month, entry: je }), "portrait");
     $("#csv", main).onclick = () => downloadCSV(`RSMI-${S.fund}-${range ? `${from}_to_${to}` : month}`, ["RSMI No.", "RIS No.", "RIS Date", "JEV No.", "JEV Date", "Office", "Stock No.", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Account"],
       r.lines.map(l => [range ? `${from} to ${to}` : month, l.risNo, l.date, l.jevNo, l.jevDate, l.office, l.stockNo, l.description, l.unit, l.qty, l.unitCost, l.amount, l.accountCode]));
   } else if (st.tab === "accounts") {

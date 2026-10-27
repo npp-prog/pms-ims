@@ -300,14 +300,15 @@ a.me:hover { background: var(--sb-hover); color: var(--sb-ink); }
 .side .avatar { background: var(--sb-active); color: #fff; }
 .side .icon-btn { color: var(--sb-text); } .side .icon-btn:hover { background: var(--sb-hover); border-color: var(--sb-line); color: #fff; }
 .inset { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: .5rem; height: var(--top); padding: 0 1.5rem 0 1rem; background: var(--green); color: #fff; box-shadow: inset 0 -2px 0 var(--gold), 0 2px 10px rgba(0,0,0,.08); }
+.topbar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: .5rem; height: var(--top); padding: 0 1.5rem 0 1rem; background: #fff; color: var(--ink); box-shadow: inset 0 -1px 0 var(--line), 0 2px 10px rgba(15,23,42,.05); }
+.topbar .icon-btn { color: var(--ink); } .topbar .icon-btn:hover { background: var(--hover); border-color: var(--line); }
 .topbar .spacer { flex: 1; }
 .topbar .menu-btn { display: none; }
-.back-btn { gap: .3rem; font-size: .86rem; font-weight: 600; padding: 0 .7rem 0 .45rem; color: #fff; background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.12); }
+.back-btn { gap: .3rem; font-size: .86rem; font-weight: 600; padding: 0 .7rem 0 .45rem; color: var(--ink); background: #fff; border-color: var(--line-2); }
 @media (max-width: 900px) { .back-btn span { display: none; } }
-.crumbs { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--green-muted); min-width: 0; padding-left: .75rem; margin-left: .25rem; border-left: 1px solid var(--green-line); height: 22px; }
-.crumbs b { color: #fff; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.crumbs span { white-space: nowrap; } .crumbs .sep { color: var(--green-line); }
+.crumbs { display: flex; align-items: center; gap: .5rem; font-size: .9rem; color: var(--muted); min-width: 0; padding-left: .75rem; margin-left: .25rem; border-left: 1px solid var(--line-2); height: 22px; }
+.crumbs b { color: var(--ink); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumbs span { white-space: nowrap; } .crumbs .sep { color: var(--line-2); }
 .fund-chip { font-size: .78rem; font-weight: 700; color: var(--green); background: var(--sand); border-radius: 6px; padding: .18rem .6rem; white-space: nowrap; }
 .main { flex: 1; width: 100%; max-width: 1360px; padding: 1.75rem 2rem 3.5rem; animation: page-in .22s var(--ease); }
 /* collapsed: icon rail */

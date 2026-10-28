@@ -41,7 +41,9 @@ function registry(main, itemType) {
       { key: "s", label: "Status", options: [["onhand", "On hand"], ["active", "In use"], ["returned", "Returned to GSO"], ["disposed", "Disposed"]], value: "onhand", test: (a, v) => v === "onhand" ? ["active", "returned"].includes(a.status) : a.status === v },
       { key: "a", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
       { key: "o", label: "Office", options: [...[...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort().map(x => [x, x]), ["__none", "No office"]],
-        test: (a, v) => v === "__none" ? !String(a.holder?.office || "").trim() : a.holder?.office === v }
+        test: (a, v) => v === "__none" ? !String(a.holder?.office || "").trim() : a.holder?.office === v },
+      { key: "ao", label: "Accountable Officer", options: [...[...new Set(rows.map(a => String(a.holder?.name || "").trim()).filter(Boolean))].sort().map(x => [x, x]), ["__none", "No officer"]],
+        test: (a, v) => v === "__none" ? !String(a.holder?.name || "").trim() : String(a.holder?.name || "").trim() === v }
     ],
     columns: [
       ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),

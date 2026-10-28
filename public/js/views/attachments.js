@@ -30,14 +30,18 @@ export function attachmentsCard(el, target, options = {}) {
   const list = attachmentsOf([target, ...also]);
   el.innerHTML = `<div class="card"><div class="card-head"><h3>${esc(title)}</h3><span class="small muted">${list.length || ""}</span></div>
     ${note ? `<p class="small muted" style="margin-top:0">${note}</p>` : ""}
-    ${list.length ? `<ul class="attach">${list.map(a => `<li data-id="${esc(a.id)}"><span class="ic">${ICON}</span><div class="t"><b>${esc(a.label)}</b>${a.target.id !== target.id ? ` <span class="xs muted">· on ${esc(a.about || a.target.type)}</span>` : ""}
-        <div class="xs muted">${esc(attachmentName(a, a.target.id === target.id ? namePrefix : ""))}${a.size ? ` · ${size(a.size)}` : a.kind === "link" ? " · link" : ""} · ${fmtDateTime(a.at)} · ${esc(a.uploadedBy?.name || "")}</div></div>
-        <div class="btn-row"><button class="btn sm" data-open>Open</button>${a.kind === "file" ? `<button class="btn sm" data-dl>Download</button>` : ""}${canRemove(a) ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`).join("")}</ul>`
+    ${list.length ? `<ul class="attach">${list.map(a => { const nm = attachmentName(a, a.target.id === target.id ? namePrefix : ""), when = `${a.size ? `${size(a.size)} · ` : a.kind === "link" ? "link · " : ""}${fmtDateTime(a.at)}`;
+        return `<li data-id="${esc(a.id)}"><span class="ic">${ICON}</span><div class="t">
+        <div class="one"><b>${esc(a.label)}</b>${a.target.id !== target.id ? ` <span class="xs muted">· on ${esc(a.about || a.target.type)}</span>` : ""}</div>
+        <div class="one xs" title="${esc(nm)}">${esc(nm)}</div>
+        <div class="one xs muted" title="${esc(when)}">${esc(when)}</div>
+        ${a.uploadedBy?.name ? `<div class="one xs muted" title="${esc(a.uploadedBy.name)}">${esc(a.uploadedBy.name)}</div>` : ""}</div>
+        <div class="btn-row acts"><button class="btn sm" data-open>Open</button>${a.kind === "file" ? `<button class="btn sm" data-dl>Download</button>` : ""}${canRemove(a) ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`; }).join("")}</ul>`
       : `<p class="muted small" style="margin:0">${canAdd ? "No documents attached yet." : "No documents attached."}</p>`}
-    ${canAdd ? `<form class="grid g2" data-af style="margin-top:1rem;align-items:end">
+    ${canAdd ? `<form class="att-form" data-af>
         <div><label>Document</label><select name="label">${opts(labels, defaultLabel)}</select></div>
         <div><label>File (PDF, JPG or PNG, up to 5 MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
-        <div class="spanall btn-row end"><button class="btn primary sm" type="submit">Attach</button></div></form>` : ""}</div>`;
+        <div class="btn-row end att-go"><button class="btn primary sm" type="submit">Attach</button></div></form>` : ""}</div>`;
   const form = $("[data-af]", el);
   if (form) form.onsubmit = e => {
     e.preventDefault();

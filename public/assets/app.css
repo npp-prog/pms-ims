@@ -480,9 +480,20 @@ body.side-collapsed .me { flex: none; padding: .2rem; }
 @page pms-port { size: A4 portrait; margin: 10mm; }
 #print-area[data-orient=landscape] .pf { page: pms-land; }
 #print-area[data-orient=portrait] .pf, #print-area[data-orient=tags] .tags { page: pms-port; }
-.attach { list-style: none; margin: 0; padding: 0; }
-.attach li { display: flex; align-items: center; gap: .75rem; padding: .6rem 0; }
+/* attachments: name, size / date and uploader each on one line (cut with … and shown in full on hover); the buttons sit
+   under the text in a narrow card and to the right of it in a wide one */
+.attach { list-style: none; margin: 0; padding: 0; container-type: inline-size; }
+.attach li { display: grid; grid-template-columns: 34px minmax(0, 1fr); column-gap: .75rem; row-gap: .45rem; align-items: start; padding: .7rem 0; }
 .attach li + li { border-top: 1px solid var(--line); }
-.attach .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--green-soft); color: var(--green-3); display: grid; place-items: center; flex: none; }
-.attach .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.attach .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--green-soft); color: var(--green-3); display: grid; place-items: center; }
+.attach .t { min-width: 0; line-height: 1.35; }
+.attach .one { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.attach .acts { grid-column: 2; gap: .4rem; flex-wrap: wrap; }
+@container (min-width: 520px) {
+  .attach li { grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; }
+  .attach .acts { grid-column: 3; }
+}
+.att-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: .8rem; align-items: end; margin-top: 1rem; }
+.att-form input[type=file] { width: 100%; max-width: 100%; }
+.att-form .att-go { grid-column: 1 / -1; }
 tr.sel td { background: var(--gold-soft) !important; }

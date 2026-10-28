@@ -974,12 +974,16 @@ export function importStock(items, asOf) {
     for (const it of items) { if (!byFund.has(it.fund)) byFund.set(it.fund, []); byFund.get(it.fund).push(it); }
     let n = 0;
     for (const [fund, list] of byFund) {
+      // a second beginning balance on the same date gets its own number (BB-<date>-2, …)
+      const taken = new Set(S.d.airs.filter(a => a.fund === fund).map(a => a.airNo));
+      let base = `BB-${asOf}`;
+      for (let k = 2; taken.has(base) || taken.has(`${base}-1`); k++) base = `BB-${asOf}-${k}`;
       for (let i = 0; i < list.length; i += 300) {
         const part = list.slice(i, i + 300), seq = i / 300 + 1;
         const lines = part.map((it, k) => ({ id: `bb${seq}-${k}`, description: it.description, specs: "", unit: it.unit, qty: it.qty, unitCost: it.unitCost,
           amount: round2(it.qty * it.unitCost), kind: "supplies", category: "cons", accountCode: it.accountCode, stockNo: it.stockNo, propertyNo: "", usefulLife: "", issuedQty: 0 }));
         await setDoc(doc(collection(db, "airs")), {
-          fund, airNo: `BB-${asOf}${list.length > 300 ? `-${seq}` : ""}`, date: asOf, office: "Beginning balance (imported from IMS)", supplier: "Beginning balance",
+          fund, airNo: `${base}${list.length > 300 ? `-${seq}` : ""}`, date: asOf, office: "Beginning balance (imported from IMS)", supplier: "Beginning balance",
           poNo: "", poDate: "", invNo: "", invDate: "", purpose: "Supplies on hand brought over from IMS", imported: true,
           lines, total: linesTotal(lines), status: "approved", endUserUid: S.user.uid, endUserName: me().name, endUserEmail: S.user.email,
           inspection: { dateInspected: asOf, inspectorName: "Imported", inspectedOk: true }, acceptance: { dateReceived: asOf, status: "complete", partialNote: "", custodianName: "" },

@@ -401,6 +401,9 @@ in the fund, or repeated in the file, is skipped.
 3. Each fund's supplies on hand become one already-posted **beginning-balance AIR**
    (`BB-<date>`). The GSO issues from it with a normal RIS, and the Stock Cards start from these
    balances.
+4. A fund that already has a beginning balance can be imported into again (for supplies left out the first time):
+   a warning shows, Import asks to confirm, and the file comes in as another beginning-balance AIR (`BB-<date>-2`, …)
+   **added** to the first — it does not replace it, so import only what was not brought over yet.
 
 Then check the result in **TB Reconciliation** against the Trial Balance of that month.
 

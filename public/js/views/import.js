@@ -1,6 +1,6 @@
 // Administration → Data Import: brings over the existing PMS property register and IMS supplies on hand.
 import { S, settings, isSuper } from "../state.js";
-import { $, $$, esc, busy, toast, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
+import { $, $$, esc, busy, toast, confirmBox, money, num, qty, opts, readRows, downloadCSV } from "../ui.js";
 import { FUNDS, fundName, accountName, PPE_ACCOUNTS, SX_ACCOUNTS } from "../core/catalog.js";
 import { normalizeAssets, normalizeStock, normalizeCip, normalizeParIcs, normalizeSwa, isPeriod, cipTotal } from "../core/assets.js";
 import { importAssets, importStock, importCip, importParIcs, importSwa, importUsers, deleteInvite } from "../data.js";
@@ -173,13 +173,14 @@ function draw(main) {
     out.innerHTML = `<div class="stats"><div class="stat"><span class="n">${items.length}</span><span class="l">stock numbers with a balance</span></div>
         <div class="stat"><span class="n">${money(items.reduce((t, i) => t + i.qty * i.unitCost, 0))}</span><span class="l">value on hand</span></div>
         <div class="stat ${errors.length ? "alert" : ""}"><span class="n">${errors.length}</span><span class="l">rows with problems (skipped)</span></div></div>
-      ${already.length ? `<div class="notice warn">A beginning balance was already imported for ${esc(already.map(fundName).join(", "))}. Importing again would count those supplies twice.</div>` : ""}
+      ${already.length ? `<div class="notice warn">A beginning balance was already imported for ${esc(already.map(fundName).join(", "))}. This file comes in as another beginning-balance AIR, added to it — import only supplies not brought over yet, or they are counted twice.</div>` : ""}
       ${problems(errors)}
       <div class="table-wrap"><table><thead><tr><th>Fund</th><th>Stock No.</th><th>Description</th><th>Account</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Value</th></tr></thead>
         <tbody>${items.slice(0, 100).map(i => `<tr><td>${esc(i.fund)}</td><td>${esc(i.stockNo)}</td><td>${esc(i.description)}</td><td class="small">${esc(i.accountCode)}</td><td class="right">${qty(i.qty)} ${esc(i.unit)}</td><td class="right">${num(i.unitCost)}</td><td class="right">${num(i.qty * i.unitCost)}</td></tr>`).join("")}</tbody></table></div>
-      <div class="btn-row end" style="margin-top:1rem"><button class="btn primary" id="go" ${items.length && !already.length ? "" : "disabled"}>Import ${items.length} balances</button></div>`;
-    $("#go", out).onclick = e => {
+      <div class="btn-row end" style="margin-top:1rem"><button class="btn primary" id="go" ${items.length ? "" : "disabled"}>Import ${items.length} balances</button></div>`;
+    $("#go", out).onclick = async e => {
       if (!st.asOf) return toast("Enter the date the balances are as of.", "err");
+      if (already.length && !(await confirmBox({ title: "Import another beginning balance?", body: `${already.map(fundName).join(", ")} already ${already.length === 1 ? "has" : "have"} a beginning balance. These ${items.length} balances are added to it, not replacing it.`, confirmText: "Import anyway" }))) return;
       busy(e.target, async () => { await importStock(items, st.asOf); st.parsed = null; st.raw = null; importPage(main); }, "Supplies on hand imported.").catch(() => {});
     };
   }

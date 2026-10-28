@@ -200,9 +200,14 @@ continue at step 4.
   Each RIS's AIR must be posted first. A submitted RSMI can be cancelled by the GSO, which frees its RIS. The
   **recapitulation is the proposed accounting entry**: each expense account debited (e.g. 50203010 Office Supplies
   Expenses) and each inventory account credited, on screen and on the printed RSMI (A4 portrait).
-- **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR, ICS and
+- **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR and
   ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
   row in For Posting). Disposals and repairs are posted on their own rows.
+- **A PAR / ICS item already in the registry is matched, not added twice:** when a PAR / ICS line looks like an item
+  already in the registry (the same Property No., or the same account with the same description or cost — e.g. brought
+  over from PMS), the posting form shows **Already in the registry?** with the possible items; one with the same
+  Property No. is chosen already. Matching a line gives that item the PAR / ICS and its accountable officer, and the
+  line adds nothing new (its record is set aside and points to the item). Unposting the PAR / ICS undoes the match.
 - **Property No. / Inventory Item No.** are suggested on the PAR / ICS as *year purchased – asset group – sub-major
   account – general ledger – series*, e.g. 10705020 Office Equipment bought in 2026 → **2026-07-05-02-0001**; the series
   runs per year across all accounts, and a number can't be used twice.

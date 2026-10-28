@@ -595,3 +595,33 @@ test("a scanned QR tag: anyone opens one item by its ID, without signing in — 
   await assertFails(getDocs(collection(a, "assets")), "no listing");
   await assertFails(getDoc(doc(a, "airs/A_SUB")), "nothing else");
 });
+
+test("posting a PAR whose line is already in the registry: the line is matched to that item, not added twice", async () => {
+  await env.withSecurityRulesDisabled(async c => {
+    const d = c.firestore();
+    await setDoc(doc(d, "issuances/PM1"), baseDoc({ number: "2026-10-0901", lines: [{ assetId: "NEWA" }] }));
+    await setDoc(doc(d, "assets/NEWA"), asset({ holder: { name: "Juan" }, source: { kind: "par", docId: "PM1" } }));
+    await setDoc(doc(d, "assets/EXA"), asset({ holder: { name: "Old holder" }, source: { kind: "import" } }));
+    await setDoc(doc(d, "assets/OTH"), asset({ source: { kind: "import" } }));
+  });
+  const { writeBatch } = await import("firebase/firestore");
+  const a = ctx("acc"), posted = { posted: true, date: "2026-10-28", ref: "JEV-1" };
+  // setting the line aside, or giving an item the PAR, needs the match recorded on the posted PAR
+  await assertFails(updateDoc(doc(a, "assets/NEWA"), { status: "cancelled", matchedTo: "EXA" }));
+  await assertFails(updateDoc(doc(a, "assets/EXA"), { parIcs: { docId: "PM1" }, holder: { name: "Juan" } }));
+  let b = writeBatch(a);
+  b.update(doc(a, "issuances/PM1"), { posting: posted, registryMatches: { NEWA: "EXA" } });
+  b.update(doc(a, "assets/NEWA"), { status: "cancelled", matchedTo: "EXA" });
+  b.update(doc(a, "assets/EXA"), { parIcs: { docId: "PM1", docType: "par", number: "2026-10-0901" }, holder: { name: "Juan" }, custodianUid: "" });
+  await assertSucceeds(b.commit());
+  // an item not in the match can't take the PAR
+  await assertFails(updateDoc(doc(a, "assets/OTH"), { parIcs: { docId: "PM1" } }));
+  // unposting gives both back
+  b = writeBatch(a);
+  b.update(doc(a, "issuances/PM1"), { posting: { posted: false }, registryMatches: {} });
+  b.update(doc(a, "assets/NEWA"), { status: "active", matchedTo: "" });
+  b.update(doc(a, "assets/EXA"), { parIcs: null, holder: { name: "Old holder" }, custodianUid: "" });
+  await assertSucceeds(b.commit());
+  // an RIS carries no registry matches
+  await assertFails(updateDoc(doc(a, "issuances/PM1"), { registryMatches: { X: "Y" }, docType: "ris" }));
+});

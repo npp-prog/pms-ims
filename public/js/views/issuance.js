@@ -162,7 +162,7 @@ export function detail(main, [id]) {
     <div class="split"><div>
       <div class="card"><div class="card-head"><h3>Items</h3><span class="small muted">Total ${money(d.total)}</span></div>
         <div class="table-wrap"><table><thead><tr><th>Description</th><th>${d.docType === "ris" ? "Stock No." : d.docType === "par" ? "Property No." : "Item No."}</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Account</th></tr></thead>
-        <tbody>${d.lines.map(l => `<tr><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}${l.usefulLife ? `<div class="xs muted">Useful life: ${esc(l.usefulLife)}</div>` : ""}</td>
+        <tbody>${d.lines.map(l => `<tr><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}${l.usefulLife ? `<div class="xs muted">Useful life: ${esc(l.usefulLife)}</div>` : ""}${d.registryMatches?.[l.assetId] ? `<div class="xs"><span class="badge b-ok">Matched</span> to <a href="#/assets/${esc(d.registryMatches[l.assetId])}">${esc(S.d.assets.find(x => x.id === d.registryMatches[l.assetId])?.propertyNo || "the item")}</a> already in the registry</div>` : ""}</td>
           <td>${esc(d.docType === "ris" ? l.stockNo : l.propertyNo) || "—"}</td><td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td>
           <td class="small">${esc(l.accountCode)}<div class="xs muted">${esc(accountName(l.accountCode))}</div></td></tr>`).join("")}</tbody></table></div></div>
     </div><div>

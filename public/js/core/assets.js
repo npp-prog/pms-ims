@@ -379,6 +379,23 @@ export const cipTransferAccount = code => ({ "10710010": "10702990", "10710020":
 export const cipOpenAt = (p, period) => !(p.status === "completed" && p.completed?.date && periodOf(p.completed.date) <= period);
 
 /**
+ * Items already in the registry that a PAR / ICS line's new record may duplicate (e.g. brought over from PMS): same fund
+ * and type, and the same Property No. — or the same account with the same description or cost. Best first; `exact`
+ * when the Property No. is the same. registered: the items in the registry.
+ */
+export function registryCandidates(a, registered) {
+  const key = v => String(v || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const pn = key(a.propertyNo), d = key(a.description);
+  return registered.filter(x => x.id !== a.id && x.fund === a.fund && x.itemType === a.itemType && ["active", "returned"].includes(x.status))
+    .map(x => {
+      const exact = !!pn && key(x.propertyNo) === pn, xd = key(x.description), acct = x.accountCode === a.accountCode;
+      const sameDesc = !!d && !!xd && (xd === d || xd.includes(d) || d.includes(xd)), sameCost = Math.abs((Number(x.cost) || 0) - (Number(a.cost) || 0)) < 0.005;
+      return { asset: x, exact, ok: exact || (acct && (sameDesc || sameCost)), score: (exact ? 8 : 0) + (sameDesc ? 4 : 0) + (sameCost ? 2 : 0) + (acct ? 1 : 0) };
+    })
+    .filter(c => c.ok).sort((p, q) => q.score - p.score).slice(0, 15);
+}
+
+/**
  * Normalises SWA rows for bulk upload: the template, or the SWA list's CSV download. opts: { fund (when the row has
  * none) }. Returns { swas, errors } — rows with problems, and an SWA No. repeated in the file, are not imported.
  */

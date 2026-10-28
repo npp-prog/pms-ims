@@ -136,7 +136,7 @@ test("import of IMS supplies on hand", () => {
   assert.match(errors[0].problem, /not an inventory account/);
 });
 
-import { billingTotal, cipTotal, cipStatus, cipTransferAccount, cipOpenAt, normalizeCip, normalizeSwa, repairTotal } from "../public/js/core/assets.js";
+import { billingTotal, cipTotal, cipStatus, cipTransferAccount, cipOpenAt, normalizeCip, normalizeSwa, registryCandidates, repairTotal } from "../public/js/core/assets.js";
 
 test("CIP: billing totals, status, default transfer account (PMS rules)", () => {
   const p = { billings: [{ date: "2026-03-15", ref: "1ST BILLING", byContract: 1200000 }, { date: "2026-05-02", ref: "2ND BILLING", materials: 1000.5, labor: 500, adjustments: -0.5 }] };
@@ -185,6 +185,16 @@ test("SWA bulk upload: the template and the SWA list's CSV download", () => {
     { Date: "2026-05-02", Cost: "1" }], { fund: "SEF" });
   assert.deepEqual(r.swas.map(s => [s.fund, s.date, s.swaNo, s.cost, s.percent]), [["GF", "2026-03-15", "SWA-001", 1200000, 30], ["SEF", "2026-05-02", "SWA-002", 800000, null]]);
   assert.deepEqual(r.errors.map(e => [e.line, e.problem]), [[4, "SWA No. repeated in the file"], [5, 'date "May 2" not recognised'], [6, "no SWA No."]]);
+});
+
+test("posting a PAR / ICS: items already in the registry it may duplicate", () => {
+  const it = (id, o) => ({ id, fund: "GF", itemType: "ppe", accountCode: "10705030", status: "active", cost: 65000, description: "Desktop computer", propertyNo: "", ...o });
+  const line = it("NEW", { propertyNo: "2024-07-05-03-0011", description: "Desktop Computer, Core i5" });
+  const reg = [it("A", { propertyNo: "2024-07-05-03-0011", description: "PC", cost: 1 }), it("B", { description: "desktop computer" }), it("C", { cost: 99, description: "Printer" }),
+    it("D", { fund: "SEF", propertyNo: "2024-07-05-03-0011" }), it("E", { itemType: "sx", propertyNo: "2024-07-05-03-0011" }), it("F", { status: "disposed", propertyNo: "2024-07-05-03-0011" }),
+    it("G", { accountCode: "10705020", description: "Desktop computer" }), it("H", { description: "Laptop" })];
+  const c = registryCandidates(line, reg);
+  assert.deepEqual(c.map(x => [x.asset.id, x.exact]), [["A", true], ["B", false], ["H", false]]);
 });
 
 test("repair totals", () => {

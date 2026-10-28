@@ -1,8 +1,9 @@
 // Accounting: indicates whether each AIR's supply receipt and its PAR / ICS / RIS are posted in the registry.
-import { S, can, fundAirs, docsOfAir } from "../state.js";
+import { S, can, fundAirs, docsOfAir, registeredAssets } from "../state.js";
 import { $, $$, esc, busy, money, fmtDate, manilaToday, renderTable, openModal, confirmBox, postBadge, downloadCSV } from "../ui.js";
 import { fundName, DOC_TYPES } from "../core/catalog.js";
 import { postingSummary, POSTING_STATE } from "../core/logic.js";
+import { registryCandidates } from "../core/assets.js";
 import { setPosting, postSelected } from "../data.js";
 import { postingItems } from "./common.js";
 
@@ -11,26 +12,6 @@ const REGISTRY = { air: "AIR — everything received", par: DOC_TYPES.par.regist
 const itemLabel = i => i.kind === "air" ? `AIR ${i.number}` : `${i.label} ${i.number}`;
 const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
-function postModal(items) {
-  const m = openModal(`<h2>Post ${items.length === 1 ? esc(itemLabel(items[0])) : `${items.length} documents`}</h2>
-    <p class="muted small">Indicates that ${items.length === 1 ? "this document is" : "these documents are"} recorded in the registry (${esc([...new Set(items.map(i => regOf(i)))].join("; "))}).</p>
-    <form class="grid g2" id="pf">
-      <div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
-      <div><label class="req">JEV / reference no.</label><input name="ref" placeholder="e.g. JEV 2026-10-0123"></div>
-      <div class="spanall"><label>Remarks</label><input name="remarks"></div>
-      <div class="spanall form-msg err" id="pm"></div>
-      <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Mark as posted</button></div></form>`, { size: "narrow" });
-  $("[data-x]", m).onclick = () => m.close();
-  $("#pf", m).onsubmit = e => {
-    e.preventDefault();
-    const v = Object.fromEntries(new FormData(e.target).entries());
-    if (!v.date || !v.ref.trim()) { $("#pm", m).textContent = "Enter the posting date and the JEV / reference number."; return; }
-    busy(e.submitter, async () => {
-      for (const i of items) await setPosting(i.kind, i.id, v);
-      m.close();
-    }, items.length === 1 ? "Posted." : `${items.length} documents posted.`).catch(err => { $("#pm", m).textContent = err.message; });
-  };
-}
 async function unpost(i, btn) {
   if (!(await confirmBox({ title: `Unpost ${itemLabel(i)}?`, body: "Use this only to correct a posting made in error.", confirmText: "Unpost", danger: true }))) return;
   busy(btn, () => setPosting(i.kind, i.id, null), "Posting removed.").catch(() => {});
@@ -94,6 +75,13 @@ queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "r:rsmis", "fund"]
  *  not (they are usually posted on their own); other rows post their one document. */
 function postRows(rows) {
   const items = rows.flatMap(r => r.items.map(i => ({ ...i, row: r })));
+  // PAR / ICS lines that may already be in the registry, with the items they could be
+  const registered = registeredAssets();
+  const matchRows = items.flatMap((i, k) => {
+    const d = i.kind === "doc" && ["par", "ics"].includes(i.docType) ? S.d.docs.find(x => x.id === i.id) : null;
+    return (d?.lines || []).map(l => S.d.assets.find(a => a.id === l.assetId)).filter(a => a && a.status === "active")
+      .map(a => ({ k, a, cands: registryCandidates(a, registered) })).filter(r => r.cands.length);
+  });
   const ticked = i => i.kind !== "doc" || i.docType !== "ris" || (items.every(x => x.kind === "doc" && x.docType === "ris") && !!S.d.airs.find(a => a.id === i.airId)?.posting?.posted);
   const m = openModal(`<h2>Post ${rows.length === 1 ? esc(rows[0].title) : `${rows.length} rows`}</h2>
     <p class="muted small">Tick what is posted under this JEV. An RSMI posts every RIS on it; an RIS can be posted only once its AIR is posted (or with it).</p>
@@ -101,6 +89,12 @@ function postRows(rows) {
       ${items.map((i, k) => `<tr><td><input type="checkbox" data-k="${k}" ${ticked(i) ? "checked" : ""}></td><td><b>${esc(i.kind === "air" ? `AIR ${i.number}` : itemLabel(i))}</b>${rows.length > 1 && i.kind !== "air" && i.row.airId ? `<div class="xs muted">${esc(i.row.title)}</div>` : ""}</td>
         <td class="small">${esc(regOf(i))}</td><td class="right">${money(i.amount)}</td></tr>`).join("")}
     </tbody></table></div>
+    ${matchRows.length ? `<h3 style="margin:.6rem 0 .2rem">Already in the registry?</h3>
+      <p class="muted small" style="margin-top:0">These PAR / ICS lines look like items already in the registry (for example, brought over from PMS). Match a line to its item so it is not added twice: the item takes the PAR / ICS and its accountable officer, and the line adds nothing new. Unposting undoes the match.</p>
+      <div class="table-wrap" style="margin-bottom:.8rem"><table><thead><tr><th>PAR / ICS line</th><th>Item in the registry</th></tr></thead><tbody>
+        ${matchRows.map(r => `<tr><td><b>${esc(itemLabel(items[r.k]))}</b> · ${esc(r.a.description)}<div class="xs muted">${esc([r.a.propertyNo, money(r.a.cost), r.a.holder?.name].filter(Boolean).join(" · "))}</div></td>
+          <td><select data-m="${esc(r.a.id)}" data-mk="${r.k}"><option value="">Add as a new item</option>${r.cands.map((c, n) => `<option value="${esc(c.asset.id)}" ${c.exact && n === 0 ? "selected" : ""}>Match: ${esc([c.asset.propertyNo || "no Property No.", c.asset.description, money(c.asset.cost), c.asset.holder?.name].filter(Boolean).join(" — "))}${c.exact ? " (same Property No.)" : ""}</option>`).join("")}</select></td></tr>`).join("")}
+      </tbody></table></div>` : ""}
     <form class="grid g2" id="pf">
       <div><label class="req">Posting date</label><input type="date" name="date" value="${manilaToday()}"></div>
       <div><label class="req">JEV / reference no.</label><input name="ref" placeholder="e.g. JEV 2026-10-0123"></div>
@@ -115,14 +109,16 @@ function postRows(rows) {
     const ok = airPosted(i.airId) || $$("[data-k]", m).some(x => x.checked && items[+x.dataset.k].kind === "air" && items[+x.dataset.k].id === i.airId);
     b.disabled = !ok; if (!ok) b.checked = false; b.title = ok ? "" : "Post the AIR first (or tick it too)";
   });
-  const label = () => { sync(); const n = boxes().length; $("#pgo", m).textContent = n === 1 ? "Post 1 document" : `Post ${n} documents`; $("#pgo", m).disabled = !n; };
+  const syncMatches = () => $$("[data-m]", m).forEach(sl => { sl.disabled = !$(`[data-k="${sl.dataset.mk}"]`, m).checked; });
+  const label = () => { sync(); syncMatches(); const n = boxes().length; $("#pgo", m).textContent = n === 1 ? "Post 1 document" : `Post ${n} documents`; $("#pgo", m).disabled = !n; };
   m.addEventListener("change", e => { if (e.target.matches("[data-k]")) label(); }); label();
   $("[data-x]", m).onclick = () => m.close();
   $("#pf", m).onsubmit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.target).entries()), list = boxes();
     if (!v.date || !v.ref.trim()) { $("#pm", m).textContent = "Enter the posting date and the JEV / reference number."; return; }
-    busy(e.submitter, async () => { await postSelected(list.map(i => ({ kind: i.kind, id: i.id })), v); m.close(); },
+    const matches = Object.fromEntries($$("[data-m]", m).filter(sl => !sl.disabled && sl.value).map(sl => [sl.dataset.m, sl.value]));
+    busy(e.submitter, async () => { await postSelected(list.map(i => ({ kind: i.kind, id: i.id })), v, matches); m.close(); },
       list.length === 1 ? "Posted." : `${list.length} documents posted.`).catch(err => { $("#pm", m).textContent = err.message; });
   };
 }
@@ -165,6 +161,6 @@ function airModal(a) {
     <div class="modal-actions"><a class="btn" href="#/airs/${a.id}">Open AIR</a>${can("post") && items.some(i => !i.posting.posted) ? `<button class="btn primary" id="pall">Post AIR and all its documents</button>` : ""}<button class="btn" data-x>Close</button></div>`);
   $("[data-x]", m).onclick = () => m.close();
   $("#pall", m) && ($("#pall", m).onclick = () => { m.close(); postRows([{ key: `air:${a.id}`, airId: a.id, title: `AIR ${a.airNo}`, items: items.filter(i => !i.posting.posted) }]); });
-  $$("[data-po]", m).forEach(b => b.onclick = () => { m.close(); postModal([items[+b.dataset.po]]); });
+  $$("[data-po]", m).forEach(b => b.onclick = () => { m.close(); const i = items[+b.dataset.po]; postRows([{ key: `${i.kind}:${i.id}`, airId: a.id, title: itemLabel(i), items: [i] }]); });
   $$("[data-un]", m).forEach(b => b.onclick = () => { m.close(); unpost(items[+b.dataset.un], b); });
 }

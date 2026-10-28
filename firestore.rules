@@ -220,8 +220,10 @@ service cloud.firestore {
         (issuer() && resource.data.status == 'issued' && resource.data.posting.posted == false
           && request.resource.data.status == 'cancelled'
           && onlyChanged(['status', 'cancel', 'updatedAt']))
-        // Accounting posts / unposts — an RIS only with its RSMI, and once its AIR is posted (or in the same batch)
-        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'updatedAt'])
+        // Accounting posts / unposts — an RIS only with its RSMI, and once its AIR is posted (or in the same batch); a PAR / ICS
+        // keeps which of its lines were matched to items already in the registry (registryMatches: { new record: registry item })
+        || (poster() && resource.data.status == 'issued' && onlyChanged(['posting', 'registryMatches', 'updatedAt'])
+          && (request.resource.data.get('registryMatches', {}).size() == 0 || resource.data.docType in ['par', 'ics'])
           && (resource.data.docType != 'ris' || request.resource.data.posting.posted != true
             || (getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.get('posting', {}).get('posted', false) == true
               && resource.data.get('rsmiId', '') != ''
@@ -275,6 +277,22 @@ service cloud.firestore {
         // the PAR / ICS (or its AIR) was renumbered: the item's copy of the number follows
         || (issuer() && onlyChanged(['source', 'history', 'updatedAt']) && request.resource.data.source.kind == resource.data.source.kind
           && request.resource.data.source.docId == resource.data.source.docId)
+        // Accounting posts a PAR / ICS whose line is already in the registry: the line's new record is set aside, matched to it
+        // (and comes back when the PAR / ICS is unposted)…
+        || (poster() && resource.data.source.kind in ['par', 'ics'] && onlyChanged(['status', 'matchedTo', 'history', 'updatedAt'])
+          && ((resource.data.status == 'active' && request.resource.data.status == 'cancelled'
+              && getAfter(/databases/$(database)/documents/issuances/$(resource.data.source.docId)).data.posting.posted == true
+              && getAfter(/databases/$(database)/documents/issuances/$(resource.data.source.docId)).data.get('registryMatches', {}).get(id, '') == request.resource.data.matchedTo)
+            || (resource.data.status == 'cancelled' && resource.data.get('matchedTo', '') != '' && request.resource.data.status == 'active'
+              && request.resource.data.matchedTo == ''
+              && getAfter(/databases/$(database)/documents/issuances/$(resource.data.source.docId)).data.posting.posted == false)))
+        // …and the registry item takes the PAR / ICS and its accountable officer (given back when it is unposted)
+        || (poster() && onlyChanged(['parIcs', 'holder', 'custodianUid', 'history', 'updatedAt']) && request.resource.data.status == resource.data.status
+          && ((request.resource.data.get('parIcs', null) != null
+              && getAfter(/databases/$(database)/documents/issuances/$(request.resource.data.parIcs.docId)).data.posting.posted == true
+              && getAfter(/databases/$(database)/documents/issuances/$(request.resource.data.parIcs.docId)).data.get('registryMatches', {}).values().hasAny([id]))
+            || (request.resource.data.get('parIcs', null) == null && resource.data.get('parIcs', null) != null
+              && getAfter(/databases/$(database)/documents/issuances/$(resource.data.parIcs.docId)).data.posting.posted == false)))
         || isAdmin());
       allow delete: if false;
     }

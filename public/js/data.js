@@ -383,6 +383,8 @@ export function setPosting(kind, id, posting) {
     if (posting && !posting.date) throw fail("Enter the posting date.");
     if (kind === "doc" && S.d.docs.find(x => x.id === id)?.docType === "ris") throw fail("An RIS is posted (or unposted) with its RSMI — Reports → RSMI.");
     if (posting && !data.ref) throw fail("Enter the JEV / reference number.");
+    const d = kind === "doc" ? S.d.docs.find(x => x.id === id) : null;
+    if (!posting && d && Object.keys(d.registryMatches || {}).length) return unpostMatched(d, data);
     const patch = { posting: data, updatedAt: serverTimestamp() };
     if (kind === "air") patch.history = arrayUnion(stamp(posting ? "Receipt posted by Accounting" : "Receipt unposted by Accounting", posting ? data.ref : ""));
     if (kind === "repair") patch.status = posting ? "posted" : "inspected";
@@ -453,7 +455,38 @@ export function postRsmi(id, posting) {
 }
 
 /** Posts the ticked items — AIRs, PAR / ICS / RIS, disposals — together, under one JEV. items: [{ kind: "air" | "doc" | "movement", id }] */
-export function postSelected(items, posting) {
+/**
+ * Lines of a PAR / ICS matched, at posting, to items already in the registry (matches: { new record id: registry item id }):
+ * the line's new record is set aside (cancelled, matchedTo the item) so nothing is counted twice, and the registry item
+ * takes the PAR / ICS and its accountable officer. Unposting gives both back as they were.
+ */
+function matchToRegistry(b, d, pairs, ref) {
+  const label = `${d.docType.toUpperCase()} ${d.number}`;
+  for (const [newId, exId] of pairs) {
+    const n = S.d.assets.find(a => a.id === newId), x = S.d.assets.find(a => a.id === exId);
+    if (!n || !x || !["active", "returned"].includes(x.status)) throw fail(`${label}: the registry item chosen for “${n?.description || "a line"}” is no longer available.`);
+    b.update(doc(db, "assets", newId), { status: "cancelled", matchedTo: exId, history: arrayUnion(stamp(`${label} posted — matched to ${x.propertyNo || "an item"} already in the registry`, ref)), updatedAt: serverTimestamp() });
+    b.update(doc(db, "assets", exId), {
+      parIcs: { docId: d.id, docType: d.docType, number: d.number, recipient: n.holder?.name || "", prevHolder: x.holder || {}, prevCustodianUid: x.custodianUid || "" },
+      holder: n.holder || x.holder || {}, custodianUid: n.custodianUid || "",
+      history: arrayUnion(stamp(`${label} posted — matched to this item; accountable officer ${n.holder?.name || ""}`, ref)), updatedAt: serverTimestamp()
+    });
+  }
+}
+async function unpostMatched(d, data) {
+  const b = writeBatch(db), label = `${d.docType.toUpperCase()} ${d.number}`;
+  b.update(doc(db, "issuances", d.id), { posting: data, registryMatches: {}, updatedAt: serverTimestamp() });
+  for (const [newId, exId] of Object.entries(d.registryMatches)) {
+    b.update(doc(db, "assets", newId), { status: "active", matchedTo: "", history: arrayUnion(stamp(`${label} unposted — no longer matched to a registry item`)), updatedAt: serverTimestamp() });
+    const x = S.d.assets.find(a => a.id === exId);
+    if (x?.parIcs?.docId === d.id) b.update(doc(db, "assets", exId), { parIcs: null, holder: x.parIcs.prevHolder || x.holder || {}, custodianUid: x.parIcs.prevCustodianUid || "",
+      history: arrayUnion(stamp(`${label} unposted — accountable officer back to ${x.parIcs.prevHolder?.name || "the previous holder"}`)), updatedAt: serverTimestamp() });
+  }
+  await b.commit();
+  audit("unpost", "issuance", d.id, { matched: Object.keys(d.registryMatches).length });
+}
+
+export function postSelected(items, posting, matches = {}) {
   return wrap(async () => {
     if (!items.length) throw fail("Tick at least one document to post.");
     if (!posting?.date) throw fail("Enter the posting date.");
@@ -479,8 +512,16 @@ export function postSelected(items, posting) {
         }
         b.update(doc(db, "rsmis", i.id), { posting: data, status: "posted", updatedAt: serverTimestamp() });
       }
-      else b.update(doc(db, i.kind === "movement" ? "movements" : "issuances", i.id), { posting: data, updatedAt: serverTimestamp() });
+      else if (i.kind === "doc") {
+        const d = S.d.docs.find(x => x.id === i.id);
+        const pairs = ["par", "ics"].includes(d?.docType) ? (d.lines || []).filter(l => matches[l.assetId]).map(l => [l.assetId, matches[l.assetId]]) : [];
+        b.update(doc(db, "issuances", i.id), { posting: data, ...(pairs.length ? { registryMatches: Object.fromEntries(pairs) } : {}), updatedAt: serverTimestamp() });
+        if (pairs.length) matchToRegistry(b, d, pairs, ref);
+      }
+      else b.update(doc(db, "movements", i.id), { posting: data, updatedAt: serverTimestamp() });
     }
+    const chosen = Object.values(matches);
+    if (new Set(chosen).size !== chosen.length) throw fail("The same registry item is matched to two lines.");
     await b.commit();
     audit("post_selected", "posting", items.map(i => i.id).join(","), { ref, count: items.length });
     return items.length;
@@ -509,7 +550,7 @@ export function addAttachment(target, f) {
       const file = f.file;
       if (!file) throw fail("Choose a file to attach.");
       if (!ATTACH_TYPES.includes(file.type)) throw fail("Attach a PDF, JPG or PNG file.");
-      if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is 5 MB. Scan at a lower resolution, or attach a Google Drive link instead.`);
+      if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is 5 MB. Scan it at a lower resolution.`);
       const bytes = new Uint8Array(await file.arrayBuffer()), n = Math.ceil(bytes.length / CHUNK) || 1;
       const { writeBatch } = await import("./fb.js");
       const b = writeBatch(db);

@@ -63,8 +63,7 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
   materials, labor, overhead, consultancy, others) plus transfers/adjustments. The CIP Ledger Card
   shows the running total.
 - **SWA (Statement of Work Accomplished):** encoded by the GSO or Accounting, with its number, CIP
-  No., contractor, cost, % accomplished and a link to the scanned document (for example Google
-  Drive; no file storage is needed). Accounting matches each SWA to one billing. A matched SWA is
+  No., contractor, cost and % accomplished; the scanned SWA is uploaded on it. Accounting matches each SWA to one billing. A matched SWA is
   locked until the billing releases it.
 - **Status:** a billing marked *FINAL* flags the project "Complete — awaiting transfer". Accounting
   can also set this by hand.
@@ -223,8 +222,8 @@ receipt) are attached:** save it as a draft, attach both on its page, then submi
 scanned SWA; choosing an SWA on a CIP billing fills in its amount and particulars.
 
 The GSO and Accounting can attach the signed copy — or any supporting document — to a **PAR, ICS or RIS**, a **PTR /
-ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 5 MB, or a link (e.g. Google
-Drive). An item's page also shows what is attached to its PAR / ICS and its transfers, and the registries and the
+ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 5 MB.
+**Open** shows the file in a pop-up on the same page (PDFs in the browser's PDF viewer), with Download. An item's page also shows what is attached to its PAR / ICS and its transfers, and the registries and the
 PAR / ICS / RIS list mark what has an attachment. End-Users can open the attachments of their own office's documents
 and property. Files are kept in Firestore itself (split into 600 KB pieces), because Firebase Storage needs a paid plan;
 Firestore's free tier holds 1 GB.
@@ -453,7 +452,7 @@ The default is the PMS / IMS format: `2026-10-0001`, and `SPLV-` / `SPHV-2026-10
 | `depreciation/{fund_YYYY-MM}` | posted month | JEV no., amount per item, summary by account |
 | `tbSnapshots/{fund_YYYY-MM}` | Trial Balance | account → debit / credit |
 | `cipProjects/{id}` | CIP project | `billings[]` (by contract / by administration, matched SWA), status, `completed` (transfer to PPE) |
-| `swa/{id}` | Statement of Work Accomplished | SWA No., CIP No., cost, % done, document link, `matched` |
+| `swa/{id}` | Statement of Work Accomplished | SWA No., CIP No., cost, % done, `matched` |
 | `repairs/{id}` | repair job order | item, job order, supplier, `parts[]`, total, status (submitted / returned / verified) |
 | `counters/{fund_TYPE_period}` | numbering series | per fund, document and month / year / running series; increases by one inside a transaction; the admin can set the next number |
 | `docNumbers/{fund_type_number}` | number used | claimed once, with the document, so no number is ever used twice |

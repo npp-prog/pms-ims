@@ -217,7 +217,6 @@ function swaModal(s) {
       <div><label>Cost (₱)</label><input type="number" step="0.01" min="0" name="cost" value="${esc(s?.cost ?? "")}"></div>
       <div><label>Accomplishment (%)</label><input type="number" step="0.01" min="0" max="100" name="percent" value="${esc(s?.percent ?? "")}"></div>
       <div class="spanall"><label>Particulars</label><input name="particulars" value="${esc(s?.particulars || "")}" placeholder="e.g. 2nd partial billing — 60% accomplishment of the concreting works"></div>
-      <div><label>Link to the scanned SWA</label><input name="docLink" value="${esc(s?.docLink || "")}" placeholder="https://drive.google.com/…"></div>
       <div class="spanall"><label>Remarks</label><input name="remarks" value="${esc(s?.remarks || "")}"></div>
       <div class="spanall modal-actions">${s ? `<button type="button" class="btn danger" id="del" style="margin-right:auto">Delete</button>` : ""}<button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>
     ${s ? `<div id="swa-att" style="margin-top:1rem"></div>` : `<p class="small muted" style="margin-top:.8rem">Save the SWA first, then open it again to upload the scanned copy.</p>`}`, { size: "wide" });
@@ -228,6 +227,7 @@ function swaModal(s) {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(e.target).entries());
     if (s) v.fund = s.fund;
+    v.docLink = s?.docLink || ""; // a link saved before is kept; scanned SWAs are uploaded below
     if (S.d.swa.some(x => x.fund === v.fund && x.swaNo === v.swaNo.trim() && x.id !== s?.id)) return toast(`SWA No. ${v.swaNo} is already used in this fund.`, "err");
     busy(e.submitter, async () => { await saveSwa(s?.id, v); m.close(); }, "SWA saved.").catch(() => {});
   };

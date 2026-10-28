@@ -66,8 +66,6 @@ export function assetFormModal(a) {
       ${gso ? `<div><label>Office</label>${officeSelect("office", a.holder?.office || "", s.offices, { blank: "No office" })}</div>` : ""}
       <div><label>Location</label><input name="location" value="${esc(a.location || "")}"></div>
       <div><label>Condition</label><select name="condition">${opts(CONDITIONS, a.condition || "Serviceable")}</select></div>
-      <div><label>Photo link</label><input name="photoUrl" value="${esc(a.photoUrl || "")}" placeholder="https://drive.google.com/…"></div>
-      <div><label>Document link</label><input name="docUrl" value="${esc(a.docUrl || "")}" placeholder="https://…"></div>
       <div class="spanall"><label>Remarks</label><input name="remarks" value="${esc(a.remarks || "")}"></div>
       <div class="spanall grid g3" id="spc" style="margin:0">${specialSection(a.accountCode, a)}</div>
       <div class="spanall"><label class="req">Reason for the correction</label><input name="note"></div>

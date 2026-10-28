@@ -179,13 +179,12 @@ test("CIP import: PMS bulk-billing rows and the CIP Projects export", () => {
 test("SWA bulk upload: the template and the SWA list's CSV download", () => {
   const r = normalizeSwa([
     { Fund: "GF", Date: "3/15/2026", "SWA No.": "SWA-001", "CIP No.": "2026-020-01", Contractor: "ABC Builders", Percent: "30%", Cost: "1,200,000.00", Particulars: "1st billing" },
-    { Date: "2026-05-02", "SWA No.": "SWA-002", Cost: "800000", Document: "https://drive.google.com/x" },
+    { Date: "2026-05-02", "SWA No.": "SWA-002", Cost: "800000" },
     { Date: "2026-05-02", "SWA No.": "swa-002", Cost: "5" },
     { Date: "May 2", "SWA No.": "SWA-003" },
-    { Date: "2026-05-02", Cost: "1" },
-    { Date: "2026-05-02", "SWA No.": "SWA-004", Document: "drive/x" }], { fund: "SEF" });
+    { Date: "2026-05-02", Cost: "1" }], { fund: "SEF" });
   assert.deepEqual(r.swas.map(s => [s.fund, s.date, s.swaNo, s.cost, s.percent]), [["GF", "2026-03-15", "SWA-001", 1200000, 30], ["SEF", "2026-05-02", "SWA-002", 800000, null]]);
-  assert.deepEqual(r.errors.map(e => [e.line, e.problem]), [[4, "SWA No. repeated in the file"], [5, 'date "May 2" not recognised'], [6, "no SWA No."], [7, "the document link must start with https://"]]);
+  assert.deepEqual(r.errors.map(e => [e.line, e.problem]), [[4, "SWA No. repeated in the file"], [5, 'date "May 2" not recognised'], [6, "no SWA No."]]);
 });
 
 test("repair totals", () => {

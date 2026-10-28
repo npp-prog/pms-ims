@@ -1,6 +1,6 @@
 // Attachments panel: signed PAR / ICS / RIS, PTR and other scanned documents or links, on a document or a register item.
 import { S, can, onChange } from "../state.js";
-import { $, $$, esc, busy, toast, fmtDateTime, opts, confirmBox } from "../ui.js";
+import { $, $$, esc, busy, toast, fmtDateTime, opts, confirmBox, openModal } from "../ui.js";
 import { addAttachment, attachmentUrl, removeAttachment, ATTACH_TYPES } from "../data.js";
 
 export const ATTACH_LABELS = ["Signed PAR", "Signed ICS", "Signed RIS", "Signed PTR / ITR", "Signed PRS / RRSP", "Disposal / IIRUP document", "Delivery receipt / invoice", "Photo", "Other"];
@@ -34,27 +34,23 @@ export function attachmentsCard(el, target, options = {}) {
         <div class="xs muted">${esc(attachmentName(a, a.target.id === target.id ? namePrefix : ""))}${a.size ? ` · ${size(a.size)}` : a.kind === "link" ? " · link" : ""} · ${fmtDateTime(a.at)} · ${esc(a.uploadedBy?.name || "")}</div></div>
         <div class="btn-row"><button class="btn sm" data-open>Open</button>${a.kind === "file" ? `<button class="btn sm" data-dl>Download</button>` : ""}${canRemove(a) ? `<button class="btn sm ghost danger" data-rm title="Remove">Remove</button>` : ""}</div></li>`).join("")}</ul>`
       : `<p class="muted small" style="margin:0">${canAdd ? "No documents attached yet." : "No documents attached."}</p>`}
-    ${canAdd ? `<form class="grid g3" data-af style="margin-top:1rem;align-items:end">
+    ${canAdd ? `<form class="grid g2" data-af style="margin-top:1rem;align-items:end">
         <div><label>Document</label><select name="label">${opts(labels, defaultLabel)}</select></div>
         <div><label>File (PDF, JPG or PNG, up to 5 MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
-        <div><label>…or a link</label><input name="url" placeholder="https://drive.google.com/…"></div>
         <div class="spanall btn-row end"><button class="btn primary sm" type="submit">Attach</button></div></form>` : ""}</div>`;
   const form = $("[data-af]", el);
   if (form) form.onsubmit = e => {
     e.preventDefault();
-    const file = form.file.files[0], url = form.url.value.trim();
-    if (!file && !url) return toast("Choose a file, or paste a link.", "err");
+    const file = form.file.files[0];
+    if (!file) return toast("Choose a file to attach.", "err");
     // what is being typed here counts as unsaved, so a live update doesn't wipe it; attaching clears it
-    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file, url: file ? "" : url }); form.reset(); form.label.value = defaultLabel; window.dispatchEvent(new Event("app:clean")); }, "Attached.").catch(() => {});
+    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file }); form.reset(); form.label.value = defaultLabel; window.dispatchEvent(new Event("app:clean")); }, "Attached.").catch(() => {});
   };
   $$("[data-open]", el).forEach(b => b.onclick = () => {
     const a = list.find(x => x.id === b.closest("li").dataset.id);
-    const w = window.open("", "_blank"); // opened right away so the browser doesn't block it
-    busy(b, async () => {
-      const url = await attachmentUrl(a);
-      if (w) w.location.href = url; else location.href = url;
-      if (url.startsWith("blob:")) setTimeout(() => URL.revokeObjectURL(url), 60000);
-    }).catch(() => w?.close());
+    // a link attached earlier (e.g. Google Drive) can't be shown inside the page: it opens in a new tab
+    if (a.kind === "link") { window.open(a.url, "_blank", "noopener"); return; }
+    busy(b, async () => viewAttachment(a, attachmentName(a, a.target.id === target.id ? namePrefix : ""), await attachmentUrl(a))).catch(() => {});
   });
   $$("[data-dl]", el).forEach(b => b.onclick = () => {
     const a = list.find(x => x.id === b.closest("li").dataset.id);
@@ -68,4 +64,14 @@ export function attachmentsCard(el, target, options = {}) {
     const a = list.find(x => x.id === b.closest("li").dataset.id);
     if (await confirmBox({ title: `Remove “${a.label}”?`, body: esc(a.name), confirmText: "Remove", danger: true })) busy(b, () => removeAttachment(a), "Removed.").catch(() => {});
   });
+}
+
+/** Shows a file in a pop-up: images as they are, PDFs in the browser's PDF viewer. */
+function viewAttachment(a, name, url) {
+  const img = /^image\//.test(a.mime || "");
+  const m = openModal(`<div class="card-head" style="margin-bottom:.6rem"><h3 style="margin:0">${esc(a.label)}</h3><span class="small muted">${esc(name)}</span></div>
+    <div class="doc-view">${img ? `<img src="${url}" alt="${esc(a.label)}">` : `<iframe src="${url}" title="${esc(name)}"></iframe>`}</div>
+    <div class="modal-actions"><a class="btn" href="${url}" download="${esc(name)}">Download</a><button type="button" class="btn primary" data-close>Close</button></div>`,
+    { size: "wide", onClose: () => setTimeout(() => URL.revokeObjectURL(url), 1000) });
+  $("[data-close]", m).onclick = () => m.close();
 }

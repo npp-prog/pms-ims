@@ -390,16 +390,14 @@ export function normalizeSwa(rows, opts) {
     const fund = fundCode(pick(r, "Fund", "fund")) || opts.fund;
     const rawDate = pick(r, "Date", "Transaction Date", "date"), date = isoDate(rawDate);
     const pct = pick(r, "Percent", "Accomplishment (%)", "Accomplishment", "percent").replace(/%/g, "");
-    const docLink = pick(r, "Document", "Document Link", "Link", "doc_link");
     const swa = { fund, date, swaNo, cipNo: pick(r, "CIP No.", "cip_no", "CIP Code", "cip_code"), contractor: pick(r, "Contractor", "contractor"),
       cost: money(pick(r, "Cost", "Amount", "cost")), percent: pct === "" ? null : round2(Number(pct) || 0),
-      particulars: pick(r, "Particulars", "particulars"), docLink, remarks: pick(r, "Remarks", "remarks") };
+      particulars: pick(r, "Particulars", "particulars"), docLink: "", remarks: pick(r, "Remarks", "remarks") };
     const err = [];
     if (!swaNo) err.push("no SWA No.");
     if (!fund) err.push("unknown fund");
     if (!date) err.push(rawDate ? `date "${rawDate}" not recognised` : "no date");
     if (swa.cost < 0) err.push("negative cost");
-    if (docLink && !/^https?:\/\//i.test(docLink)) err.push("the document link must start with https://");
     if (swaNo && fund && seen.has(`${fund}|${swaNo.toLowerCase()}`)) err.push("SWA No. repeated in the file");
     if (err.length) { errors.push({ line, description: swaNo || swa.contractor, problem: err.join(", ") }); return; }
     seen.add(`${fund}|${swaNo.toLowerCase()}`);

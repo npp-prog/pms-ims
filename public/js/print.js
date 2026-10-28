@@ -113,8 +113,8 @@ export function risHtml(d) {
       <tr><th style="width:11%">Stock No.</th><th style="width:8%">Unit</th><th>Description</th><th style="width:9%">Quantity</th><th style="width:6%">Yes</th><th style="width:6%">No</th><th style="width:9%">Quantity</th><th style="width:15%">Remarks</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="8">*** NOTHING FOLLOWS ***</td></tr>${blanks(14 - d.lines.length, 8)}</tbody></table>
     <div class="pf-ref">Purpose: ${esc(d.purpose)}</div>
-    <table class="pt sigt"><tr><th></th><th>Requested by:</th><th>Approved by:</th><th>Issued by:</th><th>Received by:</th></tr>
-      <tr><td>Signature:</td><td></td><td></td><td></td><td></td></tr>
+    <table class="pt sigt" style="table-layout:fixed"><tr><th style="width:16%"></th><th style="width:21%">Requested by:</th><th style="width:21%">Approved by:</th><th style="width:21%">Issued by:</th><th style="width:21%">Received by:</th></tr>
+      <tr class="sig-row"><td>Signature:</td><td></td><td></td><td></td><td></td></tr>
       <tr><td>Printed Name:</td><td>${esc(d.recipient?.name)}</td><td>${esc(sg.name)}</td><td>${esc(d.issuedBy?.name)}</td><td>${esc(d.recipient?.name)}</td></tr>
       <tr><td>Designation:</td><td>${esc(d.recipient?.position)}</td><td>${esc(sg.position)}</td><td>${esc(d.issuedBy?.position)}</td><td>${esc(d.recipient?.position)}</td></tr>
       <tr><td>Date:</td><td></td><td></td><td></td><td></td></tr></table></div>`;

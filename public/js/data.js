@@ -507,7 +507,7 @@ export function addAttachment(target, f) {
       await setDoc(ref, { ...base, kind: "link", url, name: url.replace(/^https:\/\//i, "").slice(0, 80), size: 0, chunks: 0 });
     } else {
       const file = f.file;
-      if (!file) throw fail("Choose a file, or paste a link.");
+      if (!file) throw fail("Choose a file to attach.");
       if (!ATTACH_TYPES.includes(file.type)) throw fail("Attach a PDF, JPG or PNG file.");
       if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is 5 MB. Scan at a lower resolution, or attach a Google Drive link instead.`);
       const bytes = new Uint8Array(await file.arrayBuffer()), n = Math.ceil(bytes.length / CHUNK) || 1;

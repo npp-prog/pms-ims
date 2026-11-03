@@ -216,3 +216,12 @@ test("CCAR: goods and labor lines, their totals and the checks before saving", a
   assert.match(validateCcar({ ...ok, lines: [] })[0], /at least one item/);
   assert.match(validateCcar({ ...ok, acceptance: { status: "partial", partialNote: "" } })[0], /partial/);
 });
+
+test("Delivery Report: services are proposed as non-inventoriable; the GSO may classify any line non-inventoriable (CCAR)", async () => {
+  const { suggestCategory, validateInspection } = await import("../public/js/core/logic.js");
+  assert.equal(suggestCategory("services", 50000), "noninv");
+  assert.equal(suggestCategory("supplies", 50000), "cons");
+  const insp = { inspection: { dateInspected: "2026-10-28", inspectedOk: true }, acceptance: { dateReceived: "2026-10-28", status: "complete" } };
+  assert.deepEqual(validateInspection({ ...insp, lines: [{ category: "noninv", component: "labor" }, { category: "ppe", accountCode: "10705030" }] }), []);
+  assert.match(validateInspection({ ...insp, lines: [{ category: "cons", accountCode: "" }] })[0], /account/);
+});

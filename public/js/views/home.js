@@ -33,11 +33,11 @@ export function dashboard(main) {
 
   const items = [
     isAdmin() && c.pending && row(I.user, "red", "Registrations to approve", "New accounts waiting for a role", c.pending, "#/users"),
-    c.returned && row(I.back, "red", "AIRs returned to you", "Correct and resubmit to the GSO", c.returned, "#/airs"),
-    c.drafts && row(I.doc, "", "Draft AIRs", "Not yet submitted to the GSO", c.drafts, "#/airs"),
+    c.returned && row(I.back, "red", "Delivery Reports returned to you", "Correct and resubmit to the GSO", c.returned, "#/airs"),
+    c.drafts && row(I.doc, "", "Draft Delivery Reports", "Not yet submitted to the GSO", c.drafts, "#/airs"),
     c.repairsReturned && row(I.back, "red", "Repairs returned to you", "Correct the repair record and send it again", c.repairsReturned, "#/repairs"),
     c.repairs && row(I.check, "blue", "Repairs waiting for the GSO", "Pre- and post-repair inspections, and posted repairs to verify", c.repairs, "#/repairs"),
-    c.inspect && row(I.check, "blue", "AIRs for inspection", oldestInspect ? `Oldest: from ${oldestInspect.office}, ${oldestInspect.supplier}` : "", c.inspect, "#/inspect"),
+    c.inspect && row(I.check, "blue", "Delivery Reports for inspection", oldestInspect ? `Oldest: from ${oldestInspect.office}, ${oldestInspect.supplier}` : "", c.inspect, "#/inspect"),
     c.issue && row(I.box, "", "AIRs for issuance", "Issue PAR, ICS or RIS for the approved items", c.issue, "#/issue"),
     deprDue() && row(I.book, "", "Depreciation to post", deprDue(), "1", "#/depreciation"),
     c.post && row(I.book, "green", "For posting", "AIRs with their PAR / ICS / RIS, and disposals, not yet posted in the registry", c.post, "#/posting")
@@ -45,13 +45,13 @@ export function dashboard(main) {
 
   // KPI cards: [label, figure, hint, link, icon]
   const glance = r === "enduser" ? [
-    ["My AIRs submitted", mine.filter(a => a.status !== "draft").length, "Encoded by you", "#/airs", I.doc],
-    ["Office AIRs", S.d.airs.filter(a => a.status !== "draft").length, "All encoders in your office", "#/airs", I.doc],
+    ["My Delivery Reports", mine.filter(a => a.status !== "draft").length, "Encoded by you", "#/airs", I.doc],
+    ["Office Delivery Reports", S.d.airs.filter(a => a.status !== "draft").length, "All encoders in your office", "#/airs", I.doc],
     ["Waiting for inspection", mine.filter(a => a.status === "submitted").length, "With the GSO", "#/airs", I.check],
     ["Approved, for issuance", mine.filter(a => a.status === "approved").length, "PAR / ICS / RIS to follow", "#/airs", I.box],
     ["PAR / ICS / RIS issued", S.d.docs.filter(d => d.status !== "cancelled").length, "To your office", "#/issuances", I.book]
   ] : [
-    ["AIRs encoded", airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, `In ${year}`, "#/airs", I.doc],
+    ["Deliveries encoded", airs.filter(a => a.status !== "draft" && yearOf(a.date) === year).length, `In ${year}`, "#/airs", I.doc],
     ["Value received", money(airs.filter(a => ["approved", "issued"].includes(a.status) && yearOf(a.date) === year).reduce((t, a) => t + (a.total || 0), 0)), `Approved AIRs, ${year}`, "#/airs", I.peso],
     ["PPE on hand", money(onHand("ppe").reduce((t, a) => t + a.cost - accumAsOf(a, periodOf(manilaToday()), S.d.depr), 0)), "Carrying amount", "#/registry/ppe", I.chart],
     ["Semi-expendable on hand", money(onHand("sx").reduce((t, a) => t + a.cost, 0)), "At cost", "#/registry/sx", I.box],
@@ -73,8 +73,8 @@ export function dashboard(main) {
       <div>
         <div class="card"><div class="card-head"><h3>Needs your attention</h3><span class="small muted">${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : ""}</span></div>
           <ul class="inbox">${items.join("") || `<li><span class="ic green">${I.check}</span><span class="t"><b>You're all caught up</b><span>Nothing is waiting for you in ${esc(fundName(S.fund))}.</span></span></li>`}</ul></div>
-        <div class="card"><div class="card-head"><h3>Recent AIRs</h3><a class="btn sm" href="#/airs">Open list</a></div>
-          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo || (a.status === "draft" ? "Draft" : "For inspection"))}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
+        <div class="card"><div class="card-head"><h3>Recent deliveries</h3><a class="btn sm" href="#/airs">Open list</a></div>
+          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo ? `AIR ${a.airNo}` : a.ccarNo ? `CCAR ${a.ccarNo}` : a.status === "draft" ? "Draft" : "For inspection")}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
       </div>
       <div>
         <div class="card"><div class="card-head"><h3>Recently issued</h3></div>
@@ -115,7 +115,7 @@ function deprDue() {
 }
 
 function flowSteps(r) {
-  const st = [["End-User", "Encodes the AIR"], ["GSO", "Inspects & approves"], ["GSO", "Issues PAR / ICS / RIS"], ["Accounting", "Posts in the registry"]];
+  const st = [["End-User", "Encodes the Delivery Report"], ["GSO", "Inspects: AIR or CCAR"], ["GSO", "Issues PAR / ICS / RIS"], ["Accounting", "Posts AIR, CCAR, documents"]];
   const mineIdx = { enduser: 0, gso: 1, accounting: 3 }[r];
   return st.map(([w, t], i) => `<div class="${i === mineIdx || (r === "gso" && i === 2) ? "now" : ""}"><b>${i + 1}. ${esc(t)}</b>${esc(w)}</div>`).join("");
 }

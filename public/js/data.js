@@ -66,7 +66,7 @@ function useNumber(tx, c, docRef, type) {
 function cleanLines(lines) {
   return (lines || []).map(l => ({
     id: l.id, description: String(l.description || "").trim(), specs: String(l.specs || "").trim(), unit: String(l.unit || "").trim(),
-    qty: round2(l.qty), unitCost: round2(l.unitCost), amount: lineAmount(l), kind: l.kind === "supplies" ? "supplies" : "equipment",
+    qty: round2(l.qty), unitCost: round2(l.unitCost), amount: lineAmount(l), kind: ["supplies", "services"].includes(l.kind) ? l.kind : "equipment",
     category: l.category || "", accountCode: l.accountCode || "", stockNo: String(l.stockNo || "").trim().toUpperCase(),
     propertyNo: String(l.propertyNo || "").trim(), usefulLife: String(l.usefulLife || "").trim(), issuedQty: 0
   }));
@@ -123,36 +123,61 @@ export function returnAir(id, remarks) {
 
 /** Records the inspection and acceptance, the GSO's classification of each line, and approves the AIR. */
 export function approveAir(id, insp) {
+  let out = {};
   return wrap(async () => {
     await runTransaction(db, async tx => {
       const ref = doc(db, "airs", id); const cur = await tx.get(ref);
       const old = cur.data();
-      if (old?.status !== "submitted") throw fail("Only an AIR waiting for inspection can be approved.");
+      if (old?.status !== "submitted") throw fail("Only a Delivery Report waiting for inspection can be approved.");
       const lines = old.lines.map(l => {
         const c = insp.lines.find(x => x.id === l.id) || {};
         // the GSO may correct the item as delivered: description, specifications, unit, quantity and unit cost
         const fix = { description: String(c.description ?? l.description).trim(), specs: String(c.specs ?? l.specs ?? "").trim(), unit: String(c.unit ?? l.unit).trim(),
           qty: round2(c.qty ?? l.qty), unitCost: round2(c.unitCost ?? l.unitCost) };
-        return { ...l, ...fix, amount: round2(fix.qty * fix.unitCost), category: c.category, accountCode: c.accountCode, stockNo: String(c.stockNo || "").trim().toUpperCase(),
-          propertyNo: String(c.propertyNo || "").trim(), usefulLife: String(c.usefulLife || "").trim(), issuedQty: 0 };
+        const non = c.category === "noninv";
+        return { ...l, ...fix, amount: round2(fix.qty * fix.unitCost), category: c.category, accountCode: non ? "" : c.accountCode, stockNo: non ? "" : String(c.stockNo || "").trim().toUpperCase(),
+          propertyNo: non ? "" : String(c.propertyNo || "").trim(), usefulLife: non ? "" : String(c.usefulLife || "").trim(), issuedQty: 0,
+          ...(non ? { component: c.component === "labor" ? "labor" : "goods" } : {}) };
       });
       if (lines.some(l => !l.description || !(l.qty > 0) || l.unitCost < 0)) throw fail("Every item needs a description, a quantity above zero and a unit cost.");
       const changed = lines.filter(l => { const o = old.lines.find(x => x.id === l.id); return o && (o.description !== l.description || Number(o.qty) !== l.qty || Number(o.unitCost) !== l.unitCost || (o.unit || "") !== l.unit || (o.specs || "") !== l.specs); });
       const next = { ...old, lines, inspection: insp.inspection, acceptance: insp.acceptance };
       const errs = validateInspection(next);
       if (errs.length) throw fail(errs[0]);
-      // the AIR number: given now by the GSO (the next in the series, or typed when numbering is manual)
-      let airNo = old.airNo || "";
-      if (!airNo) { const c = await readCounter(tx, old.fund, "air", old.date, "", insp.airNo); airNo = c.number; useNumber(tx, c, ref, "air"); }
-      // the shared item list, so the next AIR with the same item gets its Item No. as it is typed
+      // inventoriable items (PPE, Semi-Expendable, supplies) stay on the AIR; the GSO's non-inventoriable ones go to a CCAR
+      const inv = lines.filter(l => l.category !== "noninv"), non = lines.filter(l => l.category === "noninv");
+      // numbers first (all reads before any write): the AIR No. for the inventoriable items, the CCAR No. for the rest
+      let airNo = old.airNo || "", ca = null, cc = null;
+      if (inv.length && !airNo) { ca = await readCounter(tx, old.fund, "air", old.date, "", insp.airNo); airNo = ca.number; }
+      const cref = non.length ? doc(collection(db, "ccars")) : null;
+      if (non.length) cc = await readCounter(tx, old.fund, "ccar", insp.inspection.dateInspected || old.date, "", insp.ccarNo);
+      if (ca) useNumber(tx, ca, ref, "air");
+      if (cc) {
+        useNumber(tx, cc, cref, "ccar");
+        const clines = ccarLines(non.map(l => ({ id: l.id, component: l.component, description: l.description, specs: l.specs, unit: l.unit, qty: l.qty, unitCost: l.unitCost })));
+        tx.set(cref, {
+          fund: old.fund, number: cc.number, date: insp.inspection.dateInspected || old.date, office: old.office, supplier: old.supplier, poNo: old.poNo || "", poDate: old.poDate || "",
+          invNo: old.invNo || "", invDate: old.invDate || "", purpose: old.purpose || "", lines: clines, ...ccarTotals(clines),
+          verification: { date: insp.inspection.dateInspected, ok: !!insp.inspection.inspectedOk, name: insp.inspection.inspectorName || "", position: "General Services Officer" },
+          acceptance: { date: insp.acceptance.dateReceived, status: insp.acceptance.status || "complete", partialNote: insp.acceptance.partialNote || "", name: insp.acceptance.custodianName || "" },
+          receipt: { date: insp.acceptance.dateReceived, ok: true, name: old.endUserName || "", designation: old.office || "" },
+          fromAirId: id, fromAirNo: airNo, endUserUid: old.endUserUid || "", endUserName: old.endUserName || "", status: "accepted", posting: { posted: false }, encodedBy: me(),
+          history: [stamp(`Non-inventoriable items of the Delivery Report${airNo ? ` (AIR ${airNo})` : ""}, as found by the GSO at inspection`)], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+        });
+      }
+      // the shared item list, so the next delivery with the same item gets its Item No. as it is typed
       const at = insp.acceptance?.dateReceived || old.date || "";
-      for (const l of lines) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
-      const hist = [stamp(old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`, insp.remarks || "")];
+      for (const l of inv) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
+      const hist = [stamp(inv.length ? (old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`) : "Inspected by GSO — nothing inventoriable", insp.remarks || "")];
+      if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CCAR ${cc.number}`));
       if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
-      tx.update(ref, { airNo, lines, total: linesTotal(lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "", status: "approved",
+      tx.update(ref, { airNo, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
+        status: inv.length ? "approved" : "ccar", ...(cc ? { ccarId: cref.id, ccarNo: cc.number } : {}),
         approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), ...hist], updatedAt: serverTimestamp() });
+      out = { airNo: inv.length ? airNo : "", ccarNo: cc?.number || "", ccarId: cref?.id || "" };
     });
-    audit("air_approve", "air", id, {});
+    audit("air_approve", "air", id, out);
+    return out;
   });
 }
 
@@ -395,8 +420,8 @@ export function setPosting(kind, id, posting) {
 }
 
 /* ---------------- CCAR: non-inventoriable goods and labor, as determined by the GSO ---------------- */
-// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). It is prepared by the GSO —
-// new, or from an AIR the End-User submitted whose items the GSO finds non-inventoriable (the AIR is then closed as a CCAR).
+// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). Most come from the GSO's inspection
+// of a Delivery Report (the lines it finds non-inventoriable — see approveAir); the GSO can also prepare one directly.
 const ccarFields = f => {
   const lines = ccarLines(f.lines);
   return {
@@ -407,7 +432,7 @@ const ccarFields = f => {
     receipt: { date: f.rDate || "", ok: !!f.rOk, name: String(f.rName || "").trim(), designation: String(f.rPos || "").trim() }
   };
 };
-/** Saves a CCAR: a new one takes the next CCAR No. (or the one typed, when numbering is manual); fromAirId closes that AIR. */
+/** Saves a CCAR the GSO prepares directly: a new one takes the next CCAR No. (or the one typed, when numbering is manual). */
 export function saveCcar(id, f) {
   return wrap(async () => {
     const fields = ccarFields(f), fund = f.fund;
@@ -423,22 +448,17 @@ export function saveCcar(id, f) {
         return;
       }
       const ref = doc(collection(db, "ccars"));
-      const air = f.fromAirId ? (await tx.get(doc(db, "airs", f.fromAirId))).data() : null;
-      if (f.fromAirId && air?.status !== "submitted") throw fail("That AIR is no longer waiting for inspection.");
       const c = await readCounter(tx, fund, "ccar", fields.date, "", f.number);
       useNumber(tx, c, ref, "ccar");
-      tx.set(ref, { ...fields, fund, number: c.number, fromAirId: f.fromAirId || null, fromAirNo: "", endUserUid: air?.endUserUid || "", endUserName: air?.endUserName || "",
-        status: "accepted", posting: { posted: false }, encodedBy: me(), history: [stamp(air ? "Prepared by the GSO from the End-User's AIR (non-inventoriable)" : "Prepared by the GSO")],
-        createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      if (air) tx.update(doc(db, "airs", f.fromAirId), { status: "ccar", ccarId: ref.id, ccarNo: c.number,
-        history: [...(air.history || []), stamp(`Found non-inventoriable by the GSO — covered by CCAR ${c.number}`)], updatedAt: serverTimestamp() });
+      tx.set(ref, { ...fields, fund, number: c.number, fromAirId: null, fromAirNo: "", endUserUid: "", endUserName: "",
+        status: "accepted", posting: { posted: false }, encodedBy: me(), history: [stamp("Prepared by the GSO")], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
       out = { id: ref.id, number: c.number };
     });
     audit(id ? "ccar_edit" : "ccar_create", "ccar", out.id, { number: out.number });
     return out;
   });
 }
-/** The GSO cancels a CCAR Accounting has not posted; an AIR it came from goes back to For Inspection. */
+/** The GSO cancels a CCAR Accounting has not posted; a Delivery Report that went wholly to it goes back to For Inspection. */
 export function cancelCcar(id, reason) {
   return wrap(async () => {
     await runTransaction(db, async tx => {
@@ -446,6 +466,8 @@ export function cancelCcar(id, reason) {
       if (!c || c.status !== "accepted") throw fail("This CCAR is already cancelled.");
       if (c.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it first.");
       const aref = c.fromAirId ? doc(db, "airs", c.fromAirId) : null, air = aref ? (await tx.get(aref)).data() : null;
+      // made at the inspection of a delivery that also has an AIR: corrected with Edit, not cancelled (its items would be lost)
+      if (air && air.status !== "ccar") throw fail(`This CCAR was made with AIR ${air.airNo} when the delivery was inspected. Correct it with Edit instead.`);
       tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
       if (air?.status === "ccar" && air.ccarId === id) tx.update(aref, { status: "submitted", ccarId: "", ccarNo: "",
         history: [...(air.history || []), stamp(`CCAR ${c.number} cancelled — back to GSO inspection`, reason)], updatedAt: serverTimestamp() });

@@ -41,7 +41,7 @@ export const airBadge = s => B(AIR_STATUS[s] || s, { draft: "", submitted: "b-in
 export const postBadge = s => B(POSTING_STATE[s] || s, { none: "", unposted: "b-warn", partial: "b-info", posted: "b-ok" }[s] || "");
 export const docStatusBadge = d => d.status === "cancelled" ? B("Cancelled", "b-dark") : d.posting?.posted ? B("Posted", "b-ok") : B("For Posting", "b-warn");
 export const userBadge = s => B({ pending: "Pending approval", active: "Active", declined: "Declined", disabled: "Disabled" }[s] || s, { pending: "b-warn", active: "b-ok", declined: "b-bad", disabled: "" }[s] || "");
-export const catBadge = c => B({ ppe: "PPE", sx: "Semi-Exp.", cons: "Supplies" }[c] || "Unclassified", { ppe: "b-dark", sx: "b-gold", cons: "b-info" }[c] || "");
+export const catBadge = c => B({ ppe: "PPE", sx: "Semi-Exp.", cons: "Supplies", noninv: "Non-inventoriable" }[c] || "Unclassified", { ppe: "b-dark", sx: "b-gold", cons: "b-info", noninv: "b-warn" }[c] || "");
 
 /* ---------- toast, modal, confirm ---------- */
 export function toast(msg, kind = "") {

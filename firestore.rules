@@ -179,7 +179,10 @@ service cloud.firestore {
           && ((request.resource.data.status == 'returned' && request.resource.data.airNo == resource.data.airNo)
             || (request.resource.data.status == 'approved' && request.resource.data.airNo is string && request.resource.data.airNo.size() > 0
               && (resource.data.airNo == '' || request.resource.data.airNo == resource.data.airNo)))
-          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt']))
+          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'ccarId', 'ccarNo'])
+          // its non-inventoriable items go to a CCAR made in the same transaction
+          && (request.resource.data.get('ccarId', '') == ''
+            || getAfter(/databases/$(database)/documents/ccars/$(request.resource.data.ccarId)).data.fromAirId == id))
         // GSO issues or cancels documents: issued quantities and the resulting status
         || (issuer() && resource.data.status in ['approved', 'issued']
           && request.resource.data.status in ['approved', 'issued']
@@ -190,9 +193,9 @@ service cloud.firestore {
         // Accounting posts / unposts the receipt of supplies
         || (poster() && resource.data.status in ['approved', 'issued']
           && onlyChanged(['posting', 'history', 'updatedAt']))
-        // GSO finds a submitted AIR non-inventoriable: it is closed as a CCAR (created in the same transaction) …
-        || (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'ccar'
-          && onlyChanged(['status', 'ccarId', 'ccarNo', 'history', 'updatedAt'])
+        // GSO inspects a Delivery Report with nothing inventoriable: it all goes to a CCAR (created in the same transaction) …
+        || (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'ccar' && request.resource.data.airNo == resource.data.airNo
+          && onlyChanged(['status', 'ccarId', 'ccarNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'approvedBy', 'approvedAt', 'history', 'updatedAt'])
           && getAfter(/databases/$(database)/documents/ccars/$(request.resource.data.ccarId)).data.fromAirId == id)
         // … and goes back to inspection if that CCAR is cancelled
         || (issuer() && resource.data.status == 'ccar' && request.resource.data.status == 'submitted'
@@ -399,7 +402,8 @@ service cloud.firestore {
     }
 
     // ---------------- RSMI: prepared by the GSO from unposted RIS, posted by Accounting ----------------
-    // CCAR — non-inventoriable goods and labor, prepared by the GSO (new, or from a submitted AIR it found non-inventoriable)
+    // CCAR — non-inventoriable goods and labor: the lines of a Delivery Report the GSO finds non-inventoriable at inspection
+    // (or one the GSO prepares directly)
     // and posted by Accounting. It never enters the inventory or the registries.
     match /ccars/{id} {
       allow read: if viewer() || sameOffice(resource.data.office);
@@ -408,7 +412,7 @@ service cloud.firestore {
         && request.resource.data.lines is list && request.resource.data.lines.size() > 0 && request.resource.data.total is number
         && request.resource.data.status == 'accepted' && request.resource.data.posting.posted == false
         && (request.resource.data.fromAirId == null
-          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.status == 'ccar'
+          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.status in ['ccar', 'approved']
             && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.ccarId == id));
       allow update: if
         // the GSO corrects it, or cancels it, while Accounting has not posted it

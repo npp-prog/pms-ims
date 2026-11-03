@@ -20,8 +20,8 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 
 | Step | Who | What happens | Status |
 | --- | --- | --- | --- |
-| 1 | **End-User** | Encodes the AIR: fund, supplier, PO and invoice, and each item delivered with its unit, quantity and unit cost. Saves it as a draft, then **submits it to the GSO**. End-Users never number an AIR. | Draft → *For GSO Inspection* |
-| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian). Confirms each item's **classification** and **account code**, then **approves** — which gives the AIR its **number**. Or **returns** the AIR to the End-User with remarks; they correct it and resubmit. | *For Issuance* or *Returned* |
+| 1 | **End-User** | Encodes a **Delivery Report**: fund, supplier, PO and invoice, and **everything delivered** — equipment, supplies and services / labor — with its unit, quantity and unit cost. Saves it as a draft, attaches the photo and invoice, then **submits it to the GSO**. End-Users never number an AIR or CCAR. | Draft → *For GSO Inspection* |
+| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian), and **classifies each line**: **inventoriable** — PPE, Semi-Expendable or supplies, with its account code — or **non-inventoriable** (Goods or Labor / Services). **Approving** puts the inventoriable lines on the **AIR** (numbered) and the non-inventoriable ones on a **CCAR** (numbered), in one step; a delivery with nothing inventoriable becomes a CCAR only. Or the GSO **returns** it to the End-User with remarks; they correct it and resubmit. | *For Issuance*, *Non-inventoriable (CCAR)* or *Returned* |
 | 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** for PPE<br>• **ICS** for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
 | 4 | **Accounting** | Marks each item as **posted in the registry**, with the posting date and JEV / reference number. One item per document: the **AIR supply receipt** (into the Supplies Ledger Card) and every **PAR, ICS and RIS**. Several can be posted at once under one JEV. | *Not posted* → *Partially posted* → *Fully posted* |
 
@@ -203,10 +203,11 @@ continue at step 4.
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR and
   ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
   row in For Posting). Disposals and repairs are posted on their own rows.
-- **CCAR — non-inventoriable goods and labor:** the GSO decides what is not inventoriable (for example, materials and
-  labor of a repair, or services). It prepares a **Certificate of Completion and Acceptance Report** (Acceptance &
-  Inspection → CCAR) — new, or from an End-User's submitted AIR with **Non-inventoriable → CCAR**, which closes that AIR
-  (cancelling the CCAR sends the AIR back to inspection). Each line is **Goods** or **Labor / Services**; the CCAR shows
+- **CCAR — non-inventoriable goods and labor:** what the GSO classifies **non-inventoriable** when inspecting a Delivery
+  Report (for example, materials and labor of a repair, or services) goes on a **Certificate of Completion and
+  Acceptance Report**, with the inspection's verification, acceptance and the End-User as receiver. The GSO can also
+  prepare one directly (Acceptance & Inspection → CCAR → New CCAR). A CCAR that took a whole delivery can be cancelled
+  (the Delivery Report goes back to inspection); one made together with an AIR is corrected with Edit. Each line is **Goods** or **Labor / Services**; the CCAR shows
   both subtotals and the total, the verification, acceptance (complete / partial) and receipt, and prints on A4
   portrait in the same style as the AIR. It gets its own CCAR No. (Settings → Document numbering). Nothing on a CCAR
   enters the inventory or the registries: Accounting posts it from For Posting with its JEV. End-Users see their

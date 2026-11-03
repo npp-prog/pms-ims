@@ -10,6 +10,7 @@ export const linesTotal = lines => round2((lines || []).reduce((t, l) => t + lin
  *  or supplies; the unit cost then decides PPE vs Semi-Expendable. The GSO can override. */
 export function suggestCategory(kind, unitCost, thresholds = DEFAULT_THRESHOLDS) {
   if (kind === "supplies") return "cons";
+  if (kind === "services") return "noninv";
   return (Number(unitCost) || 0) >= thresholds.capitalization ? "ppe" : "sx";
 }
 /** Semi-Expendable value class, by unit cost: "high" (SPHV) above the threshold, else "low" (SPLV). */
@@ -185,7 +186,8 @@ export function validateInspection(a) {
   if (!a.acceptance?.dateReceived) errs.push("Enter the date received.");
   if (a.acceptance?.status === "partial" && !String(a.acceptance?.partialNote || "").trim()) errs.push("Specify what was partially received.");
   (a.lines || []).forEach((l, i) => {
-    if (!["ppe", "sx", "cons"].includes(l.category)) errs.push(`Item ${i + 1}: choose PPE, Semi-Expendable or Supplies.`);
+    if (!["ppe", "sx", "cons", "noninv"].includes(l.category)) errs.push(`Item ${i + 1}: choose PPE, Semi-Expendable, Supplies or Non-inventoriable.`);
+    if (l.category === "noninv") return; // goes to the CCAR: no account or stock number here
     if (!l.accountCode) errs.push(`Item ${i + 1}: choose the account code.`);
     if (l.category === "cons" && !String(l.stockNo || "").trim()) errs.push(`Item ${i + 1}: enter the stock number.`);
   });

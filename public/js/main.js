@@ -101,10 +101,10 @@ function navGroups() {
   const c = counts(), r = role();
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
-    g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New AIR"], ["airs", "Office AIRs", c.returned]] });
+    g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New Delivery Report"], ["airs", "Office Delivery Reports", c.returned]] });
     g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["ccar", "CCAR (non-inventoriable)"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
-    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New AIR"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "All AIRs"], ["ccar", "CCAR (non-inventoriable)"]] });
+    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New Delivery Report"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "Delivery Reports & AIRs"], ["ccar", "CCAR (non-inventoriable)"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
     g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["registry/stock", "Inventory Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs]] });
     g.push({ label: "Construction in Progress", items: [["cip", "CIP Projects"], ["swa", "SWA"]] });
@@ -147,7 +147,7 @@ function parseHash() {
   else if (name === "repairs" && parts[1] === "new") { name = "repairNew"; params = [null, parts[2]]; }
   else if (name === "repairs" && parts[1] && parts[2] === "edit") { name = "repairEdit"; params = [parts[1]]; }
   else if (name === "repairs" && parts[1]) name = "repair";
-  else if (name === "ccar" && parts[1] === "new") { name = "ccarNew"; params = [null, parts[2]]; }
+  else if (name === "ccar" && parts[1] === "new") { name = "ccarNew"; params = []; }
   else if (name === "ccar" && parts[1] && parts[2] === "edit") { name = "ccarEdit"; params = [parts[1]]; }
   else if (name === "ccar" && parts[1]) name = "ccarDoc";
   else if (name === "registry") { name = `registry/${parts[1] || "ppe"}`; params = parts.slice(2); }

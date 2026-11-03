@@ -653,6 +653,13 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   b.update(doc(g, "ccars/C5"), { status: "cancelled", cancel: { reason: "inventoriable after all" } });
   b.update(doc(g, "airs/A_CC"), { status: "submitted", ccarId: "", ccarNo: "" });
   await assertSucceeds(b.commit());
+  // a delivery with both: the AIR is approved for the inventoriable items and a CCAR takes the rest, in one batch
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "airs/A_MIX"), baseAir({ status: "submitted", airNo: "" })); });
+  b = writeBatch(g);
+  b.set(doc(g, "ccars/C6"), ccar({ number: "2026-11-0003", fromAirId: "A_MIX" }));
+  b.update(doc(g, "airs/A_MIX"), { status: "approved", airNo: "2026-11-0007", ccarId: "C6", ccarNo: "2026-11-0003" });
+  await assertSucceeds(b.commit());
+  await assertFails(setDoc(doc(g, "ccars/C7"), ccar({ number: "2026-11-0004", fromAirId: "A_MIX" })), "a CCAR claims only the delivery that names it");
   // the office's End-Users read it; other offices don't
   await env.withSecurityRulesDisabled(async c => { const d = c.firestore(); await updateDoc(doc(d, "users/eu"), { office: "MHO" }); await updateDoc(doc(d, "users/eu2"), { office: "Other" }); });
   await assertSucceeds(getDoc(doc(ctx("eu"), "ccars/C1")));

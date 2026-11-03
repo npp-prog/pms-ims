@@ -1,4 +1,4 @@
-// CCAR — Certificate of Completion and Acceptance Report: non-inventoriable goods and labor (services), as determined by
+// CCAR — Completion and Acceptance Report: non-inventoriable goods and labor (services), as determined by
 // the GSO. Made when the GSO inspects an End-User's Delivery Report (its non-inventoriable lines); the GSO can correct it,
 // Accounting posts it. It never enters the inventory or the registries.
 import { S, can, role, settings, airById } from "../state.js";
@@ -17,7 +17,7 @@ const badge = c => c.status === "cancelled" ? B("Cancelled", "b-dark") : c.posti
 export function list(main) {
   const enduser = role() === "enduser";
   const rows = (S.d.ccars || []).filter(c => enduser || c.fund === S.fund);
-  main.innerHTML = `<div class="page-head"><div><h1>Certificates of Completion and Acceptance (CCAR)</h1><p>Certificates of Completion and Acceptance for goods and labor / services the GSO finds
+  main.innerHTML = `<div class="page-head"><div><h1>Completion and Acceptance Reports (CCAR)</h1><p>Completion and Acceptance Reports for goods and labor / services the GSO finds
       <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. Every CCAR starts from a Delivery Report: the GSO makes it when inspecting one. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
     <div class="btn-row"><button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {

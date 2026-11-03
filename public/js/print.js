@@ -83,7 +83,7 @@ export function ccarHtml(c) {
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
   const cell = (title, date, dateLabel, checks, name, cap) => ({ name, caps: ["Signature over Printed Name", `<i>${esc(cap)}</i>`],
     body: `<div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>` });
-  return `<div class="pf">${head("CERTIFICATE OF COMPLETION AND ACCEPTANCE REPORT")}
+  return `<div class="pf">${head("COMPLETION AND ACCEPTANCE REPORT")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(c.fund))}</b></td></tr>
       <tr><td>Supplier: <b>${esc(c.supplier)}</b></td><td>CCAR No.: <b class="pf-num">${esc(c.number || "")}</b></td></tr>
       <tr><td>PO No./Date: <b>${esc(c.poNo)}${c.poDate ? " / " + fmtDate(c.poDate) : ""}</b></td><td>Date: <b>${fmtDate(c.date)}</b></td></tr>

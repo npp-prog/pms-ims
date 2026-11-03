@@ -24,7 +24,7 @@ export const NUMBERED_DOCS = [
   ["air", "AIR — Acceptance and Inspection Report"], ["par", "PAR — Property Acknowledgment Receipt"], ["ics", "ICS — Inventory Custodian Slip"],
   ["ris", "RIS — Requisition and Issue Slip"], ["ptr", "PTR — Property Transfer Report"], ["itr", "ITR — Inventory Transfer Report"],
   ["prs", "PRS — Property Return Slip"], ["rrsp", "RRSP — Receipt of Returned Semi-Expendable Property"], ["dsp", "Disposal report"],
-  ["rsmi", "RSMI — Report of Supplies and Materials Issued"], ["ccar", "CCAR — Certificate of Completion and Acceptance Report"]
+  ["rsmi", "RSMI — Report of Supplies and Materials Issued"], ["ccar", "CCAR — Completion and Acceptance Report"]
 ];
 export const NUMBER_RESETS = [["monthly", "Every month"], ["yearly", "Every year"], ["never", "Never (one running series)"]];
 export const numberingDefault = type => ({ mode: "auto", format: type === "ics" ? "{CLASS}-{YYYY}-{MM}-{####}" : "{YYYY}-{MM}-{####}", reset: "monthly", start: 1 });

@@ -203,6 +203,14 @@ continue at step 4.
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR and
   ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
   row in For Posting). Disposals and repairs are posted on their own rows.
+- **CCAR — non-inventoriable goods and labor:** the GSO decides what is not inventoriable (for example, materials and
+  labor of a repair, or services). It prepares a **Certificate of Completion and Acceptance Report** (Acceptance &
+  Inspection → CCAR) — new, or from an End-User's submitted AIR with **Non-inventoriable → CCAR**, which closes that AIR
+  (cancelling the CCAR sends the AIR back to inspection). Each line is **Goods** or **Labor / Services**; the CCAR shows
+  both subtotals and the total, the verification, acceptance (complete / partial) and receipt, and prints on A4
+  portrait in the same style as the AIR. It gets its own CCAR No. (Settings → Document numbering). Nothing on a CCAR
+  enters the inventory or the registries: Accounting posts it from For Posting with its JEV. End-Users see their
+  office's CCARs.
 - **A PAR / ICS item already in the registry is matched, not added twice:** when a PAR / ICS line looks like an item
   already in the registry (the same Property No., or the same account with the same description or cost — e.g. brought
   over from PMS), the posting form shows **Already in the registry?** with the possible items; one with the same

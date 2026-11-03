@@ -36,8 +36,8 @@ export function avatar(person, size = "") {
 }
 
 /* ---------- badges ---------- */
-const B = (txt, cls = "") => `<span class="badge ${cls}">${esc(txt)}</span>`;
-export const airBadge = s => B(AIR_STATUS[s] || s, { draft: "", submitted: "b-info", returned: "b-bad", approved: "b-gold", issued: "b-ok", cancelled: "b-dark" }[s] || "");
+export const B = (txt, cls = "") => `<span class="badge ${cls}">${esc(txt)}</span>`;
+export const airBadge = s => B(AIR_STATUS[s] || s, { draft: "", submitted: "b-info", returned: "b-bad", approved: "b-gold", issued: "b-ok", cancelled: "b-dark", ccar: "b-info" }[s] || "");
 export const postBadge = s => B(POSTING_STATE[s] || s, { none: "", unposted: "b-warn", partial: "b-info", posted: "b-ok" }[s] || "");
 export const docStatusBadge = d => d.status === "cancelled" ? B("Cancelled", "b-dark") : d.posting?.posted ? B("Posted", "b-ok") : B("For Posting", "b-warn");
 export const userBadge = s => B({ pending: "Pending approval", active: "Active", declined: "Declined", disabled: "Disabled" }[s] || s, { pending: "b-warn", active: "b-ok", declined: "b-bad", disabled: "" }[s] || "");

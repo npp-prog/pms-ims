@@ -9,7 +9,7 @@ import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable
 import { specialGroup } from "./core/cards.js";
 import {
   round2, lineAmount, linesTotal, validateAir, NUMBERED_DOCS, numberingFor, seriesKey, formatDocNo, cleanDocNo, validateInspection, checkIssue, sxClass,
-  statusAfterIssue, remainingQty, itemKey, buildItemCatalog
+  statusAfterIssue, remainingQty, itemKey, buildItemCatalog, ccarLines, ccarTotals, validateCcar
 } from "./core/logic.js";
 
 const me = () => ({ uid: S.user.uid, name: S.account?.displayName || S.user.displayName || S.user.email, email: S.user.email });
@@ -29,6 +29,7 @@ function numberTaken(fund, type, number) {
   if (type === "air") return S.d.airs.some(a => a.fund === fund && String(a.airNo || "").toLowerCase() === n);
   if (["par", "ics", "ris"].includes(type)) return S.d.docs.some(d => d.docType === type && same(d));
   if (type === "rsmi") return S.d.rsmis.some(x => x.status !== "cancelled" && same(x));
+  if (type === "ccar") return (S.d.ccars || []).some(x => x.status !== "cancelled" && same(x));
   return S.d.movements.some(m => m.docType === type && same(m));
 }
 /**
@@ -376,7 +377,7 @@ export function renumber(kind, id, newNumber, reason = "") {
 export function setPosting(kind, id, posting) {
   if (kind === "rsmi") return postRsmi(id, posting);
   return wrap(async () => {
-    const coll = kind === "air" ? "airs" : kind === "movement" ? "movements" : kind === "repair" ? "repairs" : "issuances";
+    const coll = kind === "air" ? "airs" : kind === "movement" ? "movements" : kind === "repair" ? "repairs" : kind === "ccar" ? "ccars" : "issuances";
     const data = posting
       ? { posted: true, date: posting.date, ref: String(posting.ref || "").trim(), remarks: String(posting.remarks || "").trim(), by: me(), at: new Date().toISOString() }
       : { posted: false, unpostedBy: me(), unpostedAt: new Date().toISOString() };
@@ -390,6 +391,66 @@ export function setPosting(kind, id, posting) {
     if (kind === "repair") patch.status = posting ? "posted" : "inspected";
     await updateDoc(doc(db, coll, id), patch);
     audit(posting ? "post" : "unpost", kind === "doc" ? "issuance" : kind, id, posting ? { ref: data.ref, date: data.date } : {});
+  });
+}
+
+/* ---------------- CCAR: non-inventoriable goods and labor, as determined by the GSO ---------------- */
+// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). It is prepared by the GSO —
+// new, or from an AIR the End-User submitted whose items the GSO finds non-inventoriable (the AIR is then closed as a CCAR).
+const ccarFields = f => {
+  const lines = ccarLines(f.lines);
+  return {
+    date: f.date, office: String(f.office || "").trim(), supplier: String(f.supplier || "").trim(), poNo: String(f.poNo || "").trim(), poDate: f.poDate || "",
+    invNo: String(f.invNo || "").trim(), invDate: f.invDate || "", purpose: String(f.purpose || "").trim(), lines, ...ccarTotals(lines),
+    verification: { date: f.vDate || "", ok: !!f.vOk, name: String(f.vName || "").trim(), position: String(f.vPos || "").trim() },
+    acceptance: { date: f.aDate || "", status: f.aStatus === "partial" ? "partial" : f.aStatus === "complete" ? "complete" : "", partialNote: String(f.aNote || "").trim(), name: String(f.aName || "").trim() },
+    receipt: { date: f.rDate || "", ok: !!f.rOk, name: String(f.rName || "").trim(), designation: String(f.rPos || "").trim() }
+  };
+};
+/** Saves a CCAR: a new one takes the next CCAR No. (or the one typed, when numbering is manual); fromAirId closes that AIR. */
+export function saveCcar(id, f) {
+  return wrap(async () => {
+    const fields = ccarFields(f), fund = f.fund;
+    const errs = validateCcar({ ...fields, fund }); if (errs.length) throw fail(errs[0]);
+    let out = { id };
+    await runTransaction(db, async tx => {
+      if (id) {
+        const ref = doc(db, "ccars", id), cur = (await tx.get(ref)).data();
+        if (!cur || cur.status !== "accepted") throw fail("This CCAR is cancelled.");
+        if (cur.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it before changing it.");
+        tx.update(ref, { ...fields, history: [...(cur.history || []), stamp("Edited by the GSO")], updatedAt: serverTimestamp() });
+        out = { id, number: cur.number };
+        return;
+      }
+      const ref = doc(collection(db, "ccars"));
+      const air = f.fromAirId ? (await tx.get(doc(db, "airs", f.fromAirId))).data() : null;
+      if (f.fromAirId && air?.status !== "submitted") throw fail("That AIR is no longer waiting for inspection.");
+      const c = await readCounter(tx, fund, "ccar", fields.date, "", f.number);
+      useNumber(tx, c, ref, "ccar");
+      tx.set(ref, { ...fields, fund, number: c.number, fromAirId: f.fromAirId || null, fromAirNo: "", endUserUid: air?.endUserUid || "", endUserName: air?.endUserName || "",
+        status: "accepted", posting: { posted: false }, encodedBy: me(), history: [stamp(air ? "Prepared by the GSO from the End-User's AIR (non-inventoriable)" : "Prepared by the GSO")],
+        createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+      if (air) tx.update(doc(db, "airs", f.fromAirId), { status: "ccar", ccarId: ref.id, ccarNo: c.number,
+        history: [...(air.history || []), stamp(`Found non-inventoriable by the GSO — covered by CCAR ${c.number}`)], updatedAt: serverTimestamp() });
+      out = { id: ref.id, number: c.number };
+    });
+    audit(id ? "ccar_edit" : "ccar_create", "ccar", out.id, { number: out.number });
+    return out;
+  });
+}
+/** The GSO cancels a CCAR Accounting has not posted; an AIR it came from goes back to For Inspection. */
+export function cancelCcar(id, reason) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "ccars", id), c = (await tx.get(ref)).data();
+      if (!c || c.status !== "accepted") throw fail("This CCAR is already cancelled.");
+      if (c.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it first.");
+      const aref = c.fromAirId ? doc(db, "airs", c.fromAirId) : null, air = aref ? (await tx.get(aref)).data() : null;
+      tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
+      if (air?.status === "ccar" && air.ccarId === id) tx.update(aref, { status: "submitted", ccarId: "", ccarNo: "",
+        history: [...(air.history || []), stamp(`CCAR ${c.number} cancelled — back to GSO inspection`, reason)], updatedAt: serverTimestamp() });
+    });
+    audit("ccar_cancel", "ccar", id, { reason });
   });
 }
 
@@ -502,6 +563,7 @@ export function postSelected(items, posting, matches = {}) {
     for (const i of items) {
       if (i.kind === "air") b.update(doc(db, "airs", i.id), { posting: data, history: arrayUnion(stamp("AIR posted by Accounting", ref)), updatedAt: serverTimestamp() });
       else if (i.kind === "repair") b.update(doc(db, "repairs", i.id), { posting: data, status: "posted", updatedAt: serverTimestamp() });
+      else if (i.kind === "ccar") b.update(doc(db, "ccars", i.id), { posting: data, updatedAt: serverTimestamp() });
       else if (i.kind === "rsmi") {
         const r = S.d.rsmis.find(x => x.id === i.id);
         for (const rid of r.risIds) {
@@ -1322,7 +1384,7 @@ export { remainingQty };
 
 // ---------------- clearing the records (Super Administrator) ----------------
 // Everything recorded in the app. Users, invitations, settings and the audit trail are kept.
-export const RECORD_COLLECTIONS = ["airs", "issuances", "assets", "movements", "repairs", "cipProjects", "swa", "depreciation", "tbSnapshots", "attachments", "items", "docNumbers", "counters", "rsmis"];
+export const RECORD_COLLECTIONS = ["airs", "issuances", "assets", "movements", "repairs", "cipProjects", "swa", "depreciation", "tbSnapshots", "attachments", "items", "docNumbers", "counters", "rsmis", "ccars"];
 
 /** Deletes every record in RECORD_COLLECTIONS (attachments with their file chunks); onStep(name, count) after each. */
 export async function clearRecords(onStep = () => {}) {

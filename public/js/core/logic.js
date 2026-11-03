@@ -23,7 +23,7 @@ export const NUMBERED_DOCS = [
   ["air", "AIR — Acceptance and Inspection Report"], ["par", "PAR — Property Acknowledgment Receipt"], ["ics", "ICS — Inventory Custodian Slip"],
   ["ris", "RIS — Requisition and Issue Slip"], ["ptr", "PTR — Property Transfer Report"], ["itr", "ITR — Inventory Transfer Report"],
   ["prs", "PRS — Property Return Slip"], ["rrsp", "RRSP — Receipt of Returned Semi-Expendable Property"], ["dsp", "Disposal report"],
-  ["rsmi", "RSMI — Report of Supplies and Materials Issued"]
+  ["rsmi", "RSMI — Report of Supplies and Materials Issued"], ["ccar", "CCAR — Certificate of Completion and Acceptance Report"]
 ];
 export const NUMBER_RESETS = [["monthly", "Every month"], ["yearly", "Every year"], ["never", "Never (one running series)"]];
 export const numberingDefault = type => ({ mode: "auto", format: type === "ics" ? "{CLASS}-{YYYY}-{MM}-{####}" : "{YYYY}-{MM}-{####}", reset: "monthly", start: 1 });
@@ -106,8 +106,33 @@ export const remainingQty = l => round2((Number(l.qty) || 0) - (Number(l.issuedQ
 /** Workflow status of an AIR, as stored. "approved" AIRs are then described by issuance progress. */
 export const AIR_STATUS = {
   draft: "Draft", submitted: "For GSO Inspection", returned: "Returned to End-User",
-  approved: "For Issuance", issued: "Fully Issued"
+  approved: "For Issuance", issued: "Fully Issued", ccar: "Non-inventoriable (CCAR)"
 };
+
+/* ---------------- CCAR: non-inventoriable goods and labor (services), as determined by the GSO ---------------- */
+export const CCAR_COMPONENTS = { goods: "Goods", labor: "Labor / Services" };
+/** Lines as saved: component (goods / labor), description, unit, quantity, unit cost and amount. */
+export const ccarLines = lines => (lines || []).map(l => ({
+  id: l.id || Math.random().toString(36).slice(2, 10), component: l.component === "labor" ? "labor" : "goods",
+  description: String(l.description || "").trim(), specs: String(l.specs || "").trim(), unit: String(l.unit || "").trim(),
+  qty: round2(Number(l.qty) || 0), unitCost: round2(Number(l.unitCost) || 0), amount: round2((Number(l.qty) || 0) * (Number(l.unitCost) || 0))
+})).filter(l => l.description || l.amount);
+/** Goods, labor and the total of a CCAR's lines. */
+export function ccarTotals(lines) {
+  const sum = c => round2(lines.filter(l => !c || l.component === c).reduce((t, l) => t + (Number(l.amount) || 0), 0));
+  return { goodsTotal: sum("goods"), laborTotal: sum("labor"), total: sum() };
+}
+export function validateCcar(c) {
+  const errs = [];
+  if (!c.fund) errs.push("Choose the fund.");
+  if (!c.date) errs.push("Enter the CCAR date.");
+  if (!String(c.office || "").trim()) errs.push("Choose the requisitioning office.");
+  if (!String(c.supplier || "").trim()) errs.push("Enter the supplier / contractor.");
+  if (!c.lines?.length) errs.push("Add at least one item (goods or labor).");
+  if (c.lines?.some(l => !l.description || !(l.qty > 0) || l.unitCost < 0)) errs.push("Every item needs a description, a quantity above zero and a unit cost.");
+  if (c.acceptance?.status === "partial" && !String(c.acceptance.partialNote || "").trim()) errs.push("Specify what was partial.");
+  return errs;
+}
 /** After approval: "issued" once every line has been fully covered by a PAR, ICS or RIS. */
 export function statusAfterIssue(lines) {
   return (lines || []).every(l => remainingQty(l) <= 0) ? "issued" : "approved";

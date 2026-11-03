@@ -203,6 +203,7 @@ export function detail(main, [id]) {
       <div class="btn-row">${airBadge(a.status)} ${issuedStage ? postBadge(ps.state) : ""}</div></div>
     <div class="steps">${steps.map(([t, c, s]) => `<div class="${c}"><b>${esc(t)}</b>${esc(s || "")}</div>`).join("")}</div>
     ${a.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
+    ${a.status === "ccar" ? `<div class="notice info"><b>Non-inventoriable.</b> The GSO found these goods / services non-inventoriable and accepted them on <a href="#/ccar/${esc(a.ccarId)}">CCAR ${esc(a.ccarNo)}</a>. They do not enter the inventory or the registries.</div>` : ""}
     <div class="split">
       <div>
         <div class="card"><div class="card-head"><h3>Items</h3><span class="small muted">Total ${money(a.total)}</span></div>
@@ -232,6 +233,7 @@ export function detail(main, [id]) {
           ${toSubmit ? `<a class="btn sm${missing.length ? " primary" : ""}" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
+          ${can("issue") && a.status === "submitted" ? `<a class="btn sm" href="#/ccar/new/${a.id}" title="Goods and labor that are not inventoriable: accept them on a CCAR instead">Non-inventoriable → CCAR</a>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>

@@ -18,6 +18,10 @@ export function postingItems() {
   for (const r of S.d.rsmis || []) if (r.fund === S.fund && r.status !== "cancelled")
     items.push({ kind: "rsmi", docType: "rsmi", id: r.id, label: "RSMI", number: r.number, date: r.date, airId: "", airNo: "", office: `${r.risIds.length} RIS`, recipient: "",
       amount: r.total, posting: r.posting || { posted: false } });
+  // CCARs (non-inventoriable goods and labor) the GSO has prepared
+  for (const c of S.d.ccars || []) if (c.fund === S.fund && c.status === "accepted")
+    items.push({ kind: "ccar", docType: "ccar", id: c.id, label: "CCAR", number: c.number, date: c.date, airId: "", airNo: "", office: c.office, recipient: c.supplier,
+      amount: c.total, posting: c.posting || { posted: false } });
   // repairs, once the GSO has inspected them after the repair
   for (const r of S.d.repairs || []) if (r.fund === S.fund && ["inspected", "posted", "verified"].includes(r.status))
     items.push({ kind: "repair", docType: "repair", id: r.id, label: "Repair JO", number: r.jobOrderNo, date: r.postInspection?.date || r.jobOrderDate, airId: "", airNo: "",

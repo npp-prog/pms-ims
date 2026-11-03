@@ -121,7 +121,7 @@ service cloud.firestore {
       // an AIR of their own office
       allow create: if request.resource.data.uploadedBy.uid == request.auth.uid
         && request.resource.data.kind in ['file', 'link'] && request.resource.data.size <= 5242880
-        && (((issuer() || poster()) && request.resource.data.target.type in ['issuance', 'asset', 'movement', 'swa', 'air'])
+        && (((issuer() || poster()) && request.resource.data.target.type in ['issuance', 'asset', 'movement', 'swa', 'air', 'ccar'])
           || (encoder() && request.resource.data.target.type == 'air' && sameOffice(request.resource.data.office)));
       allow update: if false;
       allow delete: if issuer() || poster() || (encoder() && resource.data.target.type == 'air' && resource.data.uploadedBy.uid == request.auth.uid);
@@ -150,7 +150,7 @@ service cloud.firestore {
     match /airs/{id} {
       allow read: if viewer() || (active() && resource.data.endUserUid == request.auth.uid)
         // End-Users also see the submitted AIRs of their own office (not a colleague's drafts)
-        || (sameOffice(resource.data.office) && resource.data.status in ['submitted', 'returned', 'approved', 'issued']);
+        || (sameOffice(resource.data.office) && resource.data.status in ['submitted', 'returned', 'approved', 'issued', 'ccar']);
 
       allow create: if encoder()
         && request.resource.data.endUserUid == request.auth.uid
@@ -189,7 +189,15 @@ service cloud.firestore {
           && request.resource.data.airNo.size() > 0 && onlyChanged(['airNo', 'history', 'updatedAt']))
         // Accounting posts / unposts the receipt of supplies
         || (poster() && resource.data.status in ['approved', 'issued']
-          && onlyChanged(['posting', 'history', 'updatedAt']));
+          && onlyChanged(['posting', 'history', 'updatedAt']))
+        // GSO finds a submitted AIR non-inventoriable: it is closed as a CCAR (created in the same transaction) …
+        || (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'ccar'
+          && onlyChanged(['status', 'ccarId', 'ccarNo', 'history', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/ccars/$(request.resource.data.ccarId)).data.fromAirId == id)
+        // … and goes back to inspection if that CCAR is cancelled
+        || (issuer() && resource.data.status == 'ccar' && request.resource.data.status == 'submitted'
+          && onlyChanged(['status', 'ccarId', 'ccarNo', 'history', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/ccars/$(resource.data.ccarId)).data.status == 'cancelled');
 
       allow delete: if (encoder() && resource.data.endUserUid == request.auth.uid && resource.data.status == 'draft')
         || (isAdmin() && resource.data.status in ['draft', 'returned', 'submitted']);
@@ -391,6 +399,28 @@ service cloud.firestore {
     }
 
     // ---------------- RSMI: prepared by the GSO from unposted RIS, posted by Accounting ----------------
+    // CCAR — non-inventoriable goods and labor, prepared by the GSO (new, or from a submitted AIR it found non-inventoriable)
+    // and posted by Accounting. It never enters the inventory or the registries.
+    match /ccars/{id} {
+      allow read: if viewer() || sameOffice(resource.data.office);
+      allow create: if issuer() && validFund(request.resource.data.fund)
+        && request.resource.data.number is string && request.resource.data.number.size() > 0
+        && request.resource.data.lines is list && request.resource.data.lines.size() > 0 && request.resource.data.total is number
+        && request.resource.data.status == 'accepted' && request.resource.data.posting.posted == false
+        && (request.resource.data.fromAirId == null
+          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.status == 'ccar'
+            && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.ccarId == id));
+      allow update: if
+        // the GSO corrects it, or cancels it, while Accounting has not posted it
+        (issuer() && resource.data.status == 'accepted' && resource.data.posting.posted == false && (
+          (request.resource.data.status == 'accepted' && onlyChanged(['date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total',
+            'goodsTotal', 'laborTotal', 'verification', 'acceptance', 'receipt', 'history', 'updatedAt']) && request.resource.data.lines.size() > 0)
+          || (request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))))
+        // Accounting posts / unposts it
+        || (poster() && resource.data.status == 'accepted' && onlyChanged(['posting', 'updatedAt']));
+      allow delete: if false;
+    }
+
     match /rsmis/{id} {
       allow read: if viewer();
       allow create: if issuer() && validFund(request.resource.data.fund) && request.resource.data.status == 'submitted'
@@ -407,7 +437,7 @@ service cloud.firestore {
     // Only the Super Administrator, and only the record collections: users, invites, settings and auditLogs are never cleared.
     match /{coll}/{id} {
       allow delete: if isSuper() && coll in ['airs', 'issuances', 'assets', 'movements', 'repairs', 'cipProjects', 'swa',
-        'depreciation', 'tbSnapshots', 'attachments', 'items', 'docNumbers', 'counters', 'rsmis'];
+        'depreciation', 'tbSnapshots', 'attachments', 'items', 'docNumbers', 'counters', 'rsmis', 'ccars'];
     }
 
     // ---------------- audit trail (append-only) ----------------

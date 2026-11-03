@@ -201,3 +201,18 @@ test("the RSMI lists only the RIS not yet posted by Accounting, by RIS date", as
   assert.deepEqual(R(docs, "GF", "2026-10-01", "2026-11-30", { unposted: true }).lines.map(x => x.risNo), ["R2", "R3"]);
   assert.deepEqual(rsmiMonths(docs, "GF", { unposted: true }).map(m => [m.period, m.ris]), [["2026-11", 1], ["2026-10", 1]]);
 });
+
+test("CCAR: goods and labor lines, their totals and the checks before saving", async () => {
+  const { ccarLines, ccarTotals, validateCcar } = await import("../public/js/core/logic.js");
+  const lines = ccarLines([
+    { component: "goods", description: "Ceiling boards 4x8", unit: "pc", qty: "20", unitCost: "450.50" },
+    { component: "labor", description: "Labor — installation", unit: "lot", qty: 1, unitCost: 6000 },
+    { component: "x", description: "Nails", unit: "kg", qty: 2, unitCost: 95 },
+    { description: "", qty: "", unitCost: "" }]);
+  assert.deepEqual(lines.map(l => [l.component, l.amount]), [["goods", 9010], ["labor", 6000], ["goods", 190]]);
+  assert.deepEqual(ccarTotals(lines), { goodsTotal: 9200, laborTotal: 6000, total: 15200 });
+  const ok = { fund: "GF", date: "2026-11-03", office: "MHO", supplier: "ABC", lines, acceptance: { status: "complete" } };
+  assert.deepEqual(validateCcar(ok), []);
+  assert.match(validateCcar({ ...ok, lines: [] })[0], /at least one item/);
+  assert.match(validateCcar({ ...ok, acceptance: { status: "partial", partialNote: "" } })[0], /partial/);
+});

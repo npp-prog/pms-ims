@@ -68,6 +68,36 @@ export function airHtml(a) {
     <div class="pf-foot">Encoded by ${esc(a.endUserName || "")} (End-User)</div></div>`;
 }
 
+/** CCAR: laid out like the AIR, with a Goods / Labor column, subtotals per component and three signatories. */
+export function ccarHtml(c) {
+  const s = settings(), lines = c.lines || [];
+  const rows = lines.map((l, i) => `<tr><td class="c">${i + 1}</td><td class="c">${l.component === "labor" ? "Labor" : "Goods"}</td>
+    <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>
+    <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
+  const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
+  // the three signature lines sit at the same height, whatever is ticked above them
+  const cell = (title, date, dateLabel, checks, name, cap) => `<td class="pf-cell" style="width:33.33%;vertical-align:top"><div style="display:flex;flex-direction:column;min-height:150px">
+      <div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>
+      <div class="pf-signame" style="margin-top:auto;padding-top:24px">${esc(name || "")}</div><div class="cap c">Signature over Printed Name</div><div class="cap c"><i>${esc(cap)}</i></div></div></td>`;
+  return `<div class="pf">${head("CERTIFICATE OF COMPLETION AND ACCEPTANCE REPORT")}
+    <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(c.fund))}</b></td></tr>
+      <tr><td>Supplier: <b>${esc(c.supplier)}</b></td><td>CCAR No.: <b class="pf-num">${esc(c.number || "")}</b></td></tr>
+      <tr><td>PO No./Date: <b>${esc(c.poNo)}${c.poDate ? " / " + fmtDate(c.poDate) : ""}</b></td><td>Date: <b>${fmtDate(c.date)}</b></td></tr>
+      <tr><td>Requisitioning Office/Dept.: <b>${esc(c.office)}</b></td><td>Invoice No./Date: <b>${esc(c.invNo)}${c.invDate ? " / " + fmtDate(c.invDate) : ""}</b></td></tr></table>
+    <table class="pt"><thead><tr><th style="width:6%">No.</th><th style="width:10%">Component</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>
+      <tbody>${rows}<tr class="nothing"><td colspan="7">*** NOTHING FOLLOWS ***</td></tr>${blanks(12 - lines.length, 7)}
+      <tr><td colspan="6" class="r">Goods</td><td class="r">${num(c.goodsTotal)}</td></tr>
+      <tr><td colspan="6" class="r">Labor / Services</td><td class="r">${num(c.laborTotal)}</td></tr>
+      <tr><td colspan="6" class="r"><b>TOTAL</b></td><td class="r"><b>${num(c.total)}</b></td></tr></tbody></table>
+    <p style="margin:8px 0;font-size:11px">This is to certify that the goods/services itemized above have been completed, delivered, and verified, and are found to be in order as to quantity and specifications. The same are hereby accepted for official use by the end-user.</p>
+    <table class="pt"><tr>
+      ${cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative")}
+      ${cell("Accepted by:", a.date, "Date Accepted", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>`, a.name, "Supply and/or Property Custodian")}
+      ${cell("Received by:", r.date, "Date Received", `${box(r.ok)} Received in good order and condition`, r.name, r.designation || "Designation / Office")}
+    </tr></table>
+    <div class="pf-foot">Encoded by ${esc(c.encodedBy?.name || "")}${c.endUserName ? ` · delivery reported by ${esc(c.endUserName)} (End-User)` : ""}</div></div>`;
+}
+
 export function parHtml(d) {
   const rows = d.lines.map(l => `<tr><td class="r">${qty(l.qty)}</td><td>${esc(l.unit)}</td>
     <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>

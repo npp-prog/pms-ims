@@ -6,7 +6,7 @@ export const S = {
   user: null, account: undefined, settings: null,
   fund: readFund(), d: emptyData(), ready: new Set()
 };
-export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], attachments: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [], rsmis: [] }; }
+export function emptyData() { return { airs: [], docs: [], users: [], audit: [], invites: [], items: [], attachments: [], assets: [], movements: [], depr: [], tb: [], cip: [], swa: [], repairs: [], rsmis: [], ccars: [] }; }
 function readFund() { try { return localStorage.getItem("pmsims.fund") || "GF"; } catch { return "GF"; } }
 export function setFund(f) { S.fund = f; try { localStorage.setItem("pmsims.fund", f); } catch { /* private mode */ } emit("fund"); }
 
@@ -52,7 +52,7 @@ export function startAccount(uid) {
 
 /** Listeners that depend on the role on the account record (the security rules enforce the same split). */
 /** AIRs a colleague in the same office may see — never someone else's draft. Must match firestore.rules. */
-const OFFICE_AIR_STATUSES = ["submitted", "returned", "approved", "issued"];
+const OFFICE_AIR_STATUSES = ["submitted", "returned", "approved", "issued", "ccar"];
 export function startRole() {
   stop("r:");
   const uid = S.user.uid;
@@ -72,6 +72,7 @@ export function startRole() {
     }
     live("r:repairs", query(collection(db, "repairs"), where("endUserUid", "==", uid)), v => { S.d.repairs = v; });
     if (office) live("r:attachments", query(collection(db, "attachments"), where("office", "==", office)), v => { S.d.attachments = v; });
+    if (office) live("r:ccars", query(collection(db, "ccars"), where("office", "==", office)), v => { S.d.ccars = v; });
   } else {
     live("r:airs", collection(db, "airs"), v => { S.d.airs = v; });
     live("r:docs", collection(db, "issuances"), v => { S.d.docs = v; });
@@ -83,6 +84,7 @@ export function startRole() {
     live("r:swa", collection(db, "swa"), v => { S.d.swa = v; });
     live("r:repairs", collection(db, "repairs"), v => { S.d.repairs = v; });
     live("r:rsmis", collection(db, "rsmis"), v => { S.d.rsmis = v; });
+    live("r:ccars", collection(db, "ccars"), v => { S.d.ccars = v; });
     live("r:users", collection(db, "users"), v => { S.d.users = v; });
     live("r:attachments", collection(db, "attachments"), v => { S.d.attachments = v; });
   }

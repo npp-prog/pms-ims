@@ -497,3 +497,6 @@ body.side-collapsed .me { flex: none; padding: .2rem; }
 .att-form input[type=file] { width: 100%; max-width: 100%; }
 .att-form .att-go { grid-column: 1 / -1; }
 tr.sel td { background: var(--gold-soft) !important; }
+/* CCAR form: the three signatory boxes */
+.ccar-sign fieldset { display: flex; flex-direction: column; gap: .4rem; margin: 0; min-width: 0; }
+.ccar-sign fieldset > label:not(.check) { margin-top: .3rem; }

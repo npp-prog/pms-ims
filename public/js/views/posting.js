@@ -8,7 +8,7 @@ import { setPosting, postSelected } from "../data.js";
 import { postingItems } from "./common.js";
 
 const REGISTRY = { air: "AIR — everything received", par: DOC_TYPES.par.registry, ics: DOC_TYPES.ics.registry, ris: DOC_TYPES.ris.registry,
-  repair: "Repairs and maintenance — History of Repair", rsmi: "Supplies issued (RSMI) — expense and inventory", dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
+  repair: "Repairs and maintenance — History of Repair", rsmi: "Supplies issued (RSMI) — expense and inventory", ccar: "Non-inventoriable goods and labor (CCAR) — expense", dsp: "Derecognition — PPE / SE ledger (carrying amount)", ptr: "Derecognition — donated PPE (carrying amount)", itr: "Derecognition — donated semi-expendable" };
 const itemLabel = i => i.kind === "air" ? `AIR ${i.number}` : `${i.label} ${i.number}`;
 const regOf = i => REGISTRY[i.kind === "air" ? "air" : i.docType];
 
@@ -48,13 +48,13 @@ export function queue(main) {
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"], ["rsmi", "RSMI (supplies issued)"]],
-      test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair", "rsmi"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"], ["rsmi", "RSMI (supplies issued)"], ["ccar", "CCAR (non-inventoriable)"]],
+      test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair", "rsmi", "ccar"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },
       { label: "Date", render: r => fmtDate(r.date), sort: r => r.date || "" },
       { label: "AIR / document", render: r => `<b>${r.airId ? `<a href="#/airs/${esc(r.airId)}">${esc(r.title)}</a>` : esc(r.title)}</b><div class="xs muted">${esc(r.sub)}</div>`, sort: r => r.title },
-      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "repair" ? `<a href="#/repairs/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "rsmi" ? `<a href="#/reports">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
+      { label: "To post", render: r => r.airId ? `<div class="chips">${r.items.map(chip).join("")}</div>` : r.items[0].kind === "movement" ? `<a href="#/movements/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "repair" ? `<a href="#/repairs/${esc(r.items[0].id)}">open</a>` : r.items[0].kind === "rsmi" ? `<a href="#/reports">open</a>` : r.items[0].kind === "ccar" ? `<a href="#/ccar/${esc(r.items[0].id)}">open</a>` : `<a href="#/issuances/${esc(r.items[0].id)}">open</a>` },
       { label: "Office / recipient", render: r => `${esc(r.office)}${r.recipient ? `<div class="xs muted">${esc(r.recipient)}</div>` : ""}` },
       { label: "Amount", render: r => money(r.amount), sort: r => r.amount, cls: "right", headCls: "right" },
       { label: "", render: r => `<button class="btn sm primary" data-post="${esc(r.key)}">${r.items.length > 1 ? `Post all (${r.items.length})` : "Post"}</button>` }
@@ -69,7 +69,7 @@ export function queue(main) {
   });
   $("#bulk", main).onclick = () => postRows([...sel].map(find).filter(Boolean));
 }
-queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "r:rsmis", "fund"];
+queue.deps = ["r:airs", "r:docs", "r:movements", "r:repairs", "r:rsmis", "r:ccars", "fund"];
 
 /** Posting form for queue rows: a checklist of what goes under this JEV — the AIR and its PAR / ICS are ticked, RIS are
  *  not (they are usually posted on their own); other rows post their one document. */

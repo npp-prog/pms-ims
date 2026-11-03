@@ -625,3 +625,36 @@ test("posting a PAR whose line is already in the registry: the line is matched t
   // an RIS carries no registry matches
   await assertFails(updateDoc(doc(a, "issuances/PM1"), { registryMatches: { X: "Y" }, docType: "ris" }));
 });
+
+test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting posts it", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  const ccar = (o = {}) => ({ fund: "GF", number: "2026-11-0001", date: "2026-11-03", office: "MHO", supplier: "ABC", lines: [{ component: "labor", amount: 6000 }], total: 6000,
+    status: "accepted", posting: { posted: false }, fromAirId: null, ...o });
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "airs/A_CC"), baseAir({ status: "submitted", airNo: "" })); });
+  const g = ctx("gso"), a = ctx("acc");
+  await assertSucceeds(setDoc(doc(g, "ccars/C1"), ccar()));
+  await assertFails(setDoc(doc(a, "ccars/C2"), ccar()), "Accounting doesn't prepare a CCAR");
+  await assertFails(setDoc(doc(ctx("eu"), "ccars/C3"), ccar()), "nor an End-User");
+  await assertFails(setDoc(doc(g, "ccars/C4"), ccar({ posting: { posted: true } })), "not created posted");
+  // from a submitted AIR: the AIR is closed as a CCAR in the same batch
+  let b = writeBatch(g);
+  b.set(doc(g, "ccars/C5"), ccar({ number: "2026-11-0002", fromAirId: "A_CC" }));
+  b.update(doc(g, "airs/A_CC"), { status: "ccar", ccarId: "C5", ccarNo: "2026-11-0002" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(g, "airs/A_CC"), { status: "submitted", ccarId: "", ccarNo: "" }), "back to inspection only if its CCAR is cancelled");
+  // the GSO edits the details, but not the number; Accounting posts, and the GSO can't change it after
+  await assertSucceeds(updateDoc(doc(g, "ccars/C1"), { supplier: "ABC Builders" }));
+  await assertFails(updateDoc(doc(g, "ccars/C1"), { number: "X" }));
+  await assertFails(updateDoc(doc(g, "ccars/C1"), { posting: { posted: true } }), "the GSO doesn't post");
+  await assertSucceeds(updateDoc(doc(a, "ccars/C1"), { posting: { posted: true, ref: "JEV-1", date: "2026-11-03" } }));
+  await assertFails(updateDoc(doc(g, "ccars/C1"), { status: "cancelled", cancel: {} }), "a posted CCAR isn't cancelled");
+  // cancelling the CCAR from the AIR sends the AIR back to inspection
+  b = writeBatch(g);
+  b.update(doc(g, "ccars/C5"), { status: "cancelled", cancel: { reason: "inventoriable after all" } });
+  b.update(doc(g, "airs/A_CC"), { status: "submitted", ccarId: "", ccarNo: "" });
+  await assertSucceeds(b.commit());
+  // the office's End-Users read it; other offices don't
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore(); await updateDoc(doc(d, "users/eu"), { office: "MHO" }); await updateDoc(doc(d, "users/eu2"), { office: "Other" }); });
+  await assertSucceeds(getDoc(doc(ctx("eu"), "ccars/C1")));
+  await assertFails(getDoc(doc(ctx("eu2"), "ccars/C1")));
+});

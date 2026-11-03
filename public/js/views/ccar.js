@@ -76,20 +76,17 @@ export function form(main, [id]) {
         <tfoot><tr><td colspan="6" class="right">Goods / Labor / <b>Total</b></td><td class="tot" id="ltot"></td><td></td></tr></tfoot></table></div>
       <button type="button" class="btn sm" id="add" style="margin-top:.6rem">+ Add item</button>
       <h3 style="margin-top:1.4rem">Verification, acceptance and receipt</h3>
-      <div class="grid g3 ccar-sign">
+      <div class="grid g2 ccar-sign">
         <fieldset><legend>Verified by</legend>
           <label>Date verified</label><input type="date" name="vDate" value="${esc(v.date || today)}">
           <label class="check"><input type="checkbox" name="vOk" ${c ? (v.ok ? "checked" : "") : "checked"}> Verified complete and in order as to quantity and specifications</label>
           <label>Name</label><input name="vName" value="${esc(v.name ?? (S.account?.displayName || ""))}">
           <label>Designation</label><input name="vPos" value="${esc(v.position ?? "General Services Officer")}"></fieldset>
-        <fieldset><legend>Accepted by</legend>
-          <label>Date accepted</label><input type="date" name="aDate" value="${esc(a.date || today)}">
+        <fieldset><legend>Accepted and received by (End-User)</legend>
+          <label>Date accepted / received</label><input type="date" name="rDate" value="${esc(r.date || today)}">
           <label class="check"><input type="radio" name="aStatus" value="complete" ${a.status !== "partial" ? "checked" : ""}> Complete</label>
           <label class="check"><input type="radio" name="aStatus" value="partial" ${a.status === "partial" ? "checked" : ""}> Partial (please specify)</label>
           <input name="aNote" value="${esc(a.partialNote || "")}" placeholder="What was partial">
-          <label>Supply and/or Property Custodian</label><input name="aName" value="${esc(a.name ?? s.signatories.propertyCustodian)}"></fieldset>
-        <fieldset><legend>Received by</legend>
-          <label>Date received</label><input type="date" name="rDate" value="${esc(r.date || today)}">
           <label class="check"><input type="checkbox" name="rOk" ${c ? (r.ok ? "checked" : "") : "checked"}> Received in good order and condition</label>
           <label>Name</label><input name="rName" value="${esc(r.name ?? "")}">
           <label>Designation / Office</label><input name="rPos" value="${esc(r.designation ?? "")}"></fieldset>
@@ -150,8 +147,7 @@ export function detail(main, [id]) {
           <tfoot><tr><td colspan="5" class="right">Total</td><td class="right">${money(c.total)}</td></tr></tfoot></table></div></div>
         <div class="card"><h3>Verification, acceptance and receipt</h3><dl class="kv">
           <dt>Verified</dt><dd>${v.date ? fmtDate(v.date) : "—"} · ${esc(v.name || "—")}${v.ok ? " · complete and in order" : ""}</dd>
-          <dt>Accepted</dt><dd>${a.date ? fmtDate(a.date) : "—"} · ${esc(a.name || "—")} · ${a.status === "partial" ? `Partial — ${esc(a.partialNote)}` : a.status === "complete" ? "Complete" : "—"}</dd>
-          <dt>Received</dt><dd>${r.date ? fmtDate(r.date) : "—"} · ${esc(r.name || "—")}${r.designation ? ` (${esc(r.designation)})` : ""}${r.ok ? " · good order and condition" : ""}</dd></dl></div>
+          <dt>Accepted and received</dt><dd>${r.date ? fmtDate(r.date) : "—"} · ${esc(r.name || "—")}${r.designation ? ` (${esc(r.designation)})` : ""} · ${a.status === "partial" ? `Partial — ${esc(a.partialNote)}` : a.status === "complete" ? "Complete" : "—"}${r.ok ? " · good order and condition" : ""}</dd></dl></div>
       </div>
       <div>
         <div class="card"><h3>Details</h3><dl class="kv">

@@ -159,7 +159,7 @@ export function approveAir(id, insp) {
           fund: old.fund, number: cc.number, date: insp.inspection.dateInspected || old.date, office: old.office, supplier: old.supplier, poNo: old.poNo || "", poDate: old.poDate || "",
           invNo: old.invNo || "", invDate: old.invDate || "", purpose: old.purpose || "", lines: clines, ...ccarTotals(clines),
           verification: { date: insp.inspection.dateInspected, ok: !!insp.inspection.inspectedOk, name: insp.inspection.inspectorName || "", position: "General Services Officer" },
-          acceptance: { date: insp.acceptance.dateReceived, status: insp.acceptance.status || "complete", partialNote: insp.acceptance.partialNote || "", name: insp.acceptance.custodianName || "" },
+          acceptance: { date: insp.acceptance.dateReceived, status: insp.acceptance.status || "complete", partialNote: insp.acceptance.partialNote || "" },
           receipt: { date: insp.acceptance.dateReceived, ok: true, name: old.endUserName || "", designation: old.office || "" },
           fromAirId: id, fromAirNo: airNo, endUserUid: old.endUserUid || "", endUserName: old.endUserName || "", status: "accepted", posting: { posted: false }, encodedBy: me(),
           history: [stamp(`Non-inventoriable items of the Delivery Report${airNo ? ` (AIR ${airNo})` : ""}, as found by the GSO at inspection`)], createdAt: serverTimestamp(), updatedAt: serverTimestamp()
@@ -428,7 +428,8 @@ const ccarFields = f => {
     date: f.date, office: String(f.office || "").trim(), supplier: String(f.supplier || "").trim(), poNo: String(f.poNo || "").trim(), poDate: f.poDate || "",
     invNo: String(f.invNo || "").trim(), invDate: f.invDate || "", purpose: String(f.purpose || "").trim(), lines, ...ccarTotals(lines),
     verification: { date: f.vDate || "", ok: !!f.vOk, name: String(f.vName || "").trim(), position: String(f.vPos || "").trim() },
-    acceptance: { date: f.aDate || "", status: f.aStatus === "partial" ? "partial" : f.aStatus === "complete" ? "complete" : "", partialNote: String(f.aNote || "").trim(), name: String(f.aName || "").trim() },
+    // the End-User accepts and receives (one signatory): complete / partial, and the date with the receipt
+    acceptance: { date: f.rDate || "", status: f.aStatus === "partial" ? "partial" : f.aStatus === "complete" ? "complete" : "", partialNote: String(f.aNote || "").trim() },
     receipt: { date: f.rDate || "", ok: !!f.rOk, name: String(f.rName || "").trim(), designation: String(f.rPos || "").trim() }
   };
 };

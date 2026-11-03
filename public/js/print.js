@@ -68,7 +68,8 @@ export function airHtml(a) {
     <div class="pf-foot">Encoded by ${esc(a.endUserName || "")} (End-User)</div></div>`;
 }
 
-/** CCAR: laid out like the AIR, with a Goods / Labor column, subtotals per component and three signatories. */
+/** CCAR: laid out like the AIR, with a Goods / Labor column, subtotals per component and two signatories — the GSO who
+ *  verifies, and the End-User who accepts and receives (the Property Custodian does not accept non-inventoriable items). */
 export function ccarHtml(c) {
   const s = settings(), lines = c.lines || [];
   const rows = lines.map((l, i) => `<tr><td class="c">${i + 1}</td><td class="c">${l.component === "labor" ? "Labor" : "Goods"}</td>
@@ -76,7 +77,7 @@ export function ccarHtml(c) {
     <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
   // the three signature lines sit at the same height, whatever is ticked above them
-  const cell = (title, date, dateLabel, checks, name, cap) => `<td class="pf-cell" style="width:33.33%;vertical-align:top"><div style="display:flex;flex-direction:column;min-height:150px">
+  const cell = (title, date, dateLabel, checks, name, cap) => `<td class="pf-cell" style="width:50%;vertical-align:top"><div style="display:flex;flex-direction:column;min-height:175px">
       <div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>
       <div class="pf-signame" style="margin-top:auto;padding-top:24px">${esc(name || "")}</div><div class="cap c">Signature over Printed Name</div><div class="cap c"><i>${esc(cap)}</i></div></div></td>`;
   return `<div class="pf">${head("CERTIFICATE OF COMPLETION AND ACCEPTANCE REPORT")}
@@ -92,8 +93,8 @@ export function ccarHtml(c) {
     <p style="margin:8px 0;font-size:11px">This is to certify that the goods/services itemized above have been completed, delivered, and verified, and are found to be in order as to quantity and specifications. The same are hereby accepted for official use by the end-user.</p>
     <table class="pt"><tr>
       ${cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative")}
-      ${cell("Accepted by:", a.date, "Date Accepted", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>`, a.name, "Supply and/or Property Custodian")}
-      ${cell("Received by:", r.date, "Date Received", `${box(r.ok)} Received in good order and condition`, r.name, r.designation || "Designation / Office")}
+      ${cell("Accepted and Received by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
+        <div>${box(r.ok)} Received in good order and condition</div>`, r.name, r.designation || "End-User — Designation / Office")}
     </tr></table>
     <div class="pf-foot">Encoded by ${esc(c.encodedBy?.name || "")}${c.endUserName ? ` · delivery reported by ${esc(c.endUserName)} (End-User)` : ""}</div></div>`;
 }

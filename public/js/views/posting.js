@@ -48,7 +48,7 @@ export function queue(main) {
   renderTable($("#t", main), {
     id: "posting", rows, pageSize: 50, defaultSort: 1,
     searchText: r => `${r.title} ${r.office} ${r.recipient || ""} ${r.items.map(i => i.number).join(" ")}`,
-    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"], ["rsmi", "RSMI (supplies issued)"], ["ccar", "CCAR (non-inventoriable)"]],
+    filters: [{ key: "k", label: "Type", options: [["air", "AIRs and their documents"], ...(rows.some(r => !r.airId && r.items[0].kind === "doc") ? [["register", "PAR / ICS without an AIR (from PMS)"]] : []), ["movement", "Disposal / donation"], ["repair", "Repairs"], ["rsmi", "RSMI (supplies issued)"], ["ccar", "CCAR"]],
       test: (r, v) => v === "air" ? !!r.airId : ["movement", "repair", "rsmi", "ccar"].includes(v) ? r.items[0].kind === v : !r.airId && r.items[0].kind === "doc" }],
     columns: [
       { label: "", render: r => `<input type="checkbox" data-nodirty data-sel="${esc(r.key)}" ${sel.has(r.key) ? "checked" : ""}>` },

@@ -17,28 +17,30 @@ const clean = () => window.dispatchEvent(new Event("app:clean"));
 export function list(main) {
   const enduser = role() === "enduser";
   const mine = a => a.endUserUid === S.user.uid, office = S.account?.office || "";
-  const rows = (enduser ? S.d.airs : fundAirs()).filter(a => enduser || a.status !== "draft");
-  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "Office Delivery Reports" : "Delivery Reports and AIRs"}</h1>
-      <p>${enduser ? `Every Delivery Report of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received, items and services; the GSO inspects it, puts what is inventoriable on an AIR (then issues the PAR, ICS or RIS) and what is not on a CCAR. You can edit only your own drafts and returned Delivery Reports.` : `Every submitted Delivery Report in the ${esc(fundName(S.fund))}, with the AIR (and CCAR) it became. Drafts stay private to the End-User until submitted.`}</p></div>
+  // the GSO and Accounting see the AIRs only: the inventoriable items approved at inspection (Delivery Reports waiting are on
+  // For Inspection; non-inventoriable deliveries are on the CCAR list)
+  const rows = enduser ? S.d.airs : fundAirs().filter(a => a.airNo && ["approved", "issued"].includes(a.status));
+  main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "Office Delivery Reports" : "Acceptance and Inspection Reports (AIR)"}</h1>
+      <p>${enduser ? `Every Delivery Report of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received, items and services; the GSO inspects it, puts what is inventoriable on an AIR (then issues the PAR, ICS or RIS) and what is not on a CCAR. You can edit only your own drafts and returned Delivery Reports.` : `The AIRs of the ${esc(fundName(S.fund))}: the inventoriable items — PPE, Semi-Expendable and supplies — approved at the GSO's inspection of a Delivery Report. Delivery Reports waiting for inspection are on <a href="#/inspect">For Inspection</a>; non-inventoriable items are on the <a href="#/ccar">CCAR</a>.`}</p></div>
       <div class="btn-row">${can("encodeAir") ? `<a class="btn primary" href="#/airs/new">New Delivery Report</a>` : ""}<button class="btn" id="csv">Download CSV</button></div></div>
     <div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "airs-" + role(), rows, pageSize: 30, defaultSort: 0, defaultDir: -1,
     searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.poNo} ${a.invNo} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
-    searchPlaceholder: "AIR / CCAR no., supplier, office, PO, item",
-    filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || k !== "draft"), test: (a, v) => a.status === v },
+    searchPlaceholder: enduser ? "AIR / CCAR no., supplier, office, PO, item" : "AIR no., supplier, office, PO, item",
+    filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || ["approved", "issued"].includes(k)), test: (a, v) => a.status === v },
       ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v },
         { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
       { label: "Date", render: a => fmtDate(a.date), sort: a => a.date || "" },
-      { label: "AIR / CCAR No.", render: a => `<b>${esc(a.airNo ? `AIR ${a.airNo}` : a.status === "draft" ? "Draft" : a.status === "ccar" ? "" : "—")}</b>${a.ccarNo ? `<div class="xs">CCAR ${esc(a.ccarNo)}</div>` : ""}${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || a.ccarNo || "" },
+      { label: enduser ? "AIR / CCAR No." : "AIR No.", render: a => `<b>${esc(!enduser ? a.airNo : a.airNo ? `AIR ${a.airNo}` : a.status === "draft" ? "Draft" : a.status === "ccar" ? "" : "—")}</b>${enduser && a.ccarNo ? `<div class="xs">CCAR ${esc(a.ccarNo)}</div>` : ""}${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || a.ccarNo || "" },
       { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${enduser && mine(a) ? "<b>You</b>" : esc(a.endUserName)}</div>`, sort: a => a.office || "" },
       { label: "Items", render: a => (a.lines || []).length, cls: "right" },
       { label: "Amount", render: a => money(a.total), sort: a => a.total || 0, cls: "right", headCls: "right" },
       { label: "Status", render: a => airBadge(a.status), sort: a => a.status }
     ],
-    empty: enduser ? "No Delivery Report has been encoded for your office yet." : "No Delivery Reports in this fund yet.",
+    empty: enduser ? "No Delivery Report has been encoded for your office yet." : "No AIRs in this fund yet.",
     onRow: a => { location.hash = `#/airs/${a.id}`; }
   });
   $("#csv", main).onclick = () => downloadCSV(`AIR-${S.fund}`, ["Fund", "AIR No.", "Date", "Supplier", "PO No.", "Invoice No.", "Office", "End-User", "Item", "Unit", "Qty", "Unit Cost", "Amount", "Category", "Account", "Issued Qty", "Status"],

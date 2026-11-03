@@ -203,6 +203,9 @@ continue at step 4.
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR and
   ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
   row in For Posting). Disposals and repairs are posted on their own rows.
+- **AIR and CCAR lists:** Acceptance & Inspection → **AIR** lists only the AIRs — the inventoriable items approved at
+  inspection; Delivery Reports waiting are on **For Inspection**, and non-inventoriable items are on **CCAR**. End-Users
+  see their office's Delivery Reports (drafts, submitted, returned) with the AIR and CCAR each became.
 - **CCAR — non-inventoriable goods and labor:** what the GSO classifies **non-inventoriable** when inspecting a Delivery
   Report (for example, materials and labor of a repair, or services) goes on a **Certificate of Completion and
   Acceptance Report**, with the inspection's verification, acceptance and the End-User as receiver. The GSO can also

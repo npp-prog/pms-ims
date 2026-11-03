@@ -17,7 +17,7 @@ const badge = c => c.status === "cancelled" ? B("Cancelled", "b-dark") : c.posti
 export function list(main) {
   const enduser = role() === "enduser";
   const rows = (S.d.ccars || []).filter(c => enduser || c.fund === S.fund);
-  main.innerHTML = `<div class="page-head"><div><h1>CCAR — Non-inventoriable</h1><p>Certificates of Completion and Acceptance for goods and labor / services the GSO finds
+  main.innerHTML = `<div class="page-head"><div><h1>Certificates of Completion and Acceptance (CCAR)</h1><p>Certificates of Completion and Acceptance for goods and labor / services the GSO finds
       <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
     <div class="btn-row">${can("issue") ? `<a class="btn primary" href="#/ccar/new">New CCAR</a>` : ""}<button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {

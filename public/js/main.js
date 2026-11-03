@@ -102,9 +102,9 @@ function navGroups() {
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
     g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New Delivery Report"], ["airs", "Office Delivery Reports", c.returned]] });
-    g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["ccar", "CCAR (non-inventoriable)"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
+    g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["ccar", "CCAR"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
-    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New Delivery Report"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "Delivery Reports & AIRs"], ["ccar", "CCAR (non-inventoriable)"]] });
+    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New Delivery Report"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "AIR"], ["ccar", "CCAR"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
     g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["registry/stock", "Inventory Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs]] });
     g.push({ label: "Construction in Progress", items: [["cip", "CIP Projects"], ["swa", "SWA"]] });

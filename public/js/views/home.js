@@ -74,7 +74,7 @@ export function dashboard(main) {
         <div class="card"><div class="card-head"><h3>Needs your attention</h3><span class="small muted">${items.length ? `${items.length} item${items.length === 1 ? "" : "s"}` : ""}</span></div>
           <ul class="inbox">${items.join("") || `<li><span class="ic green">${I.check}</span><span class="t"><b>You're all caught up</b><span>Nothing is waiting for you in ${esc(fundName(S.fund))}.</span></span></li>`}</ul></div>
         <div class="card"><div class="card-head"><h3>Recent deliveries</h3><a class="btn sm" href="#/airs">Open list</a></div>
-          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo ? `AIR ${a.airNo}` : a.ccarNo ? `CCAR ${a.ccarNo}` : a.status === "draft" ? "Draft" : "For inspection")}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
+          ${recentAirs.length ? `<div class="table-wrap"><table><tbody>${recentAirs.map(a => `<tr class="click" onclick="location.hash='#/airs/${a.id}'"><td><b>${esc(a.airNo ? `AIR ${a.airNo}` : a.ccarNo ? `CAR ${a.ccarNo}` : a.status === "draft" ? "Draft" : "For inspection")}</b><div class="xs muted">${esc(a.office)}</div></td><td class="small">${esc(a.supplier)}</td><td class="right">${money(a.total)}</td><td>${airBadge(a.status)}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">No AIRs yet.</div>`}</div>
       </div>
       <div>
         <div class="card"><div class="card-head"><h3>Recently issued</h3></div>
@@ -115,7 +115,7 @@ function deprDue() {
 }
 
 function flowSteps(r) {
-  const st = [["End-User", "Encodes the Delivery Report"], ["GSO", "Inspects: AIR or CCAR"], ["GSO", "Issues PAR / ICS / RIS"], ["Accounting", "Posts AIR, CCAR, documents"]];
+  const st = [["End-User", "Encodes the Delivery Report"], ["GSO", "Inspects: AIR or CAR"], ["GSO", "Issues PAR / ICS / RIS"], ["Accounting", "Posts AIR, CAR, documents"]];
   const mineIdx = { enduser: 0, gso: 1, accounting: 3 }[r];
   return st.map(([w, t], i) => `<div class="${i === mineIdx || (r === "gso" && i === 2) ? "now" : ""}"><b>${i + 1}. ${esc(t)}</b>${esc(w)}</div>`).join("");
 }

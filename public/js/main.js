@@ -28,7 +28,7 @@ const P = {
   home: '<path d="M3 10.5L12 3l9 7.5"/><path d="M5 9.5V20h5v-6h4v6h5V9.5"/>',
   "airs/new": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M12 12v6M9 15h6"/>',
   airs: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
-  ccar: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8.5 14.5l2.2 2.2 4.8-4.9"/>',
+  car: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8.5 14.5l2.2 2.2 4.8-4.9"/>',
   inspect: '<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2M8.5 11l1.8 1.8 3.2-3.3"/>',
   issue: '<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8M12 13v8"/>',
   issuances: '<path d="M7 3h10a2 2 0 0 1 2 2v16l-3-2-2 2-2-2-2 2-2-2-3 2V5a2 2 0 0 1 2-2z"/><path d="M9 8h6M9 12h6"/>',
@@ -102,9 +102,9 @@ function navGroups() {
   const g = [{ items: [["home", "Dashboard"]] }];
   if (r === "enduser") {
     g.push({ label: "Acceptance & Inspection", items: [["airs/new", "New Delivery Report"], ["airs", "Office Delivery Reports", c.returned]] });
-    g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["ccar", "CCAR"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
+    g.push({ label: "My Office", items: [["issuances", "PAR / ICS / RIS"], ["car", "CAR"], ["myproperty", "Office Property"], ["repairs", "History of Repair", c.repairsReturned]] });
   } else {
-    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New Delivery Report"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "AIR"], ["ccar", "CCAR"]] });
+    g.push({ label: "Acceptance & Inspection", items: [can("encodeAir") && ["airs/new", "New Delivery Report"], can("inspectAir") && ["inspect", "For Inspection", c.inspect], ["airs", "AIR"], ["car", "CAR"]] });
     g.push({ label: "Issuance", items: [can("issue") && ["issue", "For Issuance", c.issue], ["issuances", "PAR / ICS / RIS"]] });
     g.push({ label: "Property", items: [["registry/ppe", "PPE Registry"], ["registry/sx", "Semi-Expendable Registry"], ["registry/stock", "Inventory Registry"], ["movements", "Transfers, Returns & Disposals"], ["repairs", "History of Repair", c.repairs]] });
     g.push({ label: "Construction in Progress", items: [["cip", "CIP Projects"], ["swa", "SWA"]] });
@@ -127,7 +127,7 @@ const ROUTES = {
   depreciation: () => can("viewAll") && Accounting.depreciation, reconciliation: () => can("viewAll") && Accounting.reconciliation,
   import: () => isAdmin() && Import.importPage,
   cip: () => can("viewAll") && Cip.list, cipProject: () => can("viewAll") && Cip.detail, swa: () => can("viewAll") && Cip.swaList,
-  ccar: () => Ccar.list, ccarDoc: () => Ccar.detail, ccarEdit: () => can("issue") && Ccar.form,
+  car: () => Ccar.list, ccarDoc: () => Ccar.detail, ccarEdit: () => can("issue") && Ccar.form,
   repairs: () => Repairs.list, repairNew: () => Repairs.form, repair: () => Repairs.detail, repairEdit: () => Repairs.form,
   reports: () => can("viewAll") && Reports.reports,
   users: () => isAdmin() && Admin.users, settings: () => isAdmin() && Admin.settingsPage, audit: () => isAdmin() && Admin.audit,
@@ -137,6 +137,7 @@ const ROUTES = {
 function parseHash() {
   const parts = (location.hash.replace(/^#\/?/, "") || "home").split("/").map(decodeURIComponent);
   let name = parts[0], params = parts.slice(1);
+  if (name === "ccar") name = "car"; // links saved before the CCAR was renamed CAR
   if (name === "airs" && parts[1] === "new") { name = "airNew"; params = []; }
   else if (name === "airs" && parts[1] && parts[2] === "edit") { name = "airEdit"; params = [parts[1]]; }
   else if (name === "airs" && parts[1]) name = "air";
@@ -147,12 +148,12 @@ function parseHash() {
   else if (name === "repairs" && parts[1] === "new") { name = "repairNew"; params = [null, parts[2]]; }
   else if (name === "repairs" && parts[1] && parts[2] === "edit") { name = "repairEdit"; params = [parts[1]]; }
   else if (name === "repairs" && parts[1]) name = "repair";
-  else if (name === "ccar" && parts[1] && parts[2] === "edit") { name = "ccarEdit"; params = [parts[1]]; }
-  else if (name === "ccar" && parts[1]) name = "ccarDoc";
+  else if (name === "car" && parts[1] && parts[2] === "edit") { name = "ccarEdit"; params = [parts[1]]; }
+  else if (name === "car" && parts[1]) name = "ccarDoc";
   else if (name === "registry") { name = `registry/${parts[1] || "ppe"}`; params = parts.slice(2); }
   return { name, params };
 }
-const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs", ccarDoc: "ccar", ccarEdit: "ccar" };
+const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs", ccarDoc: "car", ccarEdit: "car" };
 
 // The sidebar can shrink to an icon rail (wide screens); the choice is remembered on this browser.
 const SIDE_KEY = "pmsims.sideCollapsed";

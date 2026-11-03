@@ -73,7 +73,7 @@ export function airHtml(a) {
     <div class="pf-foot">Encoded by ${esc(a.endUserName || "")} (End-User)</div></div>`;
 }
 
-/** CCAR: laid out like the AIR, with a Goods / Labor column, subtotals per component and two signatories — the GSO who
+/** CAR: laid out like the AIR, with a Goods / Labor column, subtotals per component and two signatories — the GSO who
  *  verifies, and the End-User who accepts and receives (the Property Custodian does not accept non-inventoriable items). */
 export function ccarHtml(c) {
   const s = settings(), lines = c.lines || [];
@@ -85,7 +85,7 @@ export function ccarHtml(c) {
     body: `<div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>` });
   return `<div class="pf">${head("COMPLETION AND ACCEPTANCE REPORT")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(c.fund))}</b></td></tr>
-      <tr><td>Supplier: <b>${esc(c.supplier)}</b></td><td>CCAR No.: <b class="pf-num">${esc(c.number || "")}</b></td></tr>
+      <tr><td>Supplier: <b>${esc(c.supplier)}</b></td><td>CAR No.: <b class="pf-num">${esc(c.number || "")}</b></td></tr>
       <tr><td>PO No./Date: <b>${esc(c.poNo)}${c.poDate ? " / " + fmtDate(c.poDate) : ""}</b></td><td>Date: <b>${fmtDate(c.date)}</b></td></tr>
       <tr><td>Requisitioning Office/Dept.: <b>${esc(c.office)}</b></td><td>Invoice No./Date: <b>${esc(c.invNo)}${c.invDate ? " / " + fmtDate(c.invDate) : ""}</b></td></tr></table>
     <table class="pt"><thead><tr><th style="width:6%">No.</th><th style="width:10%">Component</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>

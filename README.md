@@ -20,8 +20,8 @@ Report (AIR)** and ends as documents that Accounting has posted in the registry.
 
 | Step | Who | What happens | Status |
 | --- | --- | --- | --- |
-| 1 | **End-User** | Encodes a **Delivery Report**: fund, supplier, PO and invoice, and **everything delivered** — equipment, supplies and services / labor — with its unit, quantity and unit cost. Saves it as a draft, attaches the photo and invoice, then **submits it to the GSO**. End-Users never number an AIR or CCAR. | Draft → *For GSO Inspection* |
-| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian), and **classifies each line**: **inventoriable** — PPE, Semi-Expendable or supplies, with its account code — or **non-inventoriable** (Goods or Labor / Services). **Approving** puts the inventoriable lines on the **AIR** (numbered) and the non-inventoriable ones on a **CCAR** (numbered), in one step; a delivery with nothing inventoriable becomes a CCAR only. Or the GSO **returns** it to the End-User with remarks; they correct it and resubmit. | *For Issuance*, *Non-inventoriable (CCAR)* or *Returned* |
+| 1 | **End-User** | Encodes a **Delivery Report**: fund, supplier, PO and invoice, and **everything delivered** — equipment, supplies and services / labor — with its unit, quantity and unit cost. Saves it as a draft, attaches the photo and invoice, then **submits it to the GSO**. End-Users never number an AIR or CAR. | Draft → *For GSO Inspection* |
+| 2 | **GSO** | Records the inspection (date, inspector, "found in order") and the acceptance (date received, complete or partial, custodian), and **classifies each line**: **inventoriable** — PPE, Semi-Expendable or supplies, with its account code — or **non-inventoriable** (Goods or Labor / Services). **Approving** puts the inventoriable lines on the **AIR** (numbered) and the non-inventoriable ones on a **CAR** (numbered), in one step; a delivery with nothing inventoriable becomes a CAR only. Or the GSO **returns** it to the End-User with remarks; they correct it and resubmit. | *For Issuance*, *Non-inventoriable (CAR)* or *Returned* |
 | 3 | **GSO** | Issues documents from the approved AIR:<br>• **PAR** for PPE<br>• **ICS** for Semi-Expendable property. Numbering is **SPLV** for a unit cost of ₱5,000 and below, **SPHV** above that. Mixed items are split into one ICS per class automatically.<br>• **RIS** for supplies that are consumed or distributed.<br>Partial quantities are allowed: for example, one laptop to each of two people, or 6 of 10 reams now and the rest later. | *Fully Issued* once every PPE and Semi-Expendable item is covered |
 | 4 | **Accounting** | Marks each item as **posted in the registry**, with the posting date and JEV / reference number. One item per document: the **AIR supply receipt** (into the Supplies Ledger Card) and every **PAR, ICS and RIS**. Several can be posted at once under one JEV. | *Not posted* → *Partially posted* → *Fully posted* |
 
@@ -203,20 +203,20 @@ continue at step 4.
 - **Posting by AIR, with a checklist:** For Posting shows one row per AIR. Posting it lists the AIR and each PAR and
   ICS with a tick box, all ticked; everything ticked is posted under one JEV. RIS are posted through their RSMI (its own
   row in For Posting). Disposals and repairs are posted on their own rows.
-- **AIR and CCAR lists:** Acceptance & Inspection → **AIR** lists only the AIRs — the inventoriable items approved at
+- **AIR and CAR lists:** Acceptance & Inspection → **AIR** lists only the AIRs — the inventoriable items approved at
   inspection; every Delivery Report not yet inspected — submitted, or returned to the End-User for correction —
-  waits on **For Inspection**, and non-inventoriable items are on **CCAR**. End-Users
-  see their office's Delivery Reports (drafts, submitted, returned) with the AIR and CCAR each became.
-- **CCAR — non-inventoriable goods and labor:** what the GSO classifies **non-inventoriable** when inspecting a Delivery
+  waits on **For Inspection**, and non-inventoriable items are on **CAR**. End-Users
+  see their office's Delivery Reports (drafts, submitted, returned) with the AIR and CAR each became.
+- **CAR — non-inventoriable goods and labor:** what the GSO classifies **non-inventoriable** when inspecting a Delivery
   Report (for example, materials and labor of a repair, or services) goes on a **Completion and Acceptance
   Report**, verified by the GSO and accepted and received by the End-User (the Property Custodian does not accept it). The GSO can also
-  correct a CCAR with Edit; every CCAR starts from a Delivery Report. A CCAR that took a whole delivery can be cancelled
-  (the Delivery Report goes back to inspection); one made together with an AIR is corrected with Edit. Each line is **Goods** or **Labor / Services**; the CCAR shows
+  correct a CAR with Edit; every CAR starts from a Delivery Report. A CAR that took a whole delivery can be cancelled
+  (the Delivery Report goes back to inspection); one made together with an AIR is corrected with Edit. Each line is **Goods** or **Labor / Services**; the CAR shows
   both subtotals and the total, two signatories — **Verified by** (GSO) and **Accepted and Received by** (End-User: complete or partial, received in
   good order) — and prints on A4
-  portrait in the same style as the AIR. It gets its own CCAR No. (Settings → Document numbering). Nothing on a CCAR
+  portrait in the same style as the AIR. It gets its own CAR No. (Settings → Document numbering). Nothing on a CAR
   enters the inventory or the registries: Accounting posts it from For Posting with its JEV. End-Users see their
-  office's CCARs.
+  office's CARs.
 - **A PAR / ICS item already in the registry is matched, not added twice:** when a PAR / ICS line looks like an item
   already in the registry (the same Property No., or the same account with the same description or cost — e.g. brought
   over from PMS), the posting form shows **Already in the registry?** with the possible items; one with the same

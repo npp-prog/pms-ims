@@ -24,7 +24,7 @@ export const NUMBERED_DOCS = [
   ["air", "AIR — Acceptance and Inspection Report"], ["par", "PAR — Property Acknowledgment Receipt"], ["ics", "ICS — Inventory Custodian Slip"],
   ["ris", "RIS — Requisition and Issue Slip"], ["ptr", "PTR — Property Transfer Report"], ["itr", "ITR — Inventory Transfer Report"],
   ["prs", "PRS — Property Return Slip"], ["rrsp", "RRSP — Receipt of Returned Semi-Expendable Property"], ["dsp", "Disposal report"],
-  ["rsmi", "RSMI — Report of Supplies and Materials Issued"], ["ccar", "CCAR — Completion and Acceptance Report"]
+  ["rsmi", "RSMI — Report of Supplies and Materials Issued"], ["ccar", "CAR — Completion and Acceptance Report"]
 ];
 export const NUMBER_RESETS = [["monthly", "Every month"], ["yearly", "Every year"], ["never", "Never (one running series)"]];
 export const numberingDefault = type => ({ mode: "auto", format: type === "ics" ? "{CLASS}-{YYYY}-{MM}-{####}" : "{YYYY}-{MM}-{####}", reset: "monthly", start: 1 });
@@ -107,10 +107,10 @@ export const remainingQty = l => round2((Number(l.qty) || 0) - (Number(l.issuedQ
 /** Workflow status of an AIR, as stored. "approved" AIRs are then described by issuance progress. */
 export const AIR_STATUS = {
   draft: "Draft", submitted: "For GSO Inspection", returned: "Returned to End-User",
-  approved: "For Issuance", issued: "Fully Issued", ccar: "Non-inventoriable (CCAR)"
+  approved: "For Issuance", issued: "Fully Issued", ccar: "Non-inventoriable (CAR)"
 };
 
-/* ---------------- CCAR: non-inventoriable goods and labor (services), as determined by the GSO ---------------- */
+/* ---------------- CAR: non-inventoriable goods and labor (services), as determined by the GSO ---------------- */
 export const CCAR_COMPONENTS = { goods: "Goods", labor: "Labor / Services" };
 /** Lines as saved: component (goods / labor), description, unit, quantity, unit cost and amount. */
 export const ccarLines = lines => (lines || []).map(l => ({
@@ -118,7 +118,7 @@ export const ccarLines = lines => (lines || []).map(l => ({
   description: String(l.description || "").trim(), specs: String(l.specs || "").trim(), unit: String(l.unit || "").trim(),
   qty: round2(Number(l.qty) || 0), unitCost: round2(Number(l.unitCost) || 0), amount: round2((Number(l.qty) || 0) * (Number(l.unitCost) || 0))
 })).filter(l => l.description || l.amount);
-/** Goods, labor and the total of a CCAR's lines. */
+/** Goods, labor and the total of a CAR's lines. */
 export function ccarTotals(lines) {
   const sum = c => round2(lines.filter(l => !c || l.component === c).reduce((t, l) => t + (Number(l.amount) || 0), 0));
   return { goodsTotal: sum("goods"), laborTotal: sum("labor"), total: sum() };
@@ -126,7 +126,7 @@ export function ccarTotals(lines) {
 export function validateCcar(c) {
   const errs = [];
   if (!c.fund) errs.push("Choose the fund.");
-  if (!c.date) errs.push("Enter the CCAR date.");
+  if (!c.date) errs.push("Enter the CAR date.");
   if (!String(c.office || "").trim()) errs.push("Choose the requisitioning office.");
   if (!String(c.supplier || "").trim()) errs.push("Enter the supplier / contractor.");
   if (!c.lines?.length) errs.push("Add at least one item (goods or labor).");
@@ -187,7 +187,7 @@ export function validateInspection(a) {
   if (a.acceptance?.status === "partial" && !String(a.acceptance?.partialNote || "").trim()) errs.push("Specify what was partially received.");
   (a.lines || []).forEach((l, i) => {
     if (!["ppe", "sx", "cons", "noninv"].includes(l.category)) errs.push(`Item ${i + 1}: choose PPE, Semi-Expendable, Supplies or Non-inventoriable.`);
-    if (l.category === "noninv") return; // goes to the CCAR: no account or stock number here
+    if (l.category === "noninv") return; // goes to the CAR: no account or stock number here
     if (!l.accountCode) errs.push(`Item ${i + 1}: choose the account code.`);
     if (l.category === "cons" && !String(l.stockNo || "").trim()) errs.push(`Item ${i + 1}: enter the stock number.`);
   });

@@ -1,4 +1,4 @@
-// CCAR — Completion and Acceptance Report: non-inventoriable goods and labor (services), as determined by
+// CAR — Completion and Acceptance Report: non-inventoriable goods and labor (services), as determined by
 // the GSO. Made when the GSO inspects an End-User's Delivery Report (its non-inventoriable lines); the GSO can correct it,
 // Accounting posts it. It never enters the inventory or the registries.
 import { S, can, role, settings, airById } from "../state.js";
@@ -17,8 +17,8 @@ const badge = c => c.status === "cancelled" ? B("Cancelled", "b-dark") : c.posti
 export function list(main) {
   const enduser = role() === "enduser";
   const rows = (S.d.ccars || []).filter(c => enduser || c.fund === S.fund);
-  main.innerHTML = `<div class="page-head"><div><h1>Completion and Acceptance Reports (CCAR)</h1><p>Completion and Acceptance Reports for goods and labor / services the GSO finds
-      <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. Every CCAR starts from a Delivery Report: the GSO makes it when inspecting one. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Completion and Acceptance Reports (CAR)</h1><p>Completion and Acceptance Reports for goods and labor / services the GSO finds
+      <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. Every CAR starts from a Delivery Report: the GSO makes it when inspecting one. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
     <div class="btn-row"><button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "ccar", rows, pageSize: 50, defaultSort: 0, defaultDir: -1,
@@ -27,7 +27,7 @@ export function list(main) {
       test: (c, v) => v === "cancelled" ? c.status === "cancelled" : c.status !== "cancelled" && !!c.posting?.posted === (v === "posted") }],
     columns: [
       { label: "Date", render: c => fmtDate(c.date), sort: c => c.date || "" },
-      { label: "CCAR No.", render: c => `<b>${esc(c.number)}</b>${c.fromAirId ? `<div class="xs muted">from a Delivery Report${c.fromAirNo ? ` (with AIR ${esc(c.fromAirNo)})` : ""}</div>` : ""}`, sort: c => c.number },
+      { label: "CAR No.", render: c => `<b>${esc(c.number)}</b>${c.fromAirId ? `<div class="xs muted">from a Delivery Report${c.fromAirNo ? ` (with AIR ${esc(c.fromAirNo)})` : ""}</div>` : ""}`, sort: c => c.number },
       { label: "Supplier / contractor", render: c => `${esc(c.supplier)}<div class="xs muted">${esc(c.purpose || "")}</div>`, sort: c => c.supplier },
       { label: "Office", render: c => esc(c.office), sort: c => c.office },
       { label: "Goods", render: c => num(c.goodsTotal), cls: "right", headCls: "right", sort: c => c.goodsTotal },
@@ -35,30 +35,30 @@ export function list(main) {
       { label: "Total", render: c => `<b>${money(c.total)}</b>`, cls: "right", headCls: "right", sort: c => c.total },
       { label: "Status", render: c => `${badge(c)}${c.posting?.posted ? `<div class="xs muted">${esc(c.posting.ref)}</div>` : ""}` }
     ],
-    empty: "No CCARs yet.",
-    onRow: c => { location.hash = `#/ccar/${c.id}`; }
+    empty: "No CARs yet.",
+    onRow: c => { location.hash = `#/car/${c.id}`; }
   });
-  $("#csv", main).onclick = () => downloadCSV(`CCAR-${S.fund}`, ["Fund", "CCAR No.", "Date", "Supplier", "Office", "Component", "Description", "Unit", "Qty", "Unit Cost", "Amount", "Status", "JEV / Ref"],
+  $("#csv", main).onclick = () => downloadCSV(`CAR-${S.fund}`, ["Fund", "CAR No.", "Date", "Supplier", "Office", "Component", "Description", "Unit", "Qty", "Unit Cost", "Amount", "Status", "JEV / Ref"],
     t.rows().flatMap(c => (c.lines || []).map(l => [c.fund, c.number, c.date, c.supplier, c.office, CCAR_COMPONENTS[l.component], l.description, l.unit, l.qty, l.unitCost, l.amount,
       c.status === "cancelled" ? "Cancelled" : c.posting?.posted ? "Posted" : "For Posting", c.posting?.ref || ""])));
 }
 list.deps = ["r:ccars", "fund"];
 
-/* ---------------- form (GSO): corrections to a CCAR made at inspection ---------------- */
+/* ---------------- form (GSO): corrections to a CAR made at inspection ---------------- */
 export function form(main, [id]) {
   const c = ccarById(id), s = settings();
-  if (!c) { main.innerHTML = `<div class="notice warn">CCAR not found.</div>`; return; }
-  if (c && (c.status !== "accepted" || c.posting?.posted)) { location.hash = `#/ccar/${id}`; return; }
+  if (!c) { main.innerHTML = `<div class="notice warn">CAR not found.</div>`; return; }
+  if (c && (c.status !== "accepted" || c.posting?.posted)) { location.hash = `#/car/${id}`; return; }
   const src = c;
   let lines = (c.lines || []).map(l => ({ id: l.id || uid(), component: l.component || "goods", description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost }));
   if (!lines.length) lines = [{ id: uid(), component: "goods", unit: "", qty: 1 }];
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {}, today = manilaToday();
-  main.innerHTML = `<div class="page-head"><div><h1>Edit CCAR ${esc(c.number)}</h1>
-      <p>For goods and labor / services the GSO finds <b>non-inventoriable</b>: they are accepted and expensed here, and never enter the inventory or the registries. Accounting posts the CCAR with its JEV.</p></div></div>
+  main.innerHTML = `<div class="page-head"><div><h1>Edit CAR ${esc(c.number)}</h1>
+      <p>For goods and labor / services the GSO finds <b>non-inventoriable</b>: they are accepted and expensed here, and never enter the inventory or the registries. Accounting posts the CAR with its JEV.</p></div></div>
     <form id="cf" class="card" novalidate>
       <div class="grid g4">
         <div><label class="req">Fund</label><select name="fund" disabled>${opts(FUNDS.map(f => [f.code, f.name]), c.fund)}</select></div>
-        <div><label class="req">CCAR date</label><input type="date" name="date" value="${esc(c.date || today)}"></div>
+        <div><label class="req">CAR date</label><input type="date" name="date" value="${esc(c.date || today)}"></div>
         <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", src.office || "", s.offices)}</div>
         <div class="span2"><label class="req">Supplier / contractor</label><input name="supplier" value="${esc(src.supplier || "")}"></div>
         <div><label>PO No.</label><input name="poNo" value="${esc(src.poNo || "")}"></div>
@@ -69,7 +69,7 @@ export function form(main, [id]) {
         <div class="spanall"><label>Purpose / remarks</label><input name="purpose" value="${esc(src.purpose || "")}" placeholder="e.g. Repair of the Session Hall ceiling — materials and labor"></div>
       </div>
       <h3 style="margin-top:1.4rem">Goods and labor</h3>
-      <p class="xs muted" style="margin-top:-.3rem">Choose <b>Goods</b> for materials and other non-inventoriable items, or <b>Labor / Services</b> for the work done. The totals of each are shown on the CCAR.</p>
+      <p class="xs muted" style="margin-top:-.3rem">Choose <b>Goods</b> for materials and other non-inventoriable items, or <b>Labor / Services</b> for the work done. The totals of each are shown on the CAR.</p>
       <div class="table-wrap"><table class="lines"><thead><tr><th>Component</th><th>Description</th><th>Specifications</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th></th></tr></thead><tbody id="lb"></tbody>
         <tfoot><tr><td colspan="6" class="right">Goods / Labor / <b>Total</b></td><td class="tot" id="ltot"></td><td></td></tr></tfoot></table></div>
       <button type="button" class="btn sm" id="add" style="margin-top:.6rem">+ Add item</button>
@@ -90,7 +90,7 @@ export function form(main, [id]) {
           <label>Designation / Office</label><input name="rPos" value="${esc(r.designation ?? "")}"></fieldset>
       </div>
       <div class="form-msg err" id="msg"></div>
-      <div class="modal-actions"><a class="btn" href="#/ccar/${c.id}">Cancel</a><button type="submit" class="btn primary">Save changes</button></div>
+      <div class="modal-actions"><a class="btn" href="#/car/${c.id}">Cancel</a><button type="submit" class="btn primary">Save changes</button></div>
     </form>`;
   const lb = $("#lb", main);
   const totals = () => { const t = ccarTotals(ccarLines(lines)); $("#ltot", main).innerHTML = `${num(t.goodsTotal)} / ${num(t.laborTotal)} / <b>${money(t.total)}</b>`; };
@@ -121,8 +121,8 @@ export function form(main, [id]) {
     const errs = validateCcar({ ...data, lines: ccarLines(lines), acceptance: { status: v.aStatus, partialNote: v.aNote } });
     if (errs.length) { $("#msg", main).textContent = errs[0]; return; }
     $("#msg", main).textContent = "";
-    busy(e.submitter, async () => { const out = await saveCcar(c.id, data); clean(); location.hash = `#/ccar/${out.id}`; },
-      "CCAR saved.").catch(err => { $("#msg", main).textContent = err.message; });
+    busy(e.submitter, async () => { const out = await saveCcar(c.id, data); clean(); location.hash = `#/car/${out.id}`; },
+      "CAR saved.").catch(err => { $("#msg", main).textContent = err.message; });
   };
 }
 form.deps = ["r:ccars", "r:airs"];
@@ -130,10 +130,10 @@ form.deps = ["r:ccars", "r:airs"];
 /* ---------------- detail ---------------- */
 export function detail(main, [id]) {
   const c = ccarById(id);
-  if (!c) { main.innerHTML = `<div class="notice warn">CCAR not found, or you don't have access to it.</div>`; return; }
+  if (!c) { main.innerHTML = `<div class="notice warn">CAR not found, or you don't have access to it.</div>`; return; }
   const open = c.status === "accepted" && !c.posting?.posted, v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
   const air = c.fromAirId ? airById(c.fromAirId) : null;
-  main.innerHTML = `<div class="page-head"><div><h1>CCAR ${esc(c.number)}</h1><p>${esc(fundName(c.fund))} · ${esc(c.office)} · ${esc(c.supplier)} · non-inventoriable</p></div>
+  main.innerHTML = `<div class="page-head"><div><h1>CAR ${esc(c.number)}</h1><p>${esc(fundName(c.fund))} · ${esc(c.office)} · ${esc(c.supplier)} · non-inventoriable</p></div>
       <div class="btn-row">${badge(c)}</div></div>
     ${c.status === "cancelled" ? `<div class="notice bad"><b>Cancelled</b>${c.cancel?.reason ? ` — ${esc(c.cancel.reason)}` : ""}${c.fromAirId ? ". The Delivery Report went back to GSO inspection." : ""}</div>` : ""}
     <div class="split">
@@ -149,7 +149,7 @@ export function detail(main, [id]) {
       </div>
       <div>
         <div class="card"><h3>Details</h3><dl class="kv">
-          <dt>CCAR date</dt><dd>${fmtDate(c.date)}</dd><dt>Supplier</dt><dd>${esc(c.supplier)}</dd>
+          <dt>CAR date</dt><dd>${fmtDate(c.date)}</dd><dt>Supplier</dt><dd>${esc(c.supplier)}</dd>
           <dt>PO No./Date</dt><dd>${esc(c.poNo || "—")}${c.poDate ? " · " + fmtDate(c.poDate) : ""}</dd>
           <dt>Invoice No./Date</dt><dd>${esc(c.invNo || "—")}${c.invDate ? " · " + fmtDate(c.invDate) : ""}</dd>
           ${c.purpose ? `<dt>Purpose</dt><dd>${esc(c.purpose)}</dd>` : ""}
@@ -157,8 +157,8 @@ export function detail(main, [id]) {
           <dt>Accounting</dt><dd>${c.posting?.posted ? `Posted ${fmtDate(c.posting.date)} · ${esc(c.posting.ref)}` : c.status === "cancelled" ? "—" : "Not yet posted"}</dd>
           <dt>Prepared by</dt><dd>${esc(c.encodedBy?.name || "")}</dd></dl>
         <div class="btn-row" style="margin-top:1rem">
-          <button class="btn sm" id="print">Print CCAR</button>
-          ${can("issue") && open ? `<a class="btn sm" href="#/ccar/${c.id}/edit">Edit</a>${!c.fromAirId || air?.status === "ccar" ? `<button class="btn sm danger" id="cx">Cancel CCAR</button>` : ""}` : ""}
+          <button class="btn sm" id="print">Print CAR</button>
+          ${can("issue") && open ? `<a class="btn sm" href="#/car/${c.id}/edit">Edit</a>${!c.fromAirId || air?.status === "ccar" ? `<button class="btn sm danger" id="cx">Cancel CAR</button>` : ""}` : ""}
           ${can("post") && open ? `<a class="btn sm primary" href="#/posting">Post in For Posting</a>` : ""}
           ${can("post") && c.status === "accepted" && c.posting?.posted ? `<button class="btn sm danger" id="un">Unpost</button>` : ""}
         </div></div>
@@ -166,15 +166,15 @@ export function detail(main, [id]) {
       </div>
     </div>`;
   $("#print", main).onclick = () => printForm(ccarHtml(c));
-  attachmentsCard($("#att", main), { type: "ccar", id: c.id, office: c.office, fund: c.fund, label: `CCAR ${c.number}` },
-    { title: "Signed CCAR and other attachments", labels: ["Signed CCAR", "Photo", "Invoice", "Delivery receipt", "Purchase order", "Other"], defaultLabel: "Signed CCAR",
+  attachmentsCard($("#att", main), { type: "ccar", id: c.id, office: c.office, fund: c.fund, label: `CAR ${c.number}` },
+    { title: "Signed CAR and other attachments", labels: ["Signed CAR", "Photo", "Invoice", "Delivery receipt", "Purchase order", "Other"], defaultLabel: "Signed CAR",
       also: c.fromAirId ? [{ type: "air", id: c.fromAirId }] : [] });
   $("#cx", main) && ($("#cx", main).onclick = async e => {
-    const x = await confirmBox({ title: `Cancel CCAR ${c.number}?`, body: c.fromAirId ? "The Delivery Report it came from goes back to GSO inspection." : "", fields: [{ name: "reason", label: "Reason", required: true }], confirmText: "Cancel CCAR", danger: true });
-    if (x) busy(e.target, () => cancelCcar(c.id, x.reason), "CCAR cancelled.").catch(() => {});
+    const x = await confirmBox({ title: `Cancel CAR ${c.number}?`, body: c.fromAirId ? "The Delivery Report it came from goes back to GSO inspection." : "", fields: [{ name: "reason", label: "Reason", required: true }], confirmText: "Cancel CAR", danger: true });
+    if (x) busy(e.target, () => cancelCcar(c.id, x.reason), "CAR cancelled.").catch(() => {});
   });
   $("#un", main) && ($("#un", main).onclick = async e => {
-    if (await confirmBox({ title: `Unpost CCAR ${c.number}?`, body: "Use this only to correct a posting made in error.", confirmText: "Unpost", danger: true }))
+    if (await confirmBox({ title: `Unpost CAR ${c.number}?`, body: "Use this only to correct a posting made in error.", confirmText: "Unpost", danger: true }))
       busy(e.target, () => setPosting("ccar", c.id, null), "Posting removed.").catch(() => {});
   });
 }

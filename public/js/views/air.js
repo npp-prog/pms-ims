@@ -18,22 +18,22 @@ export function list(main) {
   const enduser = role() === "enduser";
   const mine = a => a.endUserUid === S.user.uid, office = S.account?.office || "";
   // the GSO and Accounting see the AIRs only: the inventoriable items approved at inspection (Delivery Reports waiting are on
-  // For Inspection; non-inventoriable deliveries are on the CCAR list)
+  // For Inspection; non-inventoriable deliveries are on the CAR list)
   const rows = enduser ? S.d.airs : fundAirs().filter(a => a.airNo && ["approved", "issued"].includes(a.status));
   main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "Office Delivery Reports" : "Acceptance and Inspection Reports (AIR)"}</h1>
-      <p>${enduser ? `Every Delivery Report of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received, items and services; the GSO inspects it, puts what is inventoriable on an AIR (then issues the PAR, ICS or RIS) and what is not on a CCAR. You can edit only your own drafts and returned Delivery Reports.` : `The AIRs of the ${esc(fundName(S.fund))}: the inventoriable items — PPE, Semi-Expendable and supplies — approved at the GSO's inspection of a Delivery Report. Delivery Reports waiting for inspection are on <a href="#/inspect">For Inspection</a>; non-inventoriable items are on the <a href="#/ccar">CCAR</a>.`}</p></div>
-      <div class="btn-row">${can("encodeAir") ? `<a class="btn primary" href="#/airs/new">New Delivery Report</a>` : ""}<button class="btn" id="csv">Download CSV</button></div></div>
+      <p>${enduser ? `Every Delivery Report of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received, items and services; the GSO inspects it, puts what is inventoriable on an AIR (then issues the PAR, ICS or RIS) and what is not on a CAR. You can edit only your own drafts and returned Delivery Reports.` : `The AIRs of the ${esc(fundName(S.fund))}: the inventoriable items — PPE, Semi-Expendable and supplies — approved at the GSO's inspection of a Delivery Report. Delivery Reports waiting for inspection are on <a href="#/inspect">For Inspection</a>; non-inventoriable items are on the <a href="#/car">CAR</a>.`}</p></div>
+      <div class="btn-row"><button class="btn" id="csv">Download CSV</button></div></div>
     <div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "airs-" + role(), rows, pageSize: 30, defaultSort: 0, defaultDir: -1,
     searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.poNo} ${a.invNo} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
-    searchPlaceholder: enduser ? "AIR / CCAR no., supplier, office, PO, item" : "AIR no., supplier, office, PO, item",
+    searchPlaceholder: enduser ? "AIR / CAR no., supplier, office, PO, item" : "AIR no., supplier, office, PO, item",
     filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || ["approved", "issued"].includes(k)), test: (a, v) => a.status === v },
       ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v },
         { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
       { label: "Date", render: a => fmtDate(a.date), sort: a => a.date || "" },
-      { label: enduser ? "AIR / CCAR No." : "AIR No.", render: a => `<b>${esc(!enduser ? a.airNo : a.airNo ? `AIR ${a.airNo}` : a.status === "draft" ? "Draft" : a.status === "ccar" ? "" : "—")}</b>${enduser && a.ccarNo ? `<div class="xs">CCAR ${esc(a.ccarNo)}</div>` : ""}${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || a.ccarNo || "" },
+      { label: enduser ? "AIR / CAR No." : "AIR No.", render: a => `<b>${esc(!enduser ? a.airNo : a.airNo ? `AIR ${a.airNo}` : a.status === "draft" ? "Draft" : a.status === "ccar" ? "" : "—")}</b>${enduser && a.ccarNo ? `<div class="xs">CAR ${esc(a.ccarNo)}</div>` : ""}${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || a.ccarNo || "" },
       { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${enduser && mine(a) ? "<b>You</b>" : esc(a.endUserName)}</div>`, sort: a => a.office || "" },
       { label: "Items", render: a => (a.lines || []).length, cls: "right" },
@@ -50,10 +50,10 @@ list.deps = ["r:airs", "fund"];
 
 export function inspectQueue(main) {
   // every Delivery Report not yet inspected waits here — submitted, or returned to the End-User for correction; once the
-  // GSO approves it, its inventoriable items go to the AIR and the rest to the CCAR, and it leaves this list
+  // GSO approves it, its inventoriable items go to the AIR and the rest to the CAR, and it leaves this list
   const rows = fundAirs().filter(a => ["submitted", "returned"].includes(a.status)).sort((a, b) => (a.submittedAt?.seconds || 0) - (b.submittedAt?.seconds || 0));
   main.innerHTML = `<div class="page-head"><div><h1>For Inspection</h1><p>Every Delivery Report in the ${esc(fundName(S.fund))} not yet inspected, inventoriable or not. Open one to record the inspection and acceptance and classify each item:
-    on approval the inventoriable items go to the <a href="#/airs">AIR</a> and the non-inventoriable ones to the <a href="#/ccar">CCAR</a>. Or return it to the End-User with remarks; it stays here, marked Returned, until they resubmit.</p></div></div><div class="card" id="t"></div>`;
+    on approval the inventoriable items go to the <a href="#/airs">AIR</a> and the non-inventoriable ones to the <a href="#/car">CAR</a>. Or return it to the End-User with remarks; it stays here, marked Returned, until they resubmit.</p></div></div><div class="card" id="t"></div>`;
   renderTable($("#t", main), {
     id: "inspect", rows, pageSize: 30,
     searchText: a => `${a.supplier} ${a.office} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
@@ -82,7 +82,7 @@ export function form(main, [id]) {
   const missing = a ? airMissingFiles(a.id) : ["photo", "invoice"];
   main.innerHTML = `<div class="page-head"><div><h1>${a ? "Edit Delivery Report" : "New Delivery Report"}</h1>
       <p>Encode <b>everything delivered</b> — items and services — exactly as on the supplier's invoice / delivery receipt. The GSO inspects it and decides what is
-        inventoriable (PPE, Semi-Expendable, supplies: they go on the <b>AIR</b>) and what is not (they go on a <b>CCAR</b>), and gives each its number.
+        inventoriable (PPE, Semi-Expendable, supplies: they go on the <b>AIR</b>) and what is not (they go on a <b>CAR</b>), and gives each its number.
         Save it as a draft, then attach the <b>photo</b> and the <b>invoice</b> on its page — it can be submitted to the GSO only once both are attached.</p></div></div>
     ${a?.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
     <form id="af" class="card" novalidate>
@@ -211,15 +211,15 @@ export function detail(main, [id]) {
       <div class="btn-row">${airBadge(a.status)} ${issuedStage ? postBadge(ps.state) : ""}</div></div>
     <div class="steps">${steps.map(([t, c, s]) => `<div class="${c}"><b>${esc(t)}</b>${esc(s || "")}</div>`).join("")}</div>
     ${a.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
-    ${a.status === "ccar" ? `<div class="notice info"><b>Non-inventoriable.</b> At inspection the GSO found nothing in this delivery inventoriable: it was all accepted on <a href="#/ccar/${esc(a.ccarId)}">CCAR ${esc(a.ccarNo)}</a> and does not enter the inventory or the registries.</div>`
-      : a.ccarId ? `<div class="notice info">At inspection the GSO found some of this delivery non-inventoriable: those items were accepted on <a href="#/ccar/${esc(a.ccarId)}">CCAR ${esc(a.ccarNo)}</a>. The items below are the inventoriable ones on this AIR.</div>` : ""}
+    ${a.status === "ccar" ? `<div class="notice info"><b>Non-inventoriable.</b> At inspection the GSO found nothing in this delivery inventoriable: it was all accepted on <a href="#/car/${esc(a.ccarId)}">CAR ${esc(a.ccarNo)}</a> and does not enter the inventory or the registries.</div>`
+      : a.ccarId ? `<div class="notice info">At inspection the GSO found some of this delivery non-inventoriable: those items were accepted on <a href="#/car/${esc(a.ccarId)}">CAR ${esc(a.ccarNo)}</a>. The items below are the inventoriable ones on this AIR.</div>` : ""}
     <div class="split">
       <div>
         <div class="card"><div class="card-head"><h3>Items</h3><span class="small muted">Total ${money(a.total)}</span></div>
           <div class="table-wrap"><table><thead><tr><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Classification</th>${issuedStage ? `<th class="right">To issue</th>` : ""}</tr></thead>
           <tbody>${(a.lines || []).map(l => `<tr><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}${l.stockNo ? `<div class="xs">Stock No. ${esc(l.stockNo)}</div>` : ""}</td>
             <td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td>
-            <td>${l.category ? `${catBadge(l.category)}<div class="xs muted">${esc(l.accountCode)} ${esc(accountName(l.accountCode))}</div>` : `<span class="xs muted">Proposed: ${esc(CATEGORIES[suggestCategory(l.kind, l.unitCost, settings().thresholds)]?.short || "Non-inventoriable (CCAR)")}</span>`}</td>
+            <td>${l.category ? `${catBadge(l.category)}<div class="xs muted">${esc(l.accountCode)} ${esc(accountName(l.accountCode))}</div>` : `<span class="xs muted">Proposed: ${esc(CATEGORIES[suggestCategory(l.kind, l.unitCost, settings().thresholds)]?.short || "Non-inventoriable (CAR)")}</span>`}</td>
             ${issuedStage ? `<td class="right">${remainingQty(l) > 0 ? `<b>${qty(remainingQty(l))}</b>` : `<span class="badge b-ok">Issued</span>`}</td>` : ""}</tr>`).join("")}</tbody></table></div></div>
         ${docs.length ? `<div class="card"><div class="card-head"><h3>Documents issued from this AIR</h3></div>
           <div class="table-wrap"><table><thead><tr><th>Document</th><th>Date</th><th>Received by</th><th class="right">Amount</th><th>Accounting</th></tr></thead>
@@ -237,7 +237,7 @@ export function detail(main, [id]) {
           ${(a.lines || []).some(l => l.category === "cons") && issuedStage ? `<dt>Supply receipt</dt><dd>${a.posting?.posted ? `Posted · ${esc(a.posting.ref)} · ${fmtDate(a.posting.date)}` : "Not yet posted by Accounting"}</dd>` : ""}
         </dl>
         <div class="btn-row" style="margin-top:1rem" id="acts">
-          ${a.airNo ? `<button class="btn sm" id="print">Print AIR</button>` : ""}${a.ccarId ? `<a class="btn sm" href="#/ccar/${esc(a.ccarId)}">Open CCAR ${esc(a.ccarNo)}</a>` : ""}
+          ${a.airNo ? `<button class="btn sm" id="print">Print AIR</button>` : ""}${a.ccarId ? `<a class="btn sm" href="#/car/${esc(a.ccarId)}">Open CAR ${esc(a.ccarNo)}</a>` : ""}
           ${a.airNo && canRenumber(a) ? `<button class="btn sm" id="renum">Change AIR No.</button>` : ""}
           ${toSubmit ? `<a class="btn sm${missing.length ? " primary" : ""}" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
@@ -289,7 +289,7 @@ function inspectModal(a) {
   const m = openModal(`<h2>Inspect the Delivery Report</h2>
     ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
     <p class="muted small">Check each item against the delivery and correct it if needed (description, specifications, unit, quantity, unit cost). Classify it: <b>inventoriable</b> items —
-      PPE (PAR), Semi-Expendable (ICS) or supplies (RIS) — go on the <b>AIR</b>, with their account; <b>non-inventoriable</b> goods and labor / services go on a <b>CCAR</b>. Stock numbers of supplies are suggested from the Inventory Registry.</p>
+      PPE (PAR), Semi-Expendable (ICS) or supplies (RIS) — go on the <b>AIR</b>, with their account; <b>non-inventoriable</b> goods and labor / services go on a <b>CAR</b>. Stock numbers of supplies are suggested from the Inventory Registry.</p>
     <div id="ccarno"></div>
     <div class="table-wrap"><table class="lines"><thead><tr><th>Item</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Classification</th><th>Account</th><th>Stock No. / Property No.</th><th>Useful life</th></tr></thead><tbody id="il"></tbody>
       <tfoot><tr><td colspan="4" class="right">Total</td><td class="tot" id="itot"></td><td colspan="4"></td></tr></tfoot></table></div>
@@ -314,20 +314,20 @@ function inspectModal(a) {
       <td><input data-k="unit" class="w-xs" value="${esc(l.unit)}"></td>
       <td><input data-k="qty" type="number" min="0" step="any" class="w-xs" value="${esc(l.qty)}"></td><td><input data-k="unitCost" type="number" min="0" step="0.01" class="w-sm" value="${esc(l.unitCost)}"></td>
       <td class="right" data-amt>${num(lineAmount(l))}</td>
-      <td><select data-k="category" class="w-lg">${opts([...Object.entries(CATEGORIES).map(([k, c]) => [k, c.short]), ["noninv", "Non-inventoriable (CCAR)"]], l.category)}</select></td>
+      <td><select data-k="category" class="w-lg">${opts([...Object.entries(CATEGORIES).map(([k, c]) => [k, c.short]), ["noninv", "Non-inventoriable (CAR)"]], l.category)}</select></td>
       <td>${l.category === "noninv" ? `<select data-k="component" class="w-md">${opts([["goods", "Goods"], ["labor", "Labor / Services"]], l.component)}</select>`
         : `<select data-k="accountCode" class="w-lg">${accountOpts(ACCOUNTS_BY_CATEGORY[l.category] || [], l.accountCode)}</select>`}</td>
-      <td>${l.category === "noninv" ? `<span class="xs muted">on the CCAR</span>` : l.category === "cons" ? `<input data-k="stockNo" class="w-md" list="stocknos" value="${esc(l.stockNo || "")}" placeholder="Stock No.">${l.autoStock && l.stockNo ? `<div class="xs muted">suggested</div>` : ""}` : `<input data-k="propertyNo" class="w-md" value="${esc(l.propertyNo || "")}" placeholder="Optional; can be set on the PAR/ICS">`}</td>
+      <td>${l.category === "noninv" ? `<span class="xs muted">on the CAR</span>` : l.category === "cons" ? `<input data-k="stockNo" class="w-md" list="stocknos" value="${esc(l.stockNo || "")}" placeholder="Stock No.">${l.autoStock && l.stockNo ? `<div class="xs muted">suggested</div>` : ""}` : `<input data-k="propertyNo" class="w-md" value="${esc(l.propertyNo || "")}" placeholder="Optional; can be set on the PAR/ICS">`}</td>
       <td>${["cons", "noninv"].includes(l.category) ? "" : `<input data-k="usefulLife" class="w-sm" value="${esc(l.usefulLife || "")}" placeholder="e.g. 5 years">`}</td></tr>`).join("");
   };
-  // what goes where: the AIR (inventoriable) and the CCAR (non-inventoriable), with a CCAR No. box when numbering is manual
+  // what goes where: the AIR (inventoriable) and the CAR (non-inventoriable), with a CAR No. box when numbering is manual
   const total = () => {
     const non = lines.filter(l => l.category === "noninv"), inv = lines.filter(l => l.category !== "noninv");
-    $("#itot", m).innerHTML = `${money(lines.reduce((t, l) => t + lineAmount(l), 0))}<div class="xs muted" style="font-weight:500">AIR ${money(inv.reduce((t, l) => t + lineAmount(l), 0))} · CCAR ${money(non.reduce((t, l) => t + lineAmount(l), 0))}</div>`;
+    $("#itot", m).innerHTML = `${money(lines.reduce((t, l) => t + lineAmount(l), 0))}<div class="xs muted" style="font-weight:500">AIR ${money(inv.reduce((t, l) => t + lineAmount(l), 0))} · CAR ${money(non.reduce((t, l) => t + lineAmount(l), 0))}</div>`;
     const box = $("#ccarno", m), want = non.length && ccarManual;
-    if (want && !$("#ccarnoin", m)) box.innerHTML = `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="req">CCAR No.</label><input id="ccarnoin" placeholder="as on the printed CCAR"></div></div>`;
+    if (want && !$("#ccarnoin", m)) box.innerHTML = `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="req">CAR No.</label><input id="ccarnoin" placeholder="as on the printed CAR"></div></div>`;
     if (!want) box.innerHTML = "";
-    $("#ok", m).textContent = !inv.length ? "Approve — all to a CCAR" : non.length ? "Approve — AIR and CCAR" : "Approve AIR";
+    $("#ok", m).textContent = !inv.length ? "Approve — all to a CAR" : non.length ? "Approve — AIR and CAR" : "Approve AIR";
   };
   draw(); total();
   il.addEventListener("change", e => {
@@ -356,12 +356,12 @@ function inspectModal(a) {
     insp.lines.forEach((x, i) => { x.component = lines[i].component; });
     const hasInv = lines.some(l => l.category !== "noninv"), hasNon = lines.some(l => l.category === "noninv");
     if (airManual && hasInv && !insp.airNo) { $("#im", m).textContent = "Enter the AIR No. — numbering is set to manual."; return; }
-    if (ccarManual && hasNon && !insp.ccarNo) { $("#im", m).textContent = "Enter the CCAR No. — numbering is set to manual."; return; }
+    if (ccarManual && hasNon && !insp.ccarNo) { $("#im", m).textContent = "Enter the CAR No. — numbering is set to manual."; return; }
     $("#im", m).textContent = "";
     busy(e.target, async () => {
       try { await approveAir(a.id, insp); m.close(); }
       catch (err) { $("#im", m).textContent = err.message; throw err; }
-    }, !hasInv ? "Approved — everything went to a CCAR (non-inventoriable)." : hasNon ? "Approved — the AIR for the inventoriable items, a CCAR for the rest. You can now issue the PAR, ICS or RIS."
+    }, !hasInv ? "Approved — everything went to a CAR (non-inventoriable)." : hasNon ? "Approved — the AIR for the inventoriable items, a CAR for the rest. You can now issue the PAR, ICS or RIS."
       : "AIR approved. You can now issue the PAR, ICS or RIS.").catch(() => {});
   };
 }

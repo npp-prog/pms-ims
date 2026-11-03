@@ -144,9 +144,9 @@ export function approveAir(id, insp) {
       const next = { ...old, lines, inspection: insp.inspection, acceptance: insp.acceptance };
       const errs = validateInspection(next);
       if (errs.length) throw fail(errs[0]);
-      // inventoriable items (PPE, Semi-Expendable, supplies) stay on the AIR; the GSO's non-inventoriable ones go to a CCAR
+      // inventoriable items (PPE, Semi-Expendable, supplies) stay on the AIR; the GSO's non-inventoriable ones go to a CAR
       const inv = lines.filter(l => l.category !== "noninv"), non = lines.filter(l => l.category === "noninv");
-      // numbers first (all reads before any write): the AIR No. for the inventoriable items, the CCAR No. for the rest
+      // numbers first (all reads before any write): the AIR No. for the inventoriable items, the CAR No. for the rest
       let airNo = old.airNo || "", ca = null, cc = null;
       if (inv.length && !airNo) { ca = await readCounter(tx, old.fund, "air", old.date, "", insp.airNo); airNo = ca.number; }
       const cref = non.length ? doc(collection(db, "ccars")) : null;
@@ -169,7 +169,7 @@ export function approveAir(id, insp) {
       const at = insp.acceptance?.dateReceived || old.date || "";
       for (const l of inv) if (itemKey(l.description)) tx.set(doc(db, "items", itemDocId(l.description)), itemEntry(l, at));
       const hist = [stamp(inv.length ? (old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`) : "Inspected by GSO — nothing inventoriable", insp.remarks || "")];
-      if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CCAR ${cc.number}`));
+      if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CAR ${cc.number}`));
       if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
       tx.update(ref, { airNo, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
         status: inv.length ? "approved" : "ccar", ...(cc ? { ccarId: cref.id, ccarNo: cc.number } : {}),
@@ -419,8 +419,8 @@ export function setPosting(kind, id, posting) {
   });
 }
 
-/* ---------------- CCAR: non-inventoriable goods and labor, as determined by the GSO ---------------- */
-// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). Every CCAR comes from the GSO's
+/* ---------------- CAR: non-inventoriable goods and labor, as determined by the GSO ---------------- */
+// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). Every CAR comes from the GSO's
 // inspection of a Delivery Report (the lines it finds non-inventoriable — see approveAir); the GSO can then correct it.
 const ccarFields = f => {
   const lines = ccarLines(f.lines);
@@ -433,15 +433,15 @@ const ccarFields = f => {
     receipt: { date: f.rDate || "", ok: !!f.rOk, name: String(f.rName || "").trim(), designation: String(f.rPos || "").trim() }
   };
 };
-/** The GSO corrects a CCAR Accounting has not posted. (Every CCAR starts from a Delivery Report — see approveAir.) */
+/** The GSO corrects a CAR Accounting has not posted. (Every CAR starts from a Delivery Report — see approveAir.) */
 export function saveCcar(id, f) {
   return wrap(async () => {
     const fields = ccarFields(f);
     let out = { id };
     await runTransaction(db, async tx => {
       const ref = doc(db, "ccars", id), cur = (await tx.get(ref)).data();
-      if (!cur || cur.status !== "accepted") throw fail("This CCAR is cancelled.");
-      if (cur.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it before changing it.");
+      if (!cur || cur.status !== "accepted") throw fail("This CAR is cancelled.");
+      if (cur.posting?.posted) throw fail("Accounting has posted this CAR. Ask Accounting to unpost it before changing it.");
       const errs = validateCcar({ ...fields, fund: cur.fund }); if (errs.length) throw fail(errs[0]);
       tx.update(ref, { ...fields, history: [...(cur.history || []), stamp("Edited by the GSO")], updatedAt: serverTimestamp() });
       out = { id, number: cur.number };
@@ -450,19 +450,19 @@ export function saveCcar(id, f) {
     return out;
   });
 }
-/** The GSO cancels a CCAR Accounting has not posted; a Delivery Report that went wholly to it goes back to For Inspection. */
+/** The GSO cancels a CAR Accounting has not posted; a Delivery Report that went wholly to it goes back to For Inspection. */
 export function cancelCcar(id, reason) {
   return wrap(async () => {
     await runTransaction(db, async tx => {
       const ref = doc(db, "ccars", id), c = (await tx.get(ref)).data();
-      if (!c || c.status !== "accepted") throw fail("This CCAR is already cancelled.");
-      if (c.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it first.");
+      if (!c || c.status !== "accepted") throw fail("This CAR is already cancelled.");
+      if (c.posting?.posted) throw fail("Accounting has posted this CAR. Ask Accounting to unpost it first.");
       const aref = c.fromAirId ? doc(db, "airs", c.fromAirId) : null, air = aref ? (await tx.get(aref)).data() : null;
       // made at the inspection of a delivery that also has an AIR: corrected with Edit, not cancelled (its items would be lost)
-      if (air && air.status !== "ccar") throw fail(`This CCAR was made with AIR ${air.airNo} when the delivery was inspected. Correct it with Edit instead.`);
+      if (air && air.status !== "ccar") throw fail(`This CAR was made with AIR ${air.airNo} when the delivery was inspected. Correct it with Edit instead.`);
       tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
       if (air?.status === "ccar" && air.ccarId === id) tx.update(aref, { status: "submitted", ccarId: "", ccarNo: "",
-        history: [...(air.history || []), stamp(`CCAR ${c.number} cancelled — back to GSO inspection`, reason)], updatedAt: serverTimestamp() });
+        history: [...(air.history || []), stamp(`CAR ${c.number} cancelled — back to GSO inspection`, reason)], updatedAt: serverTimestamp() });
     });
     audit("ccar_cancel", "ccar", id, { reason });
   });

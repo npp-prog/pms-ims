@@ -49,19 +49,24 @@ export function list(main) {
 list.deps = ["r:airs", "fund"];
 
 export function inspectQueue(main) {
-  const rows = fundAirs().filter(a => a.status === "submitted").sort((a, b) => (a.submittedAt?.seconds || 0) - (b.submittedAt?.seconds || 0));
-  main.innerHTML = `<div class="page-head"><div><h1>For Inspection</h1><p>Delivery Reports submitted by End-Users in the ${esc(fundName(S.fund))}. Open one to record the inspection and acceptance, classify each item and approve it — or return it with remarks.</p></div></div><div class="card" id="t"></div>`;
+  // every Delivery Report not yet inspected waits here — submitted, or returned to the End-User for correction; once the
+  // GSO approves it, its inventoriable items go to the AIR and the rest to the CCAR, and it leaves this list
+  const rows = fundAirs().filter(a => ["submitted", "returned"].includes(a.status)).sort((a, b) => (a.submittedAt?.seconds || 0) - (b.submittedAt?.seconds || 0));
+  main.innerHTML = `<div class="page-head"><div><h1>For Inspection</h1><p>Every Delivery Report in the ${esc(fundName(S.fund))} not yet inspected, inventoriable or not. Open one to record the inspection and acceptance and classify each item:
+    on approval the inventoriable items go to the <a href="#/airs">AIR</a> and the non-inventoriable ones to the <a href="#/ccar">CCAR</a>. Or return it to the End-User with remarks; it stays here, marked Returned, until they resubmit.</p></div></div><div class="card" id="t"></div>`;
   renderTable($("#t", main), {
     id: "inspect", rows, pageSize: 30,
-    searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.endUserName}`,
+    searchText: a => `${a.supplier} ${a.office} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
+    filters: [{ key: "st", label: "Status", options: [["submitted", "For GSO Inspection"], ["returned", "Returned to End-User"]], test: (a, v) => a.status === v }],
     columns: [
       { label: "Submitted", render: a => fmtDateTime(a.submittedAt), sort: a => a.submittedAt?.seconds || 0 },
-      { label: "AIR No.", render: a => a.airNo ? `<b>${esc(a.airNo)}</b>` : `<span class="muted small">on approval</span>`, sort: a => a.airNo },
-      { label: "Supplier", render: a => esc(a.supplier) },
-      { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>` },
-      { label: "Amount", render: a => money(a.total), cls: "right", headCls: "right" }
+      { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
+      { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${esc(a.endUserName)}</div>`, sort: a => a.office || "" },
+      { label: "Items", render: a => (a.lines || []).length, cls: "right" },
+      { label: "Amount", render: a => money(a.total), sort: a => a.total || 0, cls: "right", headCls: "right" },
+      { label: "Status", render: a => `${airBadge(a.status)}${a.status === "returned" && a.gsoRemarks ? `<div class="xs muted">${esc(a.gsoRemarks)}</div>` : ""}`, sort: a => a.status }
     ],
-    empty: "Nothing waiting for inspection.",
+    empty: "No Delivery Reports waiting for inspection.",
     onRow: a => { location.hash = `#/airs/${a.id}`; }
   });
 }

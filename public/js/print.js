@@ -43,6 +43,10 @@ const sig = (who, name, cap, pos, poscap = "Position/Office") => `<div class="co
   <div class="name">${esc(name) || "&nbsp;"}</div><div class="cap">${esc(cap)}</div>
   <div class="pos">${esc(pos) || "&nbsp;"}</div><div class="cap">${esc(poscap)}</div><div class="pos">&nbsp;</div><div class="cap">Date</div></div>`;
 const box = on => `<span class="pf-box">${on ? "&#10003;" : "&nbsp;"}</span>`;
+/** Signature boxes side by side: what is ticked above, then the signature lines in a table row of their own, so the
+ *  lines align whatever each box holds. cols: [{ body, name, caps: [caption lines] }] */
+const sigRows = cols => `<tr class="sig-top">${cols.map(c => `<td style="width:${100 / cols.length}%">${c.body}</td>`).join("")}</tr>
+  <tr class="sig-bot">${cols.map(c => `<td><div class="pf-signame">${esc(c.name || "")}</div>${c.caps.map(x => `<div class="cap c">${x}</div>`).join("")}</td>`).join("")}</tr>`;
 
 export function airHtml(a) {
   const s = settings();
@@ -58,13 +62,14 @@ export function airHtml(a) {
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(14 - (a.lines || []).length, 6)}
       <tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${num(a.total)}</b></td></tr></tbody></table>
     <table class="pt"><tr><th style="width:50%"><i>INSPECTION</i></th><th><i>ACCEPTANCE</i></th></tr>
-      <tr><td class="pf-cell">Date Inspected: <b>${a.inspection?.dateInspected ? fmtDate(a.inspection.dateInspected) : ""}</b>
-          <div style="margin-top:8px">${box(a.inspection?.inspectedOk)} Inspected, verified and found in order as to quantity and specifications</div>
-          <div class="pf-signame">${esc(a.inspection?.inspectorName || "")}</div><div class="cap c">Inspection Officer/Inspection Committee</div></td>
-        <td class="pf-cell">Date Received: <b>${a.acceptance?.dateReceived ? fmtDate(a.acceptance.dateReceived) : ""}</b>
+      ${sigRows([
+        { body: `Date Inspected: <b>${a.inspection?.dateInspected ? fmtDate(a.inspection.dateInspected) : ""}</b>
+          <div style="margin-top:8px">${box(a.inspection?.inspectedOk)} Inspected, verified and found in order as to quantity and specifications</div>`,
+          name: a.inspection?.inspectorName, caps: ["Inspection Officer/Inspection Committee"] },
+        { body: `Date Received: <b>${a.acceptance?.dateReceived ? fmtDate(a.acceptance.dateReceived) : ""}</b>
           <div style="margin-top:8px">${box(a.acceptance?.status === "complete")} Complete</div>
-          <div>${box(a.acceptance?.status === "partial")} Partial (pls. specify) <i>${esc(a.acceptance?.partialNote || "")}</i></div>
-          <div class="pf-signame">${esc(a.acceptance?.custodianName || "")}</div><div class="cap c">Supply and/or Property Custodian</div></td></tr></table>
+          <div>${box(a.acceptance?.status === "partial")} Partial (pls. specify) <i>${esc(a.acceptance?.partialNote || "")}</i></div>`,
+          name: a.acceptance?.custodianName, caps: ["Supply and/or Property Custodian"] }])}</table>
     <div class="pf-foot">Encoded by ${esc(a.endUserName || "")} (End-User)</div></div>`;
 }
 
@@ -76,10 +81,8 @@ export function ccarHtml(c) {
     <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>
     <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
-  // the three signature lines sit at the same height, whatever is ticked above them
-  const cell = (title, date, dateLabel, checks, name, cap) => `<td class="pf-cell" style="width:50%;vertical-align:top"><div style="display:flex;flex-direction:column;min-height:175px">
-      <div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>
-      <div class="pf-signame" style="margin-top:auto;padding-top:24px">${esc(name || "")}</div><div class="cap c">Signature over Printed Name</div><div class="cap c"><i>${esc(cap)}</i></div></div></td>`;
+  const cell = (title, date, dateLabel, checks, name, cap) => ({ name, caps: ["Signature over Printed Name", `<i>${esc(cap)}</i>`],
+    body: `<div><b><i>${title}</i></b></div><div style="margin-top:6px">${dateLabel}: <b>${date ? fmtDate(date) : ""}</b></div><div style="margin-top:6px">${checks}</div>` });
   return `<div class="pf">${head("CERTIFICATE OF COMPLETION AND ACCEPTANCE REPORT")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(c.fund))}</b></td></tr>
       <tr><td>Supplier: <b>${esc(c.supplier)}</b></td><td>CCAR No.: <b class="pf-num">${esc(c.number || "")}</b></td></tr>
@@ -91,11 +94,11 @@ export function ccarHtml(c) {
       <tr><td colspan="6" class="r">Labor / Services</td><td class="r">${num(c.laborTotal)}</td></tr>
       <tr><td colspan="6" class="r"><b>TOTAL</b></td><td class="r"><b>${num(c.total)}</b></td></tr></tbody></table>
     <p style="margin:8px 0;font-size:11px">This is to certify that the goods/services itemized above have been completed, delivered, and verified, and are found to be in order as to quantity and specifications. The same are hereby accepted for official use by the end-user.</p>
-    <table class="pt"><tr>
-      ${cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative")}
-      ${cell("Accepted and Received by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
-        <div>${box(r.ok)} Received in good order and condition</div>`, r.name, r.designation || "End-User — Designation / Office")}
-    </tr></table>
+    <table class="pt">${sigRows([
+      cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative"),
+      cell("Accepted and Received by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
+        <div>${box(r.ok)} Received in good order and condition</div>`, r.name, r.designation || "End-User — Designation / Office")])}
+    </table>
     <div class="pf-foot">Encoded by ${esc(c.encodedBy?.name || "")}${c.endUserName ? ` · delivery reported by ${esc(c.endUserName)} (End-User)` : ""}</div></div>`;
 }
 

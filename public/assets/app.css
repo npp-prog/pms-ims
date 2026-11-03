@@ -500,3 +500,7 @@ tr.sel td { background: var(--gold-soft) !important; }
 /* CCAR form: the three signatory boxes */
 .ccar-sign fieldset { display: flex; flex-direction: column; gap: .4rem; margin: 0; min-width: 0; }
 .ccar-sign fieldset > label:not(.check) { margin-top: .3rem; }
+/* AIR / CCAR signature boxes: the ticks above, the signature lines in a row of their own (so they align) */
+.pt tr.sig-top td { border-bottom: 0; padding: 8px 8px 0; height: 78px; }
+.pt tr.sig-bot td { border-top: 0; vertical-align: bottom; padding: 0 8px 6px; }
+.pt tr.sig-bot .pf-signame { margin-top: 26px; }

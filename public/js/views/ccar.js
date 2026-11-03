@@ -1,10 +1,10 @@
 // CCAR — Certificate of Completion and Acceptance Report: non-inventoriable goods and labor (services), as determined by
-// the GSO. Made when the GSO inspects an End-User's Delivery Report (its non-inventoriable lines), or prepared directly by
-// the GSO; posted by Accounting. It never enters the inventory or the registries.
+// the GSO. Made when the GSO inspects an End-User's Delivery Report (its non-inventoriable lines); the GSO can correct it,
+// Accounting posts it. It never enters the inventory or the registries.
 import { S, can, role, settings, airById } from "../state.js";
 import { officeSelect, $, esc, uid, busy, money, num, qty, fmtDate, manilaToday, opts, renderTable, confirmBox, B, downloadCSV } from "../ui.js";
 import { FUNDS, fundName } from "../core/catalog.js";
-import { numberingFor, CCAR_COMPONENTS, ccarLines, ccarTotals, validateCcar } from "../core/logic.js";
+import { CCAR_COMPONENTS, ccarLines, ccarTotals, validateCcar } from "../core/logic.js";
 import { saveCcar, cancelCcar, setPosting } from "../data.js";
 import { printForm, ccarHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
@@ -18,8 +18,8 @@ export function list(main) {
   const enduser = role() === "enduser";
   const rows = (S.d.ccars || []).filter(c => enduser || c.fund === S.fund);
   main.innerHTML = `<div class="page-head"><div><h1>Certificates of Completion and Acceptance (CCAR)</h1><p>Certificates of Completion and Acceptance for goods and labor / services the GSO finds
-      <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
-    <div class="btn-row">${can("issue") ? `<a class="btn primary" href="#/ccar/new">New CCAR</a>` : ""}<button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
+      <b>non-inventoriable</b>${enduser ? ` for ${esc(S.account?.office || "your office")}` : ` in the ${esc(fundName(S.fund))}`}. Every CCAR starts from a Delivery Report: the GSO makes it when inspecting one. They never enter the inventory or the registries; Accounting posts each one with its JEV.</p></div>
+    <div class="btn-row"><button class="btn" id="csv">CSV</button></div></div><div class="card" id="t"></div>`;
   const t = renderTable($("#t", main), {
     id: "ccar", rows, pageSize: 50, defaultSort: 0, defaultDir: -1,
     searchText: c => `${c.number} ${c.supplier} ${c.office} ${c.purpose} ${(c.lines || []).map(l => l.description).join(" ")}`,
@@ -44,23 +44,21 @@ export function list(main) {
 }
 list.deps = ["r:ccars", "fund"];
 
-/* ---------------- form (GSO): a new CCAR, or a correction ---------------- */
+/* ---------------- form (GSO): corrections to a CCAR made at inspection ---------------- */
 export function form(main, [id]) {
-  const c = id ? ccarById(id) : null, s = settings();
-  if (id && !c) { main.innerHTML = `<div class="notice warn">CCAR not found.</div>`; return; }
+  const c = ccarById(id), s = settings();
+  if (!c) { main.innerHTML = `<div class="notice warn">CCAR not found.</div>`; return; }
   if (c && (c.status !== "accepted" || c.posting?.posted)) { location.hash = `#/ccar/${id}`; return; }
-  const src = c || {};
-  let lines = (c?.lines || []).map(l => ({ id: l.id || uid(), component: l.component || "goods", description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost }));
+  const src = c;
+  let lines = (c.lines || []).map(l => ({ id: l.id || uid(), component: l.component || "goods", description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost }));
   if (!lines.length) lines = [{ id: uid(), component: "goods", unit: "", qty: 1 }];
-  const manual = !c && numberingFor(S.settings, "ccar").mode === "manual";
-  const v = c?.verification || {}, a = c?.acceptance || {}, r = c?.receipt || {}, today = manilaToday();
-  main.innerHTML = `<div class="page-head"><div><h1>${c ? `Edit CCAR ${esc(c.number)}` : "New Certificate of Completion and Acceptance Report"}</h1>
+  const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {}, today = manilaToday();
+  main.innerHTML = `<div class="page-head"><div><h1>Edit CCAR ${esc(c.number)}</h1>
       <p>For goods and labor / services the GSO finds <b>non-inventoriable</b>: they are accepted and expensed here, and never enter the inventory or the registries. Accounting posts the CCAR with its JEV.</p></div></div>
     <form id="cf" class="card" novalidate>
       <div class="grid g4">
-        <div><label class="req">Fund</label><select name="fund" ${c ? "disabled" : ""}>${opts(FUNDS.map(f => [f.code, f.name]), src.fund || S.fund)}</select></div>
-        ${manual ? `<div><label class="req">CCAR No.</label><input name="number"></div>` : ""}
-        <div><label class="req">CCAR date</label><input type="date" name="date" value="${esc(c?.date || today)}"></div>
+        <div><label class="req">Fund</label><select name="fund" disabled>${opts(FUNDS.map(f => [f.code, f.name]), c.fund)}</select></div>
+        <div><label class="req">CCAR date</label><input type="date" name="date" value="${esc(c.date || today)}"></div>
         <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", src.office || "", s.offices)}</div>
         <div class="span2"><label class="req">Supplier / contractor</label><input name="supplier" value="${esc(src.supplier || "")}"></div>
         <div><label>PO No.</label><input name="poNo" value="${esc(src.poNo || "")}"></div>
@@ -79,7 +77,7 @@ export function form(main, [id]) {
       <div class="grid g2 ccar-sign">
         <fieldset><legend>Verified by</legend>
           <label>Date verified</label><input type="date" name="vDate" value="${esc(v.date || today)}">
-          <label class="check"><input type="checkbox" name="vOk" ${c ? (v.ok ? "checked" : "") : "checked"}> Verified complete and in order as to quantity and specifications</label>
+          <label class="check"><input type="checkbox" name="vOk" ${v.ok ? "checked" : ""}> Verified complete and in order as to quantity and specifications</label>
           <label>Name</label><input name="vName" value="${esc(v.name ?? (S.account?.displayName || ""))}">
           <label>Designation</label><input name="vPos" value="${esc(v.position ?? "General Services Officer")}"></fieldset>
         <fieldset><legend>Accepted and received by (End-User)</legend>
@@ -87,12 +85,12 @@ export function form(main, [id]) {
           <label class="check"><input type="radio" name="aStatus" value="complete" ${a.status !== "partial" ? "checked" : ""}> Complete</label>
           <label class="check"><input type="radio" name="aStatus" value="partial" ${a.status === "partial" ? "checked" : ""}> Partial (please specify)</label>
           <input name="aNote" value="${esc(a.partialNote || "")}" placeholder="What was partial">
-          <label class="check"><input type="checkbox" name="rOk" ${c ? (r.ok ? "checked" : "") : "checked"}> Received in good order and condition</label>
+          <label class="check"><input type="checkbox" name="rOk" ${r.ok ? "checked" : ""}> Received in good order and condition</label>
           <label>Name</label><input name="rName" value="${esc(r.name ?? "")}">
           <label>Designation / Office</label><input name="rPos" value="${esc(r.designation ?? "")}"></fieldset>
       </div>
       <div class="form-msg err" id="msg"></div>
-      <div class="modal-actions"><a class="btn" href="${c ? `#/ccar/${c.id}` : "#/ccar"}">Cancel</a><button type="submit" class="btn primary">${c ? "Save changes" : "Save CCAR"}</button></div>
+      <div class="modal-actions"><a class="btn" href="#/ccar/${c.id}">Cancel</a><button type="submit" class="btn primary">Save changes</button></div>
     </form>`;
   const lb = $("#lb", main);
   const totals = () => { const t = ccarTotals(ccarLines(lines)); $("#ltot", main).innerHTML = `${num(t.goodsTotal)} / ${num(t.laborTotal)} / <b>${money(t.total)}</b>`; };
@@ -119,11 +117,11 @@ export function form(main, [id]) {
   $("#cf", main).onsubmit = e => {
     e.preventDefault();
     const f = $("#cf", main), v = Object.fromEntries(new FormData(f).entries());
-    const data = { ...v, fund: c?.fund || v.fund, vOk: f.vOk.checked, rOk: f.rOk.checked, lines };
+    const data = { ...v, vOk: f.vOk.checked, rOk: f.rOk.checked, lines };
     const errs = validateCcar({ ...data, lines: ccarLines(lines), acceptance: { status: v.aStatus, partialNote: v.aNote } });
     if (errs.length) { $("#msg", main).textContent = errs[0]; return; }
     $("#msg", main).textContent = "";
-    busy(e.submitter, async () => { const out = await saveCcar(c?.id, data); clean(); location.hash = `#/ccar/${out.id}`; },
+    busy(e.submitter, async () => { const out = await saveCcar(c.id, data); clean(); location.hash = `#/ccar/${out.id}`; },
       "CCAR saved.").catch(err => { $("#msg", main).textContent = err.message; });
   };
 }

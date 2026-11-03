@@ -403,7 +403,6 @@ service cloud.firestore {
 
     // ---------------- RSMI: prepared by the GSO from unposted RIS, posted by Accounting ----------------
     // CCAR — non-inventoriable goods and labor: the lines of a Delivery Report the GSO finds non-inventoriable at inspection
-    // (or one the GSO prepares directly)
     // and posted by Accounting. It never enters the inventory or the registries.
     match /ccars/{id} {
       allow read: if viewer() || sameOffice(resource.data.office);
@@ -411,9 +410,10 @@ service cloud.firestore {
         && request.resource.data.number is string && request.resource.data.number.size() > 0
         && request.resource.data.lines is list && request.resource.data.lines.size() > 0 && request.resource.data.total is number
         && request.resource.data.status == 'accepted' && request.resource.data.posting.posted == false
-        && (request.resource.data.fromAirId == null
-          || (getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.status in ['ccar', 'approved']
-            && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.ccarId == id));
+        // only from the GSO's inspection of a Delivery Report, in the same transaction
+        && request.resource.data.fromAirId is string
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.status in ['ccar', 'approved']
+        && getAfter(/databases/$(database)/documents/airs/$(request.resource.data.fromAirId)).data.ccarId == id;
       allow update: if
         // the GSO corrects it, or cancels it, while Accounting has not posted it
         (issuer() && resource.data.status == 'accepted' && resource.data.posting.posted == false && (

@@ -630,14 +630,18 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   const { writeBatch } = await import("firebase/firestore");
   const ccar = (o = {}) => ({ fund: "GF", number: "2026-11-0001", date: "2026-11-03", office: "MHO", supplier: "ABC", lines: [{ component: "labor", amount: 6000 }], total: 6000,
     status: "accepted", posting: { posted: false }, fromAirId: null, ...o });
-  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "airs/A_CC"), baseAir({ status: "submitted", airNo: "" })); });
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore(); await setDoc(doc(d, "airs/A_CC"), baseAir({ status: "submitted", airNo: "" }));
+    await setDoc(doc(d, "airs/A_C1"), baseAir({ status: "submitted", airNo: "" })); });
   const g = ctx("gso"), a = ctx("acc");
-  await assertSucceeds(setDoc(doc(g, "ccars/C1"), ccar()));
-  await assertFails(setDoc(doc(a, "ccars/C2"), ccar()), "Accounting doesn't prepare a CCAR");
-  await assertFails(setDoc(doc(ctx("eu"), "ccars/C3"), ccar()), "nor an End-User");
-  await assertFails(setDoc(doc(g, "ccars/C4"), ccar({ posting: { posted: true } })), "not created posted");
-  // from a submitted AIR: the AIR is closed as a CCAR in the same batch
+  await assertFails(setDoc(doc(g, "ccars/C0"), ccar()), "every CCAR starts from a Delivery Report");
   let b = writeBatch(g);
+  b.set(doc(g, "ccars/C1"), ccar({ fromAirId: "A_C1" }));
+  b.update(doc(g, "airs/A_C1"), { status: "ccar", ccarId: "C1", ccarNo: "2026-11-0001" });
+  await assertSucceeds(b.commit());
+  await assertFails(setDoc(doc(a, "ccars/C2"), ccar({ fromAirId: "A_C1" })), "Accounting doesn't make a CCAR");
+  await assertFails(setDoc(doc(ctx("eu"), "ccars/C3"), ccar({ fromAirId: "A_C1" })), "nor an End-User");
+  // from a submitted AIR: the AIR is closed as a CCAR in the same batch
+  b = writeBatch(g);
   b.set(doc(g, "ccars/C5"), ccar({ number: "2026-11-0002", fromAirId: "A_CC" }));
   b.update(doc(g, "airs/A_CC"), { status: "ccar", ccarId: "C5", ccarNo: "2026-11-0002" });
   await assertSucceeds(b.commit());

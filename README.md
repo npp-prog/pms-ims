@@ -210,7 +210,7 @@ continue at step 4.
 - **CCAR — non-inventoriable goods and labor:** what the GSO classifies **non-inventoriable** when inspecting a Delivery
   Report (for example, materials and labor of a repair, or services) goes on a **Certificate of Completion and
   Acceptance Report**, verified by the GSO and accepted and received by the End-User (the Property Custodian does not accept it). The GSO can also
-  prepare one directly (Acceptance & Inspection → CCAR → New CCAR). A CCAR that took a whole delivery can be cancelled
+  correct a CCAR with Edit; every CCAR starts from a Delivery Report. A CCAR that took a whole delivery can be cancelled
   (the Delivery Report goes back to inspection); one made together with an AIR is corrected with Edit. Each line is **Goods** or **Labor / Services**; the CCAR shows
   both subtotals and the total, two signatories — **Verified by** (GSO) and **Accepted and Received by** (End-User: complete or partial, received in
   good order) — and prints on A4

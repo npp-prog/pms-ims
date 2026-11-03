@@ -420,8 +420,8 @@ export function setPosting(kind, id, posting) {
 }
 
 /* ---------------- CCAR: non-inventoriable goods and labor, as determined by the GSO ---------------- */
-// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). Most come from the GSO's inspection
-// of a Delivery Report (the lines it finds non-inventoriable — see approveAir); the GSO can also prepare one directly.
+// Never enters the inventory or the registries: Accounting posts it like a voucher (JEV). Every CCAR comes from the GSO's
+// inspection of a Delivery Report (the lines it finds non-inventoriable — see approveAir); the GSO can then correct it.
 const ccarFields = f => {
   const lines = ccarLines(f.lines);
   return {
@@ -433,29 +433,20 @@ const ccarFields = f => {
     receipt: { date: f.rDate || "", ok: !!f.rOk, name: String(f.rName || "").trim(), designation: String(f.rPos || "").trim() }
   };
 };
-/** Saves a CCAR the GSO prepares directly: a new one takes the next CCAR No. (or the one typed, when numbering is manual). */
+/** The GSO corrects a CCAR Accounting has not posted. (Every CCAR starts from a Delivery Report — see approveAir.) */
 export function saveCcar(id, f) {
   return wrap(async () => {
-    const fields = ccarFields(f), fund = f.fund;
-    const errs = validateCcar({ ...fields, fund }); if (errs.length) throw fail(errs[0]);
+    const fields = ccarFields(f);
     let out = { id };
     await runTransaction(db, async tx => {
-      if (id) {
-        const ref = doc(db, "ccars", id), cur = (await tx.get(ref)).data();
-        if (!cur || cur.status !== "accepted") throw fail("This CCAR is cancelled.");
-        if (cur.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it before changing it.");
-        tx.update(ref, { ...fields, history: [...(cur.history || []), stamp("Edited by the GSO")], updatedAt: serverTimestamp() });
-        out = { id, number: cur.number };
-        return;
-      }
-      const ref = doc(collection(db, "ccars"));
-      const c = await readCounter(tx, fund, "ccar", fields.date, "", f.number);
-      useNumber(tx, c, ref, "ccar");
-      tx.set(ref, { ...fields, fund, number: c.number, fromAirId: null, fromAirNo: "", endUserUid: "", endUserName: "",
-        status: "accepted", posting: { posted: false }, encodedBy: me(), history: [stamp("Prepared by the GSO")], createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      out = { id: ref.id, number: c.number };
+      const ref = doc(db, "ccars", id), cur = (await tx.get(ref)).data();
+      if (!cur || cur.status !== "accepted") throw fail("This CCAR is cancelled.");
+      if (cur.posting?.posted) throw fail("Accounting has posted this CCAR. Ask Accounting to unpost it before changing it.");
+      const errs = validateCcar({ ...fields, fund: cur.fund }); if (errs.length) throw fail(errs[0]);
+      tx.update(ref, { ...fields, history: [...(cur.history || []), stamp("Edited by the GSO")], updatedAt: serverTimestamp() });
+      out = { id, number: cur.number };
     });
-    audit(id ? "ccar_edit" : "ccar_create", "ccar", out.id, { number: out.number });
+    audit("ccar_edit", "ccar", id, { number: out.number });
     return out;
   });
 }

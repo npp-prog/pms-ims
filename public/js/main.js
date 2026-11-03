@@ -127,7 +127,7 @@ const ROUTES = {
   depreciation: () => can("viewAll") && Accounting.depreciation, reconciliation: () => can("viewAll") && Accounting.reconciliation,
   import: () => isAdmin() && Import.importPage,
   cip: () => can("viewAll") && Cip.list, cipProject: () => can("viewAll") && Cip.detail, swa: () => can("viewAll") && Cip.swaList,
-  ccar: () => Ccar.list, ccarNew: () => can("issue") && Ccar.form, ccarDoc: () => Ccar.detail, ccarEdit: () => can("issue") && Ccar.form,
+  ccar: () => Ccar.list, ccarDoc: () => Ccar.detail, ccarEdit: () => can("issue") && Ccar.form,
   repairs: () => Repairs.list, repairNew: () => Repairs.form, repair: () => Repairs.detail, repairEdit: () => Repairs.form,
   reports: () => can("viewAll") && Reports.reports,
   users: () => isAdmin() && Admin.users, settings: () => isAdmin() && Admin.settingsPage, audit: () => isAdmin() && Admin.audit,
@@ -147,13 +147,12 @@ function parseHash() {
   else if (name === "repairs" && parts[1] === "new") { name = "repairNew"; params = [null, parts[2]]; }
   else if (name === "repairs" && parts[1] && parts[2] === "edit") { name = "repairEdit"; params = [parts[1]]; }
   else if (name === "repairs" && parts[1]) name = "repair";
-  else if (name === "ccar" && parts[1] === "new") { name = "ccarNew"; params = []; }
   else if (name === "ccar" && parts[1] && parts[2] === "edit") { name = "ccarEdit"; params = [parts[1]]; }
   else if (name === "ccar" && parts[1]) name = "ccarDoc";
   else if (name === "registry") { name = `registry/${parts[1] || "ppe"}`; params = parts.slice(2); }
   return { name, params };
 }
-const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs", ccarNew: "ccar", ccarDoc: "ccar", ccarEdit: "ccar" };
+const NAV_OF = { airNew: "airs/new", air: "airs", airEdit: "airs", issuance: "issuances", movement: "movements", asset: "registry/ppe", cipProject: "cip", repairNew: "repairs", repair: "repairs", repairEdit: "repairs", ccarDoc: "ccar", ccarEdit: "ccar" };
 
 // The sidebar can shrink to an icon rail (wide screens); the choice is remembered on this browser.
 const SIDE_KEY = "pmsims.sideCollapsed";

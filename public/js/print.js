@@ -1,7 +1,7 @@
 // Printable official forms. Layouts follow the ones already used in PMS (PAR, ICS, PTR, ITR) and IMS
 // (AIR, RIS, Stock Card, Supplies Ledger Card, RSMI). No appendix / annex numbers are printed.
 import { $, esc, fmtDate, num, qty, toast } from "./ui.js";
-import { settings } from "./state.js";
+import { S, settings } from "./state.js";
 import { fundName, accountName } from "./core/catalog.js";
 import { specialGroup, COMPONENTS, propertyCardRows } from "./core/cards.js";
 
@@ -61,15 +61,15 @@ export function airHtml(a) {
     <table class="pt"><thead><tr><th style="width:15%">Stock/Property No.</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(14 - (a.lines || []).length, 6)}
       <tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${num(a.total)}</b></td></tr></tbody></table>
-    <table class="pt"><tr><th style="width:50%"><i>INSPECTION</i></th><th><i>ACCEPTANCE</i></th></tr>
+    <table class="pt"><tr><th style="width:50%"><i>ACCEPTANCE</i></th><th><i>INSPECTION</i></th></tr>
       ${sigRows([
-        { body: `Date Inspected: <b>${a.inspection?.dateInspected ? fmtDate(a.inspection.dateInspected) : ""}</b>
-          <div style="margin-top:8px">${box(a.inspection?.inspectedOk)} Inspected, verified and found in order as to quantity and specifications</div>`,
-          name: a.inspection?.inspectorName, caps: ["Inspection Officer/Inspection Committee"] },
         { body: `Date Received: <b>${a.acceptance?.dateReceived ? fmtDate(a.acceptance.dateReceived) : ""}</b>
           <div style="margin-top:8px">${box(a.acceptance?.status === "complete")} Complete</div>
           <div>${box(a.acceptance?.status === "partial")} Partial (pls. specify) <i>${esc(a.acceptance?.partialNote || "")}</i></div>`,
-          name: a.acceptance?.custodianName, caps: ["Supply and/or Property Custodian"] }])}</table>
+          name: a.acceptance?.custodianName, caps: ["Supply and/or Property Custodian"] },
+        { body: `Date Inspected: <b>${a.inspection?.dateInspected ? fmtDate(a.inspection.dateInspected) : ""}</b>
+          <div style="margin-top:8px">${box(a.inspection?.inspectedOk)} Inspected, verified and found in order as to quantity and specifications</div>`,
+          name: a.inspection?.inspectorName, caps: ["Inspection Officer/Inspection Committee"] }])}</table>
     <div class="pf-foot">Encoded by ${esc(a.endUserName || "")} (End-User)</div></div>`;
 }
 
@@ -95,9 +95,9 @@ export function ccarHtml(c) {
       <tr><td colspan="6" class="r"><b>TOTAL</b></td><td class="r"><b>${num(c.total)}</b></td></tr></tbody></table>
     <p style="margin:8px 0;font-size:11px">This is to certify that the goods/services itemized above have been completed, delivered, and verified, and are found to be in order as to quantity and specifications. The same are hereby accepted for official use by the end-user.</p>
     <table class="pt">${sigRows([
-      cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative"),
-      cell("Accepted and Received by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
-        <div>${box(r.ok)} Received in good order and condition</div>`, r.name, r.designation || "End-User — Designation / Office")])}
+      cell("Received and Accepted by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
+        <div>${box(r.ok)} Received in good order and condition</div>`, r.name, r.designation || "End-User — Designation / Office"),
+      cell("Verified by:", v.date, "Date Verified", `${box(v.ok)} Verified complete and in order as to quantity and specifications`, v.name, v.position || "General Services Officer / Authorized Representative")])}
     </table>
     <div class="pf-foot">Encoded by ${esc(c.encodedBy?.name || "")}${c.endUserName ? ` · delivery reported by ${esc(c.endUserName)} (End-User)` : ""}</div></div>`;
 }
@@ -119,17 +119,19 @@ export function parHtml(d) {
 
 export function icsHtml(d) {
   const s = settings();
+  // date acquired: the item's own (the AIR's date received), else the ICS date
+  const acquired = l => S.d.assets.find(a => a.id === l.assetId)?.dateAcquired || l.dateAcquired || d.date;
   const rows = d.lines.map(l => `<tr><td class="r">${qty(l.qty)}</td><td>${esc(l.unit)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td>
     <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>
-    <td class="c">${esc(l.propertyNo)}</td><td class="c">${esc(l.usefulLife)}</td></tr>`).join("");
+    <td class="c">${esc(l.propertyNo)}</td><td class="c">${fmtDate(acquired(l))}</td><td class="c">${esc(l.usefulLife)}</td></tr>`).join("");
   return `<div class="pf">${head("INVENTORY CUSTODIAN SLIP")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)} — ${esc(d.recipient?.office || d.office)}</b></td><td></td></tr>
       <tr><td>Fund Cluster: <b>${esc(fundName(d.fund))}</b></td><td class="r">ICS No.: <b class="pf-num">${esc(d.number)}</b></td></tr></table>
     <table class="pt"><thead><tr><th rowspan="2" style="width:8%">Quantity</th><th rowspan="2" style="width:7%">Unit</th><th colspan="2">Amount</th>
-      <th rowspan="2">Description</th><th rowspan="2" style="width:13%">Inventory Item No.</th><th rowspan="2" style="width:11%">Estimated Useful Life</th></tr>
+      <th rowspan="2">Description</th><th rowspan="2" style="width:13%">Inventory Item No.</th><th rowspan="2" style="width:11%">Date Acquired</th><th rowspan="2" style="width:10%">Estimated Useful Life</th></tr>
       <tr><th style="width:10%">Unit Cost</th><th style="width:11%">Total Cost</th></tr></thead>
-      <tbody>${rows}<tr class="nothing"><td colspan="7">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 7)}
-      <tr><td colspan="3" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td><td colspan="3"></td></tr></tbody></table>
+      <tbody>${rows}<tr class="nothing"><td colspan="8">*** NOTHING FOLLOWS ***</td></tr>${blanks(16 - d.lines.length, 8)}
+      <tr><td colspan="3" class="r"><b>TOTAL</b></td><td class="r"><b>${num(d.total)}</b></td><td colspan="4"></td></tr></tbody></table>
     <div class="pf-ref">Reference: ${d.airId ? `AIR No. ${esc(d.airNo)}` : d.origin === "pms" ? "Issued in PMS" : "Property already in the register"} · ${d.sxClass === "low" ? "Low-Value" : "High-Value"} Semi-Expendable Property</div>
     <div class="sig2">${sig("Received from:", d.issuedBy?.name, "Signature over Printed Name", d.issuedBy?.position)}
       ${sig("Received by:", d.recipient?.name, "Signature over Printed Name", d.recipient?.position)}</div></div>`;

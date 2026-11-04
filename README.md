@@ -212,8 +212,8 @@ continue at step 4.
   Report**, verified by the GSO and accepted and received by the End-User (the Property Custodian does not accept it). The GSO can also
   correct a CAR with Edit; every CAR starts from a Delivery Report. A CAR that took a whole delivery can be cancelled
   (the Delivery Report goes back to inspection); one made together with an AIR is corrected with Edit. Each line is **Goods** or **Labor / Services**; the CAR shows
-  both subtotals and the total, two signatories — **Verified by** (GSO) and **Accepted and Received by** (End-User: complete or partial, received in
-  good order) — and prints on A4
+  both subtotals and the total, two signatories — Box A **Received and Accepted by** (End-User: complete or partial, received in good order) and
+  Box B **Verified by** (GSO) — and prints on A4
   portrait in the same style as the AIR. It gets its own CAR No. (Settings → Document numbering). Nothing on a CAR
   enters the inventory or the registries: Accounting posts it from For Posting with its JEV. End-Users see their
   office's CARs.

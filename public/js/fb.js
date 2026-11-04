@@ -48,7 +48,7 @@ export function authError(e) {
 
 /** Readable message for a Firestore error. */
 export function dbError(e) {
-  if (e?.code === "permission-denied") return "You don't have permission to do that, or the record changed. Refresh and try again.";
+  if (e?.code === "permission-denied") return "You don't have permission to do that, or the record changed. Refresh and try again. If it keeps happening, ask the administrator to publish the latest Firestore security rules (Firebase Console → Firestore Database → Rules).";
   if (e?.code === "unavailable") return "No connection to the database. Check your internet connection.";
   return (e?.message || "Something went wrong.").replace(/^FirebaseError:\s*/, "");
 }

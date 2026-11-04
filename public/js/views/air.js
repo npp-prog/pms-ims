@@ -240,6 +240,7 @@ export function detail(main, [id]) {
           ${a.airNo ? `<button class="btn sm" id="print">Print AIR</button>` : ""}${a.ccarId ? `<a class="btn sm" href="#/car/${esc(a.ccarId)}">Open CAR ${esc(a.ccarNo)}</a>` : ""}
           ${a.airNo && canRenumber(a) ? `<button class="btn sm" id="renum">Change AIR No.</button>` : ""}
           ${toSubmit ? `<a class="btn sm${missing.length ? " primary" : ""}" href="#/airs/${a.id}/edit">${a.status === "returned" ? "Correct and resubmit" : "Edit / submit"}</a>` : ""}
+          ${owner && a.status === "draft" ? `<button class="btn sm danger" id="deld">Delete draft</button>` : ""}
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
@@ -265,6 +266,10 @@ export function detail(main, [id]) {
     if (v) busy(e.target, () => returnAir(a.id, v.remarks), "Delivery Report returned to the End-User.").catch(() => {});
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
+  $("#deld", main) && ($("#deld", main).onclick = async e => {
+    if (!(await confirmBox({ title: "Delete this draft Delivery Report?", body: "This cannot be undone.", confirmText: "Delete", danger: true }))) return;
+    busy(e.target, async () => { await deleteAir(a.id); location.hash = "#/airs"; }, "Draft deleted.").catch(() => {});
+  });
   $("#sub", main) && ($("#sub", main).onclick = e => busy(e.target, () => saveAir(a.id, a, true), "Delivery Report submitted to the GSO for inspection.").catch(() => {}));
 }
 detail.deps = ["r:airs", "r:docs", "r:attachments"];

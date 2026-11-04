@@ -244,11 +244,12 @@ receipt) are attached:** save it as a draft, attach both on its page, then submi
 scanned SWA; choosing an SWA on a CIP billing fills in its amount and particulars.
 
 The GSO and Accounting can attach the signed copy — or any supporting document — to a **PAR, ICS or RIS**, a **PTR /
-ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 5 MB.
+ITR / PRS / RRSP / disposal**, or an **item in the register**: a PDF, JPG or PNG up to 75 MB.
 **Open** shows the file in a pop-up on the same page (PDFs in the browser's PDF viewer), with Download. An item's page also shows what is attached to its PAR / ICS and its transfers, and the registries and the
 PAR / ICS / RIS list mark what has an attachment. End-Users can open the attachments of their own office's documents
 and property. Files are kept in Firestore itself (split into 600 KB pieces), because Firebase Storage needs a paid plan;
-Firestore's free tier holds 1 GB.
+Firestore's free tier holds 1 GB (beyond that, on the Blaze plan, about US$0.18 per GB a month). A large file is uploaded
+in parts with a progress count; one cut off halfway leaves nothing behind.
 
 ### Trial Balance reconciliation
 

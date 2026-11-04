@@ -614,12 +614,12 @@ export function postSelected(items, posting, matches = {}) {
 /* ---------------- attachments (signed PAR / ICS / RIS, PTR, photos…) ---------------- */
 // Firebase Storage needs a paid plan, so files are kept in Firestore itself: the attachment record, and the file
 // split into pieces of 600 KB (attachments/{id}/chunks/{n}). A link (e.g. Google Drive) can be attached instead.
-export const ATTACH_MAX = 5 * 1024 * 1024;
+export const ATTACH_MAX = 75 * 1024 * 1024;
 export const ATTACH_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
 const CHUNK = 600 * 1024;
 const b64 = bytes => { let s = ""; for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000)); return btoa(s); };
 /** target: { type: "issuance" | "asset" | "movement", id, office, fund, label } — f: { label, file } or { label, url } */
-export function addAttachment(target, f) {
+export function addAttachment(target, f, onProgress) {
   return wrap(async () => {
     const label = String(f.label || "").trim() || "Document";
     const base = { target: { type: target.type, id: target.id }, office: target.office || "", fund: target.fund || "", label, about: target.label || "",
@@ -633,13 +633,26 @@ export function addAttachment(target, f) {
       const file = f.file;
       if (!file) throw fail("Choose a file to attach.");
       if (!ATTACH_TYPES.includes(file.type)) throw fail("Attach a PDF, JPG or PNG file.");
-      if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is 5 MB. Scan it at a lower resolution.`);
+      if (file.size > ATTACH_MAX) throw fail(`The file is ${(file.size / 1048576).toFixed(1)} MB; the limit is ${ATTACH_MAX / 1048576} MB. Scan it at a lower resolution.`);
       const bytes = new Uint8Array(await file.arrayBuffer()), n = Math.ceil(bytes.length / CHUNK) || 1;
       const { writeBatch } = await import("./fb.js");
-      const b = writeBatch(db);
-      for (let i = 0; i < n; i++) b.set(doc(db, "attachments", ref.id, "chunks", String(i)), { data: b64(bytes.subarray(i * CHUNK, (i + 1) * CHUNK)), by: S.user.uid });
-      b.set(ref, { ...base, kind: "file", name: file.name.slice(0, 120), mime: file.type, size: file.size, chunks: n }); // the record last: it only shows once the file is complete
-      await b.commit();
+      // a Firestore write may carry about 10 MB, so the pieces go up ten at a time (about 8 MB once encoded)
+      try {
+        for (let i = 0; i < n; i += 10) {
+          const b = writeBatch(db);
+          for (let k = i; k < Math.min(n, i + 10); k++) b.set(doc(db, "attachments", ref.id, "chunks", String(k)), { data: b64(bytes.subarray(k * CHUNK, (k + 1) * CHUNK)), by: S.user.uid });
+          await b.commit();
+          onProgress && onProgress(Math.min(n, i + 10) / n);
+        }
+        // the record last: it only shows once the file is complete
+        await setDoc(ref, { ...base, kind: "file", name: file.name.slice(0, 120), mime: file.type, size: file.size, chunks: n });
+      } catch (e) {
+        // an upload cut off halfway leaves no orphaned pieces behind
+        const b = writeBatch(db);
+        for (let k = 0; k < n; k++) b.delete(doc(db, "attachments", ref.id, "chunks", String(k)));
+        await b.commit().catch(() => {});
+        throw e;
+      }
     }
     audit("attachment_add", target.type, target.id, { label });
     return ref.id;

@@ -1,7 +1,7 @@
 // Attachments panel: signed PAR / ICS / RIS, PTR and other scanned documents or links, on a document or a register item.
 import { S, can, onChange } from "../state.js";
 import { $, $$, esc, busy, toast, fmtDateTime, opts, confirmBox, openModal } from "../ui.js";
-import { addAttachment, attachmentUrl, removeAttachment, ATTACH_TYPES } from "../data.js";
+import { addAttachment, attachmentUrl, removeAttachment, ATTACH_TYPES, ATTACH_MAX } from "../data.js";
 
 export const ATTACH_LABELS = ["Signed PAR", "Signed ICS", "Signed RIS", "Signed PTR / ITR", "Signed PRS / RRSP", "Disposal / IIRUP document", "Delivery receipt / invoice", "Photo", "Other"];
 const size = n => !n ? "" : n < 1048576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1048576).toFixed(1)} MB`;
@@ -40,7 +40,7 @@ export function attachmentsCard(el, target, options = {}) {
       : `<p class="muted small" style="margin:0">${canAdd ? "No documents attached yet." : "No documents attached."}</p>`}
     ${canAdd ? `<form class="att-form" data-af>
         <div><label>Document</label><select name="label">${opts(labels, defaultLabel)}</select></div>
-        <div><label>File (PDF, JPG or PNG, up to 5 MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
+        <div><label>File (PDF, JPG or PNG, up to ${ATTACH_MAX / 1048576} MB)</label><input type="file" name="file" accept="${ATTACH_TYPES.join(",")}"></div>
         <div class="btn-row end att-go"><button class="btn primary sm" type="submit">Attach</button></div></form>` : ""}</div>`;
   const form = $("[data-af]", el);
   if (form) form.onsubmit = e => {
@@ -48,7 +48,7 @@ export function attachmentsCard(el, target, options = {}) {
     const file = form.file.files[0];
     if (!file) return toast("Choose a file to attach.", "err");
     // what is being typed here counts as unsaved, so a live update doesn't wipe it; attaching clears it
-    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file }); form.reset(); form.label.value = defaultLabel; window.dispatchEvent(new Event("app:clean")); }, "Attached.").catch(() => {});
+    busy(e.submitter, async () => { await addAttachment(target, { label: form.label.value, file }, p => { e.submitter.textContent = `Uploading… ${Math.round(p * 100)}%`; }); form.reset(); form.label.value = defaultLabel; window.dispatchEvent(new Event("app:clean")); }, "Attached.").catch(() => {});
   };
   $$("[data-open]", el).forEach(b => b.onclick = () => {
     const a = list.find(x => x.id === b.closest("li").dataset.id);

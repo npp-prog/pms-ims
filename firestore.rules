@@ -120,7 +120,7 @@ service cloud.firestore {
       // the GSO and Accounting attach to documents, property and SWAs; an End-User attaches the photo and invoice to
       // an AIR of their own office
       allow create: if request.resource.data.uploadedBy.uid == request.auth.uid
-        && request.resource.data.kind in ['file', 'link'] && request.resource.data.size <= 5242880
+        && request.resource.data.kind in ['file', 'link'] && request.resource.data.size <= 78643200
         && (((issuer() || poster()) && request.resource.data.target.type in ['issuance', 'asset', 'movement', 'swa', 'air', 'ccar'])
           || (encoder() && request.resource.data.target.type == 'air' && sameOffice(request.resource.data.office)));
       allow update: if false;

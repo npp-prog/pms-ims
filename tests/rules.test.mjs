@@ -473,7 +473,8 @@ test("attachments: the GSO and Accounting attach; End-Users see their own office
   await assertSucceeds(setDoc(doc(ctx("acc"), "attachments/A2"), att("acc", { kind: "link", url: "https://drive.google.com/x", size: 0, chunks: 0, office: "MAO" })));
   await assertFails(setDoc(doc(ctx("eu"), "attachments/A3"), att("eu")), "End-Users don't attach");
   await assertFails(setDoc(doc(ctx("gso"), "attachments/A4"), att("acc")), "not in someone else's name");
-  await assertFails(setDoc(doc(ctx("gso"), "attachments/A5"), att("gso", { size: 6 * 1024 * 1024 })), "5 MB at most");
+  await assertSucceeds(setDoc(doc(ctx("gso"), "attachments/A6"), att("gso", { size: 75 * 1024 * 1024 })), "up to 75 MB");
+  await assertFails(setDoc(doc(ctx("gso"), "attachments/A5"), att("gso", { size: 75 * 1024 * 1024 + 1 })), "75 MB at most");
   await assertFails(setDoc(doc(ctx("gso"), "attachments/A6"), att("gso", { target: { type: "users", id: "x" } })));
   await assertFails(setDoc(doc(ctx("gso"), "attachments/A1/chunks/1"), { data: "x".repeat(900001), by: "gso" }));
   await assertSucceeds(getDoc(doc(ctx("eu"), "attachments/A1")));

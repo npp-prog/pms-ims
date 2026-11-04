@@ -143,7 +143,7 @@ export function detail(main, [id]) {
       <div>
         <div class="card"><div class="card-head"><h3>Goods and labor</h3><span class="small muted">Goods ${money(c.goodsTotal)} · Labor ${money(c.laborTotal)}</span></div>
           ${canMark ? `<p class="small muted" style="margin-top:0">Tick the items that go to the <b>History of Repair</b>, then save. When requesting the repair, choose this CAR.</p>` : ""}
-          <div class="table-wrap"><table><thead><tr><th>Component</th><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>History of Repair</th></tr></thead>
+          <div class="table-wrap"><table><thead><tr><th>Component</th><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>History of Repair${canMark ? `<label class="check" style="font-weight:500;margin-top:.2rem"><input type="checkbox" data-nodirty id="rlall" ${(c.lines || []).length && (c.lines || []).every(l => marked.has(l.id)) ? "checked" : ""}> Tick all</label>` : ""}</th></tr></thead>
           <tbody>${(c.lines || []).map(l => `<tr><td>${B(CCAR_COMPONENTS[l.component], l.component === "labor" ? "b-info" : "b-gold")}</td><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}</td>
             <td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td>
             <td>${canMark ? `<label class="check"><input type="checkbox" data-nodirty data-rl="${esc(l.id)}" ${marked.has(l.id) ? "checked" : ""}> Include</label>` : marked.has(l.id) ? B("Included", "b-ok") : ""}</td></tr>`).join("")}</tbody>
@@ -173,6 +173,12 @@ export function detail(main, [id]) {
       </div>
     </div>`;
   $("#print", main).onclick = () => printForm(ccarHtml(c));
+  // Tick all: every item to the History of Repair (or none); it follows the boxes ticked one by one
+  const allBox = $("#rlall", main), boxes = $$("[data-rl]", main);
+  if (allBox) {
+    allBox.onchange = () => boxes.forEach(b => { b.checked = allBox.checked; });
+    boxes.forEach(b => b.addEventListener("change", () => { allBox.checked = boxes.every(x => x.checked); }));
+  }
   $("#saverl", main) && ($("#saverl", main).onclick = e => busy(e.target, () => markCarRepairLines(c.id, $$("[data-rl]", main).filter(x => x.checked).map(x => x.dataset.rl)),
     "Saved — choose this CAR when requesting the repair.").catch(() => {}));
   attachmentsCard($("#att", main), { type: "ccar", id: c.id, office: c.office, fund: c.fund, label: `CAR ${c.number}` },

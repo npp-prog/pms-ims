@@ -76,10 +76,13 @@ Update the item list from approved AIRs** once to add the earlier ones. The GSO 
 
 1. **Request** (End-User for an item under their name, from Office Property or History of Repair; or the GSO for any
    item): complaints / defects, parts or components to repair or replace, and the nature and scope of the last repair
-   (filled in from the item's last repair).
+   (filled in from the item's last repair). **CAR included:** when the goods and labor of the repair came on a CAR, the
+   End-User first ticks those items on the CAR (**History of Repair → Include**, then **Save**), and picks that CAR here;
+   its items are noted in the request.
 2. **Pre-repair inspection** (GSO): findings / observations, inspector and date — approve for repair, or return.
 3. **Job order** (End-User or GSO, once approved): job order no. and date, repair shop, invoice, nature of repair,
-   spare parts / materials / labor with costs, Prepared by and Noted by.
+   spare parts / materials / labor with costs, Prepared by and Noted by. With a CAR chosen, its ticked items fill the
+   spare parts / labor (with their costs), the supplier and the invoice.
 4. **Post-repair inspection** (GSO): findings / comments — accept, or return. If parts were replaced, a **Waste
    Materials Report** (place of storage, items for disposal with any sale's OR, how they were disposed of).
 5. **Posting** (Accounting): posting date and JEV, from the repair or from **For Posting** (filter "Repairs").

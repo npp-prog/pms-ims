@@ -2,10 +2,10 @@
 // the GSO. Made when the GSO inspects an End-User's Delivery Report (its non-inventoriable lines); the GSO can correct it,
 // Accounting posts it. It never enters the inventory or the registries.
 import { S, can, role, settings, airById } from "../state.js";
-import { officeSelect, $, esc, uid, busy, money, num, qty, fmtDate, manilaToday, opts, renderTable, confirmBox, B, downloadCSV } from "../ui.js";
+import { officeSelect, $, $$, esc, uid, busy, money, num, qty, fmtDate, manilaToday, opts, renderTable, confirmBox, B, downloadCSV } from "../ui.js";
 import { FUNDS, fundName } from "../core/catalog.js";
 import { CCAR_COMPONENTS, ccarLines, ccarTotals, validateCcar } from "../core/logic.js";
-import { saveCcar, cancelCcar, setPosting } from "../data.js";
+import { saveCcar, cancelCcar, setPosting, markCarRepairLines } from "../data.js";
 import { printForm, ccarHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
 
@@ -133,16 +133,23 @@ export function detail(main, [id]) {
   if (!c) { main.innerHTML = `<div class="notice warn">CAR not found, or you don't have access to it.</div>`; return; }
   const open = c.status === "accepted" && !c.posting?.posted, v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
   const air = c.fromAirId ? airById(c.fromAirId) : null;
+  // which items go to the History of Repair: marked by the End-Users of its office (or the GSO); a repair then picks this CAR
+  const marked = new Set(c.repairLines || []), repair = (S.d.repairs || []).find(x => x.ccarId === c.id);
+  const canMark = c.status === "accepted" && (can("issue") || (role() === "enduser" && !!S.account?.office && S.account.office === c.office));
   main.innerHTML = `<div class="page-head"><div><h1>CAR ${esc(c.number)}</h1><p>${esc(fundName(c.fund))} · ${esc(c.office)} · ${esc(c.supplier)} · non-inventoriable</p></div>
       <div class="btn-row">${badge(c)}</div></div>
     ${c.status === "cancelled" ? `<div class="notice bad"><b>Cancelled</b>${c.cancel?.reason ? ` — ${esc(c.cancel.reason)}` : ""}${c.fromAirId ? ". The Delivery Report went back to GSO inspection." : ""}</div>` : ""}
     <div class="split">
       <div>
         <div class="card"><div class="card-head"><h3>Goods and labor</h3><span class="small muted">Goods ${money(c.goodsTotal)} · Labor ${money(c.laborTotal)}</span></div>
-          <div class="table-wrap"><table><thead><tr><th>Component</th><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th></tr></thead>
+          ${canMark ? `<p class="small muted" style="margin-top:0">Tick the items that go to the <b>History of Repair</b>, then save. When requesting the repair, choose this CAR.</p>` : ""}
+          <div class="table-wrap"><table><thead><tr><th>Component</th><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>History of Repair</th></tr></thead>
           <tbody>${(c.lines || []).map(l => `<tr><td>${B(CCAR_COMPONENTS[l.component], l.component === "labor" ? "b-info" : "b-gold")}</td><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}</td>
-            <td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td></tr>`).join("")}</tbody>
-          <tfoot><tr><td colspan="5" class="right">Total</td><td class="right">${money(c.total)}</td></tr></tfoot></table></div></div>
+            <td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td>
+            <td>${canMark ? `<label class="check"><input type="checkbox" data-nodirty data-rl="${esc(l.id)}" ${marked.has(l.id) ? "checked" : ""}> Include</label>` : marked.has(l.id) ? B("Included", "b-ok") : ""}</td></tr>`).join("")}</tbody>
+          <tfoot><tr><td colspan="5" class="right">Total</td><td class="right">${money(c.total)}</td><td></td></tr></tfoot></table></div>
+          ${canMark ? `<div class="btn-row end" style="margin-top:.6rem"><button class="btn sm primary" id="saverl">Save History of Repair items</button></div>` : ""}
+          ${repair ? `<p class="small" style="margin-bottom:0">Included in the repair of <a href="#/repairs/${esc(repair.id)}">${esc(repair.propertyNo || repair.description)}${repair.jobOrderNo ? ` — JO ${esc(repair.jobOrderNo)}` : ""}</a>.</p>` : ""}</div>
         <div class="card"><h3>Verification, acceptance and receipt</h3><dl class="kv">
           <dt>Verified</dt><dd>${v.date ? fmtDate(v.date) : "—"} · ${esc(v.name || "—")}${v.ok ? " · complete and in order" : ""}</dd>
           <dt>Accepted and received</dt><dd>${r.date ? fmtDate(r.date) : "—"} · ${esc(r.name || "—")}${r.designation ? ` (${esc(r.designation)})` : ""} · ${a.status === "partial" ? `Partial — ${esc(a.partialNote)}` : a.status === "complete" ? "Complete" : "—"}${r.ok ? " · good order and condition" : ""}</dd></dl></div>
@@ -166,6 +173,8 @@ export function detail(main, [id]) {
       </div>
     </div>`;
   $("#print", main).onclick = () => printForm(ccarHtml(c));
+  $("#saverl", main) && ($("#saverl", main).onclick = e => busy(e.target, () => markCarRepairLines(c.id, $$("[data-rl]", main).filter(x => x.checked).map(x => x.dataset.rl)),
+    "Saved — choose this CAR when requesting the repair.").catch(() => {}));
   attachmentsCard($("#att", main), { type: "ccar", id: c.id, office: c.office, fund: c.fund, label: `CAR ${c.number}` },
     { title: "Signed CAR and other attachments", labels: ["Signed CAR", "Photo", "Invoice", "Delivery receipt", "Purchase order", "Other"], defaultLabel: "Signed CAR",
       also: c.fromAirId ? [{ type: "air", id: c.fromAirId }] : [] });
@@ -178,4 +187,4 @@ export function detail(main, [id]) {
       busy(e.target, () => setPosting("ccar", c.id, null), "Posting removed.").catch(() => {});
   });
 }
-detail.deps = ["r:ccars", "r:airs", "r:attachments"];
+detail.deps = ["r:ccars", "r:airs", "r:attachments", "r:repairs"];

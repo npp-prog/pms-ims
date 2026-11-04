@@ -77,6 +77,8 @@ export function form(main, [id, assetId]) {
         <div class="spanall"><label>Office</label>${officeSelect("office", r?.office || "", settings().offices)}</div>
         <div class="spanall"><label class="${jo ? "" : "req"}">Complaints / defects</label><textarea name="complaints" rows="2">${v("complaints")}</textarea></div>
         <div class="spanall"><label>Parts / components to be repaired or replaced</label><textarea name="partsToRepair" rows="2">${v("partsToRepair")}</textarea></div>
+        <div class="spanall"><label>CAR included</label><select name="ccarId" id="ccarsel"></select>
+          <div class="xs muted">A Completion and Acceptance Report whose items were marked for the History of Repair. Its marked items become this repair's spare parts / labor.</div></div>
         <div class="spanall"><label>Nature and scope of last repair, if any</label><input name="lastRepair" value="${esc(r?.lastRepair ?? lastText(last))}"></div>
       </div>
       <div ${jo ? "" : "hidden"}>
@@ -115,8 +117,28 @@ export function form(main, [id, assetId]) {
   pl.addEventListener("input", e => { const tr = e.target.closest("tr"), k = e.target.dataset.k; if (!tr || !k) return; parts[+tr.dataset.i][k] = e.target.value; $("#pt", main).textContent = money(repairTotal({ parts })); });
   pl.addEventListener("click", e => { if (!e.target.closest("[data-rm]")) return; parts.splice(+e.target.closest("tr").dataset.i, 1); if (!parts.length) parts.push({}); draw(); });
   $("#addp", main).onclick = () => { parts.push({}); draw(); };
+  // CARs with items marked for the History of Repair (for this item's fund), not already on another repair
+  const carLines = c => (c.lines || []).filter(l => (c.repairLines || []).includes(l.id));
+  const carOpts = () => {
+    const used = new Set(S.d.repairs.filter(x => x.id !== r?.id && x.ccarId).map(x => x.ccarId));
+    const list = (S.d.ccars || []).filter(c => c.status === "accepted" && carLines(c).length && !used.has(c.id) && (!asset || c.fund === asset.fund) || c.id === r?.ccarId);
+    $("#ccarsel", main).innerHTML = `<option value="">None</option>` + list.map(c => `<option value="${esc(c.id)}" ${c.id === r?.ccarId ? "selected" : ""}>CAR ${esc(c.number)} — ${esc(c.supplier)} — ${carLines(c).length} item${carLines(c).length === 1 ? "" : "s"}, ${money(carLines(c).reduce((t, l) => t + (Number(l.amount) || 0), 0))}</option>`).join("");
+  };
+  carOpts();
+  $("#ccarsel", main).onchange = () => {
+    const c = (S.d.ccars || []).find(x => x.id === $("#ccarsel", main).value); if (!c) return;
+    const ls = carLines(c);
+    if (!f.partsToRepair.value.trim()) f.partsToRepair.value = ls.map(l => l.description).join("; ");
+    if (jo) {
+      parts.splice(0, parts.length, ...ls.map(l => ({ qty: l.qty, unit: l.unit, description: l.description, cost: l.amount, remarks: `CAR ${c.number}${l.component === "labor" ? " · labor" : ""}` })));
+      f.supplier.value ||= c.supplier || ""; f.invoiceNo.value ||= c.invNo || ""; f.invoiceDate.value ||= c.invDate || "";
+      draw();
+    }
+  };
+  // the CAR chosen with the request fills the job order's spare parts / labor
+  if (jo && r?.ccarId && !r.parts?.length) $("#ccarsel", main).onchange();
   const fill = a => { if (!a) return; f.makeModel.value ||= a.description || ""; f.endUser.value ||= a.holder?.name || ""; f.office.value ||= a.holder?.office || a.location || ""; if (role() === "enduser") f.designation.value ||= S.account?.position || ""; f.lastRepair.value ||= lastText(lastRepairOf(a.id)); };
-  if (!r) { fill(asset); f.assetId && (f.assetId.onchange = () => { asset = assetById(f.assetId.value); ["makeModel", "endUser", "office", "lastRepair"].forEach(k => { f[k].value = ""; }); fill(asset); }); }
+  if (!r) { fill(asset); f.assetId && (f.assetId.onchange = () => { asset = assetById(f.assetId.value); carOpts(); ["makeModel", "endUser", "office", "lastRepair"].forEach(k => { f[k].value = ""; }); fill(asset); }); }
   f.onsubmit = e => {
     e.preventDefault();
     const data = { ...Object.fromEntries(new FormData(f).entries()), parts: jo ? parts : [] };
@@ -127,7 +149,7 @@ export function form(main, [id, assetId]) {
     }, jo ? "Sent to the GSO for the post-repair inspection." : "Repair requested — the GSO will do the pre-repair inspection.").catch(() => {});
   };
 }
-form.deps = [];
+form.deps = ["r:ccars"];
 
 export function detail(main, [id]) {
   const r = S.d.repairs.find(x => x.id === id);
@@ -179,6 +201,7 @@ export function detail(main, [id]) {
         <dt>Make &amp; model</dt><dd>${esc(r.makeModel || "—")}</dd>
         ${r.unitSerialNo ? `<dt>Unit / serial no.</dt><dd>${esc(r.unitSerialNo)}</dd>` : ""}${r.engineSerialNo ? `<dt>Engine serial no.</dt><dd>${esc(r.engineSerialNo)}</dd>` : ""}${r.plateNo ? `<dt>Plate no.</dt><dd>${esc(r.plateNo)}</dd>` : ""}
         <dt>End user</dt><dd>${esc(r.endUser || "—")}${r.designation ? ` · ${esc(r.designation)}` : ""}<div class="xs muted">${esc(r.office)}</div></dd>
+        ${r.ccarNo ? `<dt>CAR included</dt><dd>${(S.d.ccars || []).some(c => c.id === r.ccarId) ? `<a href="#/car/${esc(r.ccarId)}">CAR ${esc(r.ccarNo)}</a>` : `CAR ${esc(r.ccarNo)}`}</dd>` : ""}
         ${r.jobOrderNo ? `<dt>Job order</dt><dd>${esc(r.jobOrderNo)} · ${fmtDate(r.jobOrderDate)}</dd><dt>Supplier</dt><dd>${esc(r.supplier || "—")}</dd>
         <dt>Invoice / PO</dt><dd>${esc(r.invoiceNo || "—")}${r.invoiceDate ? ` · ${fmtDate(r.invoiceDate)}` : ""}</dd>${r.nature ? `<dt>Nature</dt><dd>${esc(r.nature)}</dd>` : ""}` : ""}
         ${r.posting?.posted ? `<dt>Posted</dt><dd>${esc(r.posting.ref)} · ${fmtDate(r.posting.date)}</dd>` : ""}

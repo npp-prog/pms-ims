@@ -421,7 +421,10 @@ service cloud.firestore {
             'goodsTotal', 'laborTotal', 'verification', 'acceptance', 'receipt', 'history', 'updatedAt']) && request.resource.data.lines.size() > 0)
           || (request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))))
         // Accounting posts / unposts it
-        || (poster() && resource.data.status == 'accepted' && onlyChanged(['posting', 'updatedAt']));
+        || (poster() && resource.data.status == 'accepted' && onlyChanged(['posting', 'updatedAt']))
+        // the End-Users of its office (or the GSO) mark which of its items go to the History of Repair
+        || ((sameOffice(resource.data.office) || issuer()) && resource.data.status == 'accepted'
+          && onlyChanged(['repairLines', 'updatedAt']) && request.resource.data.repairLines is list);
       allow delete: if false;
     }
 

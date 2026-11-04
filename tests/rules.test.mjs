@@ -668,4 +668,9 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   await env.withSecurityRulesDisabled(async c => { const d = c.firestore(); await updateDoc(doc(d, "users/eu"), { office: "MHO" }); await updateDoc(doc(d, "users/eu2"), { office: "Other" }); });
   await assertSucceeds(getDoc(doc(ctx("eu"), "ccars/C1")));
   await assertFails(getDoc(doc(ctx("eu2"), "ccars/C1")));
+  // the office's End-Users (or the GSO) mark which CAR items go to the History of Repair — and nothing else
+  await assertSucceeds(updateDoc(doc(ctx("eu"), "ccars/C1"), { repairLines: ["l1"] }));
+  await assertFails(updateDoc(doc(ctx("eu2"), "ccars/C1"), { repairLines: [] }), "another office's End-User");
+  await assertFails(updateDoc(doc(ctx("eu"), "ccars/C1"), { repairLines: ["l1"], total: 1 }), "only the marks");
+  await assertSucceeds(updateDoc(doc(g, "ccars/C1"), { repairLines: [] }));
 });

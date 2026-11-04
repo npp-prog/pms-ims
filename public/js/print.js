@@ -523,7 +523,7 @@ export function repairHistoryHtml(a, records) {
   const list = records.slice().sort((x, y) => String(x.jobOrderDate).localeCompare(String(y.jobOrderDate)));
   const latest = list.at(-1) || {};
   const grand = list.reduce((t, r) => t + (Number(r.totalCost) || 0), 0);
-  const block = r => `<table class="pmeta-t" style="margin-top:8px"><tr><td>Job Order No./Date: <b>${esc(r.jobOrderNo)} — ${fmtDate(r.jobOrderDate)}</b></td><td>Invoice/PO No./Date: <b>${esc(r.invoiceNo || "—")}${r.invoiceDate ? ` — ${fmtDate(r.invoiceDate)}` : ""}</b></td></tr>
+  const block = r => `<table class="pmeta-t" style="margin-top:8px"><tr><td>Job Order No./Date: <b>${esc(r.jobOrderNo)} — ${fmtDate(r.jobOrderDate)}</b></td><td>Invoice/PO No./Date: <b>${esc(r.invoiceNo || "—")}${r.invoiceDate ? ` — ${fmtDate(r.invoiceDate)}` : ""}</b></td></tr>${r.ccarNo ? `<tr><td>CAR No.: <b>${esc(r.ccarNo)}</b></td><td></td></tr>` : ""}
       <tr><td>Nature of repair: <b>${esc(r.nature || "—")}</b></td><td>Supplier: <b>${esc(r.supplier || "—")}</b></td></tr></table>
     <table class="pt"><thead><tr><th style="width:8%">Qty</th><th style="width:10%">Unit</th><th>Spare parts / Materials and Labor</th><th style="width:15%">Cost</th><th style="width:22%">Remarks</th></tr></thead>
       <tbody>${r.parts.map(l => `<tr><td class="r">${Number(l.qty) ? qty(l.qty) : ""}</td><td>${esc(l.unit)}</td><td>${esc(l.description)}</td><td class="r">${num(l.cost)}</td><td>${esc(l.remarks)}</td></tr>`).join("")}

@@ -450,6 +450,13 @@ export function saveCcar(id, f) {
     return out;
   });
 }
+/** The End-User (of the CAR's office) or the GSO marks which CAR lines go to the History of Repair. */
+export function markCarRepairLines(id, lineIds) {
+  return wrap(async () => {
+    await updateDoc(doc(db, "ccars", id), { repairLines: [...new Set(lineIds)], updatedAt: serverTimestamp() });
+    audit("car_repair_lines", "ccar", id, { lines: lineIds.length });
+  });
+}
 /** The GSO cancels a CAR Accounting has not posted; a Delivery Report that went wholly to it goes back to For Inspection. */
 export function cancelCcar(id, reason) {
   return wrap(async () => {
@@ -1345,7 +1352,9 @@ export function saveRepair(id, f, asset) {
       endUser: t("endUser"), designation: t("designation"), office: t("office"),
       complaints: t("complaints"), partsToRepair: t("partsToRepair"), lastRepair: t("lastRepair"),
       jobOrderNo: t("jobOrderNo"), jobOrderDate: f.jobOrderDate || "", invoiceNo: t("invoiceNo"), invoiceDate: f.invoiceDate || "", supplier: t("supplier"),
-      nature: t("nature"), parts, totalCost: repairTotal({ parts }), preparedBy: { name: t("preparedBy"), position: t("preparedByPos") },
+      nature: t("nature"), parts, totalCost: repairTotal({ parts }),
+      // the CAR whose items (marked for the History of Repair) this repair includes
+      ccarId: t("ccarId"), ccarNo: (S.d.ccars || []).find(c => c.id === t("ccarId"))?.number || "", preparedBy: { name: t("preparedBy"), position: t("preparedByPos") },
       notedBy: { name: t("notedBy"), position: t("notedByPos") }, status: stage === "request" ? "requested" : "repaired", updatedAt: serverTimestamp()
     };
     if (id) await updateDoc(doc(db, "repairs", id), data);

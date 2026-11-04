@@ -50,7 +50,10 @@ const sigRows = cols => `<tr class="sig-top">${cols.map(c => `<td style="width:$
 
 export function airHtml(a) {
   const s = settings();
-  const rows = (a.lines || []).map(l => `<tr><td>${esc(l.stockNo || l.propertyNo || "")}</td>
+  // Stock No. (supplies) or Property / Inventory Item No. — given at inspection, or on the PAR / ICS issued from the line
+  const nos = l => l.stockNo || l.propertyNo || [...new Set(S.d.docs.filter(d => d.airId === a.id && d.status !== "cancelled")
+    .flatMap(d => (d.lines || []).filter(x => x.airLineId === l.id).map(x => x.propertyNo)).filter(Boolean))].join(", ");
+  const rows = (a.lines || []).map(l => `<tr><td>${esc(nos(l))}</td>
     <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>
     <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   return `<div class="pf">${head("ACCEPTANCE AND INSPECTION REPORT")}
@@ -58,7 +61,7 @@ export function airHtml(a) {
       <tr><td>Supplier: <b>${esc(a.supplier)}</b></td><td>AIR No.: <b>${esc(a.airNo || "")}</b></td></tr>
       <tr><td>PO No./Date: <b>${esc(a.poNo)}${a.poDate ? " / " + fmtDate(a.poDate) : ""}</b></td><td>Date: <b>${fmtDate(a.date)}</b></td></tr>
       <tr><td>Requisitioning Office/Dept.: <b>${esc(a.office)}</b></td><td>Invoice No./Date: <b>${esc(a.invNo)}${a.invDate ? " / " + fmtDate(a.invDate) : ""}</b></td></tr></table>
-    <table class="pt"><thead><tr><th style="width:15%">Stock/Property No.</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>
+    <table class="pt"><thead><tr><th style="width:15%">Stock / Property / Item No.</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(14 - (a.lines || []).length, 6)}
       <tr><td colspan="5" class="r"><b>TOTAL</b></td><td class="r"><b>${num(a.total)}</b></td></tr></tbody></table>
     <table class="pt"><tr><th style="width:50%"><i>ACCEPTANCE</i></th><th><i>INSPECTION</i></th></tr>

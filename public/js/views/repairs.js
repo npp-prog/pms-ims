@@ -201,7 +201,7 @@ export function detail(main, [id]) {
         <dt>Make &amp; model</dt><dd>${esc(r.makeModel || "—")}</dd>
         ${r.unitSerialNo ? `<dt>Unit / serial no.</dt><dd>${esc(r.unitSerialNo)}</dd>` : ""}${r.engineSerialNo ? `<dt>Engine serial no.</dt><dd>${esc(r.engineSerialNo)}</dd>` : ""}${r.plateNo ? `<dt>Plate no.</dt><dd>${esc(r.plateNo)}</dd>` : ""}
         <dt>End user</dt><dd>${esc(r.endUser || "—")}${r.designation ? ` · ${esc(r.designation)}` : ""}<div class="xs muted">${esc(r.office)}</div></dd>
-        ${r.ccarNo ? `<dt>CAR included</dt><dd>${(S.d.ccars || []).some(c => c.id === r.ccarId) ? `<a href="#/car/${esc(r.ccarId)}">CAR ${esc(r.ccarNo)}</a>` : `CAR ${esc(r.ccarNo)}`}</dd>` : ""}
+        ${r.ccarNo ? (car => `<dt>CAR included</dt><dd>${car ? `<a href="#/car/${esc(r.ccarId)}">CAR ${esc(car.number)}</a>` : `CAR ${esc(r.ccarNo)}`}</dd>`)((S.d.ccars || []).find(c => c.id === r.ccarId)) : ""}
         ${r.jobOrderNo ? `<dt>Job order</dt><dd>${esc(r.jobOrderNo)} · ${fmtDate(r.jobOrderDate)}</dd><dt>Supplier</dt><dd>${esc(r.supplier || "—")}</dd>
         <dt>Invoice / PO</dt><dd>${esc(r.invoiceNo || "—")}${r.invoiceDate ? ` · ${fmtDate(r.invoiceDate)}` : ""}</dd>${r.nature ? `<dt>Nature</dt><dd>${esc(r.nature)}</dd>` : ""}` : ""}
         ${r.posting?.posted ? `<dt>Posted</dt><dd>${esc(r.posting.ref)} · ${fmtDate(r.posting.date)}</dd>` : ""}

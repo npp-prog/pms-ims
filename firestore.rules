@@ -139,7 +139,7 @@ service cloud.firestore {
       allow create: if active() && request.resource.data.by == request.auth.uid;
       allow update: if false;
       // released when the GSO renumbers a 2026 document: only once the document no longer carries this number
-      allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris'] && resource.data.path is string
+      allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris', 'ccar'] && resource.data.path is string
         && getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
              .data.get(resource.data.type == 'air' ? 'airNo' : 'number', '') != resource.data.number;
     }
@@ -193,6 +193,13 @@ service cloud.firestore {
         // Accounting posts / unposts the receipt of supplies
         || (poster() && resource.data.status in ['approved', 'issued']
           && onlyChanged(['posting', 'history', 'updatedAt']))
+        // the GSO cancels an approved AIR Accounting has not posted (the app checks nothing issued from it is still live)
+        || (issuer() && resource.data.status == 'approved' && request.resource.data.status == 'cancelled'
+          && resource.data.get('posting', {}).get('posted', false) == false
+          && onlyChanged(['status', 'cancel', 'history', 'updatedAt']))
+        // its CAR was renumbered: the Delivery Report's copy of the CAR No. follows
+        || (issuer() && resource.data.get('ccarId', '') != '' && onlyChanged(['ccarNo', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/ccars/$(resource.data.ccarId)).data.number == request.resource.data.ccarNo)
         // GSO inspects a Delivery Report with nothing inventoriable: it all goes to a CCAR (created in the same transaction) …
         || (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'ccar' && request.resource.data.airNo == resource.data.airNo
           && onlyChanged(['status', 'ccarId', 'ccarNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'approvedBy', 'approvedAt', 'history', 'updatedAt'])
@@ -422,6 +429,9 @@ service cloud.firestore {
           || (request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))))
         // Accounting posts / unposts it
         || (poster() && resource.data.status == 'accepted' && onlyChanged(['posting', 'updatedAt']))
+        // the GSO renumbers a CAR dated 2026, like an AIR
+        || (issuer() && in2026(resource.data) && resource.data.status == 'accepted' && request.resource.data.number is string
+          && request.resource.data.number.size() > 0 && onlyChanged(['number', 'renumbered', 'updatedAt']))
         // the End-Users of its office (or the GSO) mark which of its items go to the History of Repair
         || ((sameOffice(resource.data.office) || issuer()) && resource.data.status == 'accepted'
           && onlyChanged(['repairLines', 'updatedAt']) && request.resource.data.repairLines is list);

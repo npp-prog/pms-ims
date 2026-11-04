@@ -231,9 +231,15 @@ continue at step 4.
 - **The GSO corrects the items at inspection** (description, specifications, unit, quantity, unit cost); the change is
   recorded on the AIR. Stock numbers of supplies are suggested from the Inventory Registry: the item's own if it is
   already there, otherwise the next in its account's series.
-- **Renumbering 2026 documents:** the GSO can change the number of an AIR, PAR, ICS or RIS **dated 2026** (Change
-  number). The new number must be free in the fund; the old one is released, and the AIR No. on its PAR / ICS / RIS and
-  the numbers on the items follow. The PAR / ICS / RIS list links each document to its AIR.
+- **Renumbering 2026 documents:** the GSO can change the number of an AIR, CAR, PAR, ICS or RIS **dated 2026**
+  (Change number). The new number must be free in the fund; the old one is released, and the AIR No. on its PAR / ICS /
+  RIS, the CAR No. on its Delivery Report, and the numbers on the items follow. The PAR / ICS / RIS list links each
+  document to its AIR.
+- **Cancelling an AIR:** the GSO can cancel an approved AIR while nothing issued from it is still live (cancel its PAR /
+  ICS / RIS first) and Accounting has not posted it. It keeps its number, marked Cancelled (AIR list → Status →
+  Cancelled); a CAR from the same Delivery Report is not affected.
+- **Stock / Item No. on the AIR:** each line shows its Stock No. (supplies) or Property / Inventory Item No. — given at
+  inspection, or the numbers on the PAR / ICS issued from it — on the AIR page and the printed AIR.
 
 ### Attachments (signed PAR / ICS / RIS and other documents)
 

@@ -107,7 +107,7 @@ export const remainingQty = l => round2((Number(l.qty) || 0) - (Number(l.issuedQ
 /** Workflow status of an AIR, as stored. "approved" AIRs are then described by issuance progress. */
 export const AIR_STATUS = {
   draft: "Draft", submitted: "For GSO Inspection", returned: "Returned to End-User",
-  approved: "For Issuance", issued: "Fully Issued", ccar: "Non-inventoriable (CAR)"
+  approved: "For Issuance", issued: "Fully Issued", ccar: "Non-inventoriable (CAR)", cancelled: "Cancelled"
 };
 
 /* ---------------- CAR: non-inventoriable goods and labor (services), as determined by the GSO ---------------- */

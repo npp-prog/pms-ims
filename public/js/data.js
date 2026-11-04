@@ -365,9 +365,9 @@ export function renumber(kind, id, newNumber, reason = "") {
     if (!number) throw fail("Enter the new number.");
     let label = "";
     await runTransaction(db, async tx => {
-      const ref = doc(db, kind === "air" ? "airs" : "issuances", id), snap = await tx.get(ref);
+      const ref = doc(db, kind === "air" ? "airs" : kind === "ccar" ? "ccars" : "issuances", id), snap = await tx.get(ref);
       const d = snap.data(); if (!d) throw fail("This document no longer exists.");
-      const type = kind === "air" ? "air" : d.docType, old = kind === "air" ? d.airNo : d.number;
+      const type = kind === "air" ? "air" : kind === "ccar" ? "ccar" : d.docType, old = kind === "air" ? d.airNo : d.number;
       label = kind === "air" ? "AIR" : DOC_LABEL[type];
       if (!String(d.date || "").startsWith("2026-")) throw fail("Only documents dated 2026 can be renumbered.");
       if (kind === "air" && !old) throw fail("This AIR has no number yet — the GSO gives it on approval.");
@@ -378,13 +378,16 @@ export function renumber(kind, id, newNumber, reason = "") {
       const hadOld = (await tx.get(oldClaim)).exists();
       // what follows the number
       const docs = kind === "air" ? S.d.docs.filter(x => x.airId === id) : [];
-      const assetIds = kind === "air" ? S.d.assets.filter(a => a.source?.airId === id).map(a => a.id) : (d.lines || []).map(l => l.assetId).filter(Boolean);
+      const assetIds = kind === "air" ? S.d.assets.filter(a => a.source?.airId === id).map(a => a.id) : kind === "ccar" ? [] : (d.lines || []).map(l => l.assetId).filter(Boolean);
+      // a CAR's Delivery Report keeps its copy of the CAR No.
+      const carAir = kind === "ccar" && d.fromAirId ? await tx.get(doc(db, "airs", d.fromAirId)) : null;
       const assets = [];
       for (const aid of assetIds) { const x = await tx.get(doc(db, "assets", aid)); if (x.exists()) assets.push(x); }
       const note = `${label} No. ${old} → ${number}`;
       tx.set(claim, { number, type, path: ref.path, by: S.user.uid, at: serverTimestamp() });
       if (kind === "air") tx.update(ref, { airNo: number, history: [...(d.history || []), stamp(`AIR renumbered: ${old} → ${number}`, reason)], updatedAt: serverTimestamp() });
       else tx.update(ref, { number, renumbered: [...(d.renumbered || []), { from: old, to: number, reason, by: me(), at: new Date().toISOString() }], updatedAt: serverTimestamp() });
+      if (carAir?.exists() && carAir.data().ccarId === id) tx.update(carAir.ref, { ccarNo: number, updatedAt: serverTimestamp() });
       if (hadOld) tx.delete(oldClaim);
       for (const x of docs) tx.update(doc(db, "issuances", x.id), { airNo: number, updatedAt: serverTimestamp() });
       for (const x of assets) {
@@ -392,8 +395,28 @@ export function renumber(kind, id, newNumber, reason = "") {
         tx.update(x.ref, { source, history: [...(a.history || []), stamp(`Renumbered: ${note}`, reason)], updatedAt: serverTimestamp() });
       }
     });
-    audit("renumber", kind === "air" ? "air" : "issuance", id, { to: number, reason });
+    audit("renumber", kind === "air" ? "air" : kind === "ccar" ? "ccar" : "issuance", id, { to: number, reason });
     return number;
+  });
+}
+
+/**
+ * The GSO cancels an approved AIR: only while nothing was issued from it (or all of it was cancelled) and Accounting has
+ * not posted it. Its number stays with it. A CAR made from the same Delivery Report is not affected.
+ */
+export function cancelAir(id, reason) {
+  return wrap(async () => {
+    if (!String(reason || "").trim()) throw fail("Enter the reason for cancelling.");
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "airs", id), a = (await tx.get(ref)).data();
+      if (!a || a.status !== "approved") throw fail("Only an approved AIR with nothing issued from it can be cancelled.");
+      if (a.posting?.posted) throw fail("Accounting has posted this AIR. Ask Accounting to unpost it first.");
+      const live = S.d.docs.filter(d => d.airId === id && d.status !== "cancelled");
+      if (live.length) throw fail(`Cancel the documents issued from this AIR first: ${live.map(d => `${d.docType.toUpperCase()} ${d.number}`).join(", ")}.`);
+      tx.update(ref, { status: "cancelled", cancel: { reason: String(reason).trim(), by: me(), at: new Date().toISOString() },
+        history: [...(a.history || []), stamp("AIR cancelled by the GSO", String(reason).trim())], updatedAt: serverTimestamp() });
+    });
+    audit("air_cancel", "air", id, { reason });
   });
 }
 

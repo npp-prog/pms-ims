@@ -8,6 +8,7 @@ import { CCAR_COMPONENTS, ccarLines, ccarTotals, validateCcar } from "../core/lo
 import { saveCcar, cancelCcar, setPosting, markCarRepairLines } from "../data.js";
 import { printForm, ccarHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
+import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
 const ccarById = id => (S.d.ccars || []).find(c => c.id === id);
@@ -165,6 +166,7 @@ export function detail(main, [id]) {
           <dt>Prepared by</dt><dd>${esc(c.encodedBy?.name || "")}</dd></dl>
         <div class="btn-row" style="margin-top:1rem">
           <button class="btn sm" id="print">Print CAR</button>
+          ${canRenumber(c) && c.status === "accepted" ? `<button class="btn sm" id="renum">Change CAR No.</button>` : ""}
           ${can("issue") && open ? `<a class="btn sm" href="#/car/${c.id}/edit">Edit</a>${!c.fromAirId || air?.status === "ccar" ? `<button class="btn sm danger" id="cx">Cancel CAR</button>` : ""}` : ""}
           ${can("post") && open ? `<a class="btn sm primary" href="#/posting">Post in For Posting</a>` : ""}
           ${can("post") && c.status === "accepted" && c.posting?.posted ? `<button class="btn sm danger" id="un">Unpost</button>` : ""}
@@ -173,6 +175,7 @@ export function detail(main, [id]) {
       </div>
     </div>`;
   $("#print", main).onclick = () => printForm(ccarHtml(c));
+  $("#renum", main) && ($("#renum", main).onclick = e => renumberDialog("ccar", c, "CAR", c.number, e.target));
   // Tick all: every item to the History of Repair (or none); it follows the boxes ticked one by one
   const allBox = $("#rlall", main), boxes = $$("[data-rl]", main);
   if (allBox) {

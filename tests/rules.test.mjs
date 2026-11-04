@@ -647,9 +647,9 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   b.update(doc(g, "airs/A_CC"), { status: "ccar", ccarId: "C5", ccarNo: "2026-11-0002" });
   await assertSucceeds(b.commit());
   await assertFails(updateDoc(doc(g, "airs/A_CC"), { status: "submitted", ccarId: "", ccarNo: "" }), "back to inspection only if its CCAR is cancelled");
-  // the GSO edits the details, but not the number; Accounting posts, and the GSO can't change it after
+  // the GSO edits the details (its number only by renumbering, below); Accounting posts, and the GSO can't change it after
   await assertSucceeds(updateDoc(doc(g, "ccars/C1"), { supplier: "ABC Builders" }));
-  await assertFails(updateDoc(doc(g, "ccars/C1"), { number: "X" }));
+  await assertFails(updateDoc(doc(a, "ccars/C1"), { number: "X" }), "Accounting doesn't renumber");
   await assertFails(updateDoc(doc(g, "ccars/C1"), { posting: { posted: true } }), "the GSO doesn't post");
   await assertSucceeds(updateDoc(doc(a, "ccars/C1"), { posting: { posted: true, ref: "JEV-1", date: "2026-11-03" } }));
   await assertFails(updateDoc(doc(g, "ccars/C1"), { status: "cancelled", cancel: {} }), "a posted CCAR isn't cancelled");
@@ -669,9 +669,28 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   await env.withSecurityRulesDisabled(async c => { const d = c.firestore(); await updateDoc(doc(d, "users/eu"), { office: "MHO" }); await updateDoc(doc(d, "users/eu2"), { office: "Other" }); });
   await assertSucceeds(getDoc(doc(ctx("eu"), "ccars/C1")));
   await assertFails(getDoc(doc(ctx("eu2"), "ccars/C1")));
+  // the GSO renumbers a CAR dated 2026, like an AIR; its Delivery Report's copy follows
+  await env.withSecurityRulesDisabled(async c => { await updateDoc(doc(c.firestore(), "ccars/C1"), { date: "2026-11-03" }); });
+  b = writeBatch(g);
+  b.update(doc(g, "ccars/C1"), { number: "CAR-2026-77", renumbered: [{ from: "2026-11-0001", to: "CAR-2026-77" }] });
+  b.update(doc(g, "airs/A_C1"), { ccarNo: "CAR-2026-77" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(a, "ccars/C1"), { number: "X" }), "only the GSO renumbers");
+  await assertFails(updateDoc(doc(g, "airs/A_C1"), { ccarNo: "WRONG" }), "the copy must match the CAR");
   // the office's End-Users (or the GSO) mark which CAR items go to the History of Repair — and nothing else
   await assertSucceeds(updateDoc(doc(ctx("eu"), "ccars/C1"), { repairLines: ["l1"] }));
   await assertFails(updateDoc(doc(ctx("eu2"), "ccars/C1"), { repairLines: [] }), "another office's End-User");
   await assertFails(updateDoc(doc(ctx("eu"), "ccars/C1"), { repairLines: ["l1"], total: 1 }), "only the marks");
   await assertSucceeds(updateDoc(doc(g, "ccars/C1"), { repairLines: [] }));
+});
+
+
+test("the GSO cancels an approved AIR Accounting has not posted", async () => {
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore();
+    await setDoc(doc(d, "airs/A_CX"), baseAir({ status: "approved", airNo: "2026-11-0099" }));
+    await setDoc(doc(d, "airs/A_CXP"), baseAir({ status: "approved", airNo: "2026-11-0098", posting: { posted: true } })); });
+  await assertFails(updateDoc(doc(ctx("acc"), "airs/A_CX"), { status: "cancelled", cancel: { reason: "x" } }), "only the GSO");
+  await assertFails(updateDoc(doc(ctx("gso"), "airs/A_CXP"), { status: "cancelled", cancel: { reason: "x" } }), "not once posted");
+  await assertFails(updateDoc(doc(ctx("gso"), "airs/A_CX"), { status: "cancelled", cancel: { reason: "x" }, airNo: "" }), "it keeps its number");
+  await assertSucceeds(updateDoc(doc(ctx("gso"), "airs/A_CX"), { status: "cancelled", cancel: { reason: "duplicate encoding" } }));
 });

@@ -6,12 +6,15 @@ import {
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
 import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir, suggestStockNo } from "../core/logic.js";
-import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles } from "../data.js";
+import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles, cancelAir } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
+/** A line's Stock No. (supplies) or Property / Inventory Item No.: given at inspection, or on the PAR / ICS issued from it. */
+export const itemNos = (a, l) => l.stockNo || l.propertyNo
+  || [...new Set(S.d.docs.filter(d => d.airId === a.id && d.status !== "cancelled").flatMap(d => (d.lines || []).filter(x => x.airLineId === l.id).map(x => x.propertyNo)).filter(Boolean))].join(", ");
 
 /* ---------------- lists ---------------- */
 export function list(main) {
@@ -19,7 +22,7 @@ export function list(main) {
   const mine = a => a.endUserUid === S.user.uid, office = S.account?.office || "";
   // the GSO and Accounting see the AIRs only: the inventoriable items approved at inspection (Delivery Reports waiting are on
   // For Inspection; non-inventoriable deliveries are on the CAR list)
-  const rows = enduser ? S.d.airs : fundAirs().filter(a => a.airNo && ["approved", "issued"].includes(a.status));
+  const rows = enduser ? S.d.airs : fundAirs().filter(a => a.airNo && ["approved", "issued", "cancelled"].includes(a.status));
   main.innerHTML = `<div class="page-head"><div><h1>${enduser ? "Office Delivery Reports" : "Acceptance and Inspection Reports (AIR)"}</h1>
       <p>${enduser ? `Every Delivery Report of ${office ? `the <b>${esc(office)}</b>` : "your office"} — yours, including your drafts, and the ones your colleagues submitted. Encode each delivery you received, items and services; the GSO inspects it, puts what is inventoriable on an AIR (then issues the PAR, ICS or RIS) and what is not on a CAR. You can edit only your own drafts and returned Delivery Reports.` : `The AIRs of the ${esc(fundName(S.fund))}: the inventoriable items — PPE, Semi-Expendable and supplies — approved at the GSO's inspection of a Delivery Report. Delivery Reports waiting for inspection are on <a href="#/inspect">For Inspection</a>; non-inventoriable items are on the <a href="#/car">CAR</a>.`}</p></div>
       <div class="btn-row"><button class="btn" id="csv">Download CSV</button></div></div>
@@ -28,7 +31,7 @@ export function list(main) {
     id: "airs-" + role(), rows, pageSize: 30, defaultSort: 0, defaultDir: -1,
     searchText: a => `${a.airNo} ${a.supplier} ${a.office} ${a.poNo} ${a.invNo} ${a.endUserName} ${(a.lines || []).map(l => l.description).join(" ")}`,
     searchPlaceholder: enduser ? "AIR / CAR no., supplier, office, PO, item" : "AIR no., supplier, office, PO, item",
-    filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || ["approved", "issued"].includes(k)), test: (a, v) => a.status === v },
+    filters: [{ key: "st", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => enduser || ["approved", "issued", "cancelled"].includes(k)), test: (a, v) => a.status === v },
       ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v },
         { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
@@ -211,13 +214,14 @@ export function detail(main, [id]) {
       <div class="btn-row">${airBadge(a.status)} ${issuedStage ? postBadge(ps.state) : ""}</div></div>
     <div class="steps">${steps.map(([t, c, s]) => `<div class="${c}"><b>${esc(t)}</b>${esc(s || "")}</div>`).join("")}</div>
     ${a.status === "returned" && a.gsoRemarks ? `<div class="notice bad"><b>Returned by the GSO:</b> ${esc(a.gsoRemarks)}</div>` : ""}
+    ${a.status === "cancelled" ? `<div class="notice bad"><b>Cancelled by the GSO</b>${a.cancel?.reason ? ` — ${esc(a.cancel.reason)}` : ""}${a.cancel?.by?.name ? ` (${esc(a.cancel.by.name)})` : ""}. It keeps its number; nothing can be issued from it.</div>` : ""}
     ${a.status === "ccar" ? `<div class="notice info"><b>Non-inventoriable.</b> At inspection the GSO found nothing in this delivery inventoriable: it was all accepted on <a href="#/car/${esc(a.ccarId)}">CAR ${esc(a.ccarNo)}</a> and does not enter the inventory or the registries.</div>`
       : a.ccarId ? `<div class="notice info">At inspection the GSO found some of this delivery non-inventoriable: those items were accepted on <a href="#/car/${esc(a.ccarId)}">CAR ${esc(a.ccarNo)}</a>. The items below are the inventoriable ones on this AIR.</div>` : ""}
     <div class="split">
       <div>
         <div class="card"><div class="card-head"><h3>Items</h3><span class="small muted">Total ${money(a.total)}</span></div>
           <div class="table-wrap"><table><thead><tr><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th><th class="right">Amount</th><th>Classification</th>${issuedStage ? `<th class="right">To issue</th>` : ""}</tr></thead>
-          <tbody>${(a.lines || []).map(l => `<tr><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}${l.stockNo ? `<div class="xs">Stock No. ${esc(l.stockNo)}</div>` : ""}</td>
+          <tbody>${(a.lines || []).map(l => `<tr><td><b>${esc(l.description)}</b>${l.specs ? `<div class="xs muted">${esc(l.specs)}</div>` : ""}${itemNos(a, l) ? `<div class="xs">${l.category === "cons" || l.stockNo ? "Stock No." : "Property / Item No."} ${esc(itemNos(a, l))}</div>` : ""}</td>
             <td>${esc(l.unit)}</td><td class="right">${qty(l.qty)}</td><td class="right">${num(l.unitCost)}</td><td class="right">${num(l.amount)}</td>
             <td>${l.category ? `${catBadge(l.category)}<div class="xs muted">${esc(l.accountCode)} ${esc(accountName(l.accountCode))}</div>` : `<span class="xs muted">Proposed: ${esc(CATEGORIES[suggestCategory(l.kind, l.unitCost, settings().thresholds)]?.short || "Non-inventoriable (CAR)")}</span>`}</td>
             ${issuedStage ? `<td class="right">${remainingQty(l) > 0 ? `<b>${qty(remainingQty(l))}</b>` : `<span class="badge b-ok">Issued</span>`}</td>` : ""}</tr>`).join("")}</tbody></table></div></div>
@@ -244,6 +248,7 @@ export function detail(main, [id]) {
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
+          ${can("issue") && a.status === "approved" && !a.posting?.posted && !docs.some(d => d.status !== "cancelled") ? `<button class="btn sm danger" id="cxair">Cancel AIR</button>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>
         ${missing.length ? `<div class="notice warn">Attach the ${missing.join(" and the ")} of the delivery below — the Delivery Report can be submitted to the GSO only once the photo and the invoice are attached.</div>` : ""}
@@ -266,6 +271,11 @@ export function detail(main, [id]) {
     if (v) busy(e.target, () => returnAir(a.id, v.remarks), "Delivery Report returned to the End-User.").catch(() => {});
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
+  $("#cxair", main) && ($("#cxair", main).onclick = async e => {
+    const v = await confirmBox({ title: `Cancel AIR ${a.airNo}?`, body: "Nothing has been issued from it and Accounting has not posted it. It keeps its number, marked Cancelled.",
+      fields: [{ name: "reason", label: "Reason", required: true }], confirmText: "Cancel AIR", danger: true });
+    if (v) busy(e.target, () => cancelAir(a.id, v.reason), "AIR cancelled.").catch(() => {});
+  });
   $("#deld", main) && ($("#deld", main).onclick = async e => {
     if (!(await confirmBox({ title: "Delete this draft Delivery Report?", body: "This cannot be undone.", confirmText: "Delete", danger: true }))) return;
     busy(e.target, async () => { await deleteAir(a.id); location.hash = "#/airs"; }, "Draft deleted.").catch(() => {});

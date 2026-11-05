@@ -58,7 +58,8 @@ export function form(main, [id]) {
       <p>For goods and labor / services the GSO finds <b>non-inventoriable</b>: they are accepted and expensed here, and never enter the inventory or the registries. Accounting posts the CAR with its JEV.</p></div></div>
     <form id="cf" class="card" novalidate>
       <div class="grid g4">
-        <div><label class="req">Fund</label><select name="fund" disabled>${opts(FUNDS.map(f => [f.code, f.name]), c.fund)}</select></div>
+        <div><label class="req">Fund</label><select name="fund">${opts(FUNDS.map(f => [f.code, f.name]), c.fund)}</select>
+          <div class="xs muted">Changing it moves the CAR No. to that fund.</div></div>
         <div><label class="req">CAR date</label><input type="date" name="date" value="${esc(c.date || today)}"></div>
         <div class="span2"><label class="req">Requisitioning office / department</label>${officeSelect("office", src.office || "", s.offices)}</div>
         <div class="span2"><label class="req">Supplier / contractor</label><input name="supplier" value="${esc(src.supplier || "")}"></div>
@@ -118,7 +119,7 @@ export function form(main, [id]) {
   $("#cf", main).onsubmit = e => {
     e.preventDefault();
     const f = $("#cf", main), v = Object.fromEntries(new FormData(f).entries());
-    const data = { ...v, fund: c.fund, vOk: f.vOk.checked, rOk: f.rOk.checked, lines }; // the fund box is locked (the CAR No. belongs to its fund), so it is not in the form data
+    const data = { ...v, fund: v.fund || c.fund, vOk: f.vOk.checked, rOk: f.rOk.checked, lines }; // the fund box is locked (the CAR No. belongs to its fund), so it is not in the form data
     const errs = validateCcar({ ...data, lines: ccarLines(lines), acceptance: { status: v.aStatus, partialNote: v.aNote } });
     if (errs.length) { $("#msg", main).textContent = errs[0]; return; }
     $("#msg", main).textContent = "";

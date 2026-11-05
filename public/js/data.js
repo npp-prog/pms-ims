@@ -4,7 +4,7 @@ import {
   db, doc, collection, setDoc, updateDoc, deleteDoc, addDoc, runTransaction, serverTimestamp, arrayUnion, getDocs, writeBatch, dbError
 } from "./fb.js";
 import { S, settings, can, isSuper } from "./state.js";
-import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount } from "./core/catalog.js";
+import { SUPERADMIN_EMAILS, DOC_TYPES, ppeAccount, isSxAccount, fundName } from "./core/catalog.js";
 import { residualFor, defaultLife, checkMovement, movementDocType, isDepreciable, isPeriod, CIP_COST_FIELDS, cipTotal, repairTotal, repairStage, hasPostedDepreciation } from "./core/assets.js";
 import { specialGroup } from "./core/cards.js";
 import {
@@ -465,8 +465,19 @@ export function saveCcar(id, f) {
       const ref = doc(db, "ccars", id), cur = (await tx.get(ref)).data();
       if (!cur || cur.status !== "accepted") throw fail("This CAR is cancelled.");
       if (cur.posting?.posted) throw fail("Accounting has posted this CAR. Ask Accounting to unpost it before changing it.");
-      const errs = validateCcar({ ...fields, fund: cur.fund }); if (errs.length) throw fail(errs[0]);
-      tx.update(ref, { ...fields, history: [...(cur.history || []), stamp("Edited by the GSO")], updatedAt: serverTimestamp() });
+      // the fund may change: the CAR No. moves with it — claimed in the new fund, released in the old one
+      const fund = f.fund || cur.fund, moving = fund !== cur.fund;
+      const errs = validateCcar({ ...fields, fund }); if (errs.length) throw fail(errs[0]);
+      if (moving) {
+        const claim = doc(db, "docNumbers", `${fund}_ccar_${encodeURIComponent(cur.number)}`), oldClaim = doc(db, "docNumbers", `${cur.fund}_ccar_${encodeURIComponent(cur.number)}`);
+        if ((await tx.get(claim)).exists() || numberTaken(fund, "ccar", cur.number))
+          throw fail(`CAR No. ${cur.number} is already used in the ${fundName(fund)}. Change the CAR No. first, then move it.`);
+        const hadOld = (await tx.get(oldClaim)).exists();
+        tx.set(claim, { number: cur.number, type: "ccar", path: ref.path, by: S.user.uid, at: serverTimestamp() });
+        if (hadOld) tx.delete(oldClaim);
+      }
+      tx.update(ref, { ...fields, ...(moving ? { fund } : {}),
+        history: [...(cur.history || []), stamp(moving ? `Edited by the GSO — moved from the ${fundName(cur.fund)} to the ${fundName(fund)}` : "Edited by the GSO")], updatedAt: serverTimestamp() });
       out = { id, number: cur.number };
     });
     audit("ccar_edit", "ccar", id, { number: out.number });

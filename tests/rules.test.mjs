@@ -677,6 +677,17 @@ test("CCAR: the GSO prepares it (or makes one from a submitted AIR), Accounting 
   await assertSucceeds(b.commit());
   await assertFails(updateDoc(doc(a, "ccars/C1"), { number: "X" }), "only the GSO renumbers");
   await assertFails(updateDoc(doc(g, "airs/A_C1"), { ccarNo: "WRONG" }), "the copy must match the CAR");
+  // the GSO moves an unposted CAR to another fund: its CAR No. is claimed there and released here, in the same write
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore();
+    await setDoc(doc(d, "ccars/CF"), ccar({ number: "2026-11-0050", fromAirId: "A_C1" }));
+    await setDoc(doc(d, "docNumbers/GF_ccar_2026-11-0050"), { number: "2026-11-0050", type: "ccar", path: "ccars/CF", by: "gso" }); });
+  await assertFails(updateDoc(doc(g, "ccars/CF"), { fund: "SEF" }), "not without claiming its number in the new fund");
+  b = writeBatch(g);
+  b.set(doc(g, "docNumbers/SEF_ccar_2026-11-0050"), { number: "2026-11-0050", type: "ccar", path: "ccars/CF", by: "gso" });
+  b.delete(doc(g, "docNumbers/GF_ccar_2026-11-0050"));
+  b.update(doc(g, "ccars/CF"), { fund: "SEF" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(g, "ccars/CF"), { fund: "XX" }), "only a real fund");
   // the office's End-Users (or the GSO) mark which CAR items go to the History of Repair — and nothing else
   await assertSucceeds(updateDoc(doc(ctx("eu"), "ccars/C1"), { repairLines: ["l1"] }));
   await assertFails(updateDoc(doc(ctx("eu2"), "ccars/C1"), { repairLines: [] }), "another office's End-User");

@@ -138,10 +138,13 @@ service cloud.firestore {
       allow read: if active();
       allow create: if active() && request.resource.data.by == request.auth.uid;
       allow update: if false;
-      // released when the GSO renumbers a 2026 document: only once the document no longer carries this number
+      // released when the GSO renumbers a 2026 document (or moves a CAR to another fund): only once the document no longer
+      // carries this number in this fund
       allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris', 'ccar'] && resource.data.path is string
-        && getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
-             .data.get(resource.data.type == 'air' ? 'airNo' : 'number', '') != resource.data.number;
+        && (getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
+              .data.get(resource.data.type == 'air' ? 'airNo' : 'number', '') != resource.data.number
+          || getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
+              .data.get('fund', '') != id.split('_')[0]);
     }
     // Documents dated 2026 (the changeover year) may be renumbered by the GSO.
     function in2026(d) { return d.get('date', '') is string && d.get('date', '').matches('2026-.*'); }
@@ -425,7 +428,11 @@ service cloud.firestore {
         // the GSO corrects it, or cancels it, while Accounting has not posted it
         (issuer() && resource.data.status == 'accepted' && resource.data.posting.posted == false && (
           (request.resource.data.status == 'accepted' && onlyChanged(['date', 'office', 'supplier', 'poNo', 'poDate', 'invNo', 'invDate', 'purpose', 'lines', 'total',
-            'goodsTotal', 'laborTotal', 'verification', 'acceptance', 'receipt', 'history', 'updatedAt']) && request.resource.data.lines.size() > 0)
+            'goodsTotal', 'laborTotal', 'verification', 'acceptance', 'receipt', 'history', 'updatedAt', 'fund']) && request.resource.data.lines.size() > 0
+            // a change of fund takes its CAR No. along: claimed in the new fund in the same write
+            && validFund(request.resource.data.fund)
+            && (request.resource.data.fund == resource.data.fund
+              || getAfter(/databases/$(database)/documents/docNumbers/$(request.resource.data.fund + '_ccar_' + request.resource.data.number)).data.path == 'ccars/' + id))
           || (request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))))
         // Accounting posts / unposts it
         || (poster() && resource.data.status == 'accepted' && onlyChanged(['posting', 'updatedAt']))

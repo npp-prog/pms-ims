@@ -118,7 +118,7 @@ export function form(main, [id]) {
   $("#cf", main).onsubmit = e => {
     e.preventDefault();
     const f = $("#cf", main), v = Object.fromEntries(new FormData(f).entries());
-    const data = { ...v, vOk: f.vOk.checked, rOk: f.rOk.checked, lines };
+    const data = { ...v, fund: c.fund, vOk: f.vOk.checked, rOk: f.rOk.checked, lines }; // the fund box is locked (the CAR No. belongs to its fund), so it is not in the form data
     const errs = validateCcar({ ...data, lines: ccarLines(lines), acceptance: { status: v.aStatus, partialNote: v.aNote } });
     if (errs.length) { $("#msg", main).textContent = errs[0]; return; }
     $("#msg", main).textContent = "";

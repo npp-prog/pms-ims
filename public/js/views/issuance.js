@@ -86,7 +86,7 @@ function issuePanel(main, airId) {
   f.rname.addEventListener("change", () => { const u = activeUsers().find(x => x.displayName === f.rname.value); if (u) { f.rpos.value = u.position || ""; f.roffice.value = u.office || f.roffice.value; } });
   const sum = () => { let tot = 0; $$("tbody tr", f).forEach(tr => { if ($("[data-pick]", tr).checked) { const l = lines.find(x => x.id === tr.dataset.id); tot += (Number($("[data-q]", tr).value) || 0) * l.unitCost; } }); $("#sum", f).textContent = `Total ${money(tot)}`; };
   f.addEventListener("input", sum); sum();
-  f.onsubmit = e => {
+  f.onsubmit = async e => {
     e.preventDefault();
     const fd = Object.fromEntries(new FormData(f).entries());
     const picks = [], lineInfo = {};
@@ -96,9 +96,17 @@ function issuePanel(main, airId) {
       lineInfo[tr.dataset.id] = prop ? { propertyNo: $("[data-pn]", tr).value, usefulLife: $("[data-ul]", tr).value } : { qtyRequested: Number($("[data-rq]", tr).value) || 0 };
     });
     if (prop) {
+      const label = t === "par" ? "Property" : "Inventory Item";
       const nos = Object.values(lineInfo).map(x => String(x.propertyNo || "").trim()).filter(Boolean);
-      const dup = nos.find((n, i) => nos.indexOf(n) !== i) || nos.find(n => S.d.assets.some(x => x.propertyNo === n && x.status !== "cancelled"));
-      if (dup) return toast(`${t === "par" ? "Property" : "Inventory Item"} No. ${dup} is already used. Each item needs its own number.`, "err");
+      // the same number twice on this document is a mistake
+      const twice = nos.find((n, i) => nos.indexOf(n) !== i);
+      if (twice) return toast(`${label} No. ${twice} is given to two items on this ${t.toUpperCase()}. Each item needs its own number.`, "err");
+      // a number already on a registry item (e.g. the same item brought over from PMS): say where, and let the GSO go on —
+      // the item number on the AIR and on its PAR / ICS is the same by design
+      const held = nos.map(n => [n, S.d.assets.find(x => x.propertyNo === n && x.status !== "cancelled")]).filter(([, x]) => x);
+      if (held.length && !(await confirmBox({ title: `${label} No. already in the registry`,
+        body: `${held.map(([n, x]) => `<b>${esc(n)}</b> — ${esc(x.description)}${x.holder?.name ? ` (${esc(x.holder.name)})` : ""}`).join("<br>")}<br><br>Issue with the same number anyway? If it is the same item, choose it under <b>Already in the registry?</b> when Accounting posts this ${t.toUpperCase()}, so it is not counted twice.`,
+        confirmText: `Issue ${t.toUpperCase()}` }))) return;
     }
     const header = {
       date: fd.date, purpose: fd.purpose || "", lineInfo, numbers: { main: fd.no_main, low: fd.no_low, high: fd.no_high },

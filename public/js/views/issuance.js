@@ -13,6 +13,8 @@ import { attachmentsCard, attachmentsOf } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
+/** The Property / Inventory Item No. an AIR line was given at inspection (or its Item No.): the PAR / ICS carries it. */
+const airItemNo = l => String(l.propertyNo || l.stockNo || "").trim();
 const left = (a, cat) => (a.lines || []).filter(l => l.category === cat && remainingQty(l) > 0);
 
 /* ---------------- For Issuance ---------------- */
@@ -66,7 +68,7 @@ function issuePanel(main, airId) {
         <td><b>${esc(l.description)}</b><div class="xs muted">${esc(l.unit)} · ${esc(l.accountCode)} ${esc(accountName(l.accountCode))}${l.stockNo ? ` · Stock No. ${esc(l.stockNo)}` : ""}${t === "ris" ? ` · ${isDistributionAccount(l.accountCode) ? "Distribution" : "Consumption"}` : ""}${t === "ics" ? ` · ${sxClass(l.unitCost, th) === "low" ? "SPLV" : "SPHV"}` : ""}</div></td>
         <td class="right">${num(l.unitCost)}</td><td class="right">${qty(remainingQty(l))}</td>
         <td><input type="number" class="w-xs" data-q min="0" max="${remainingQty(l)}" step="${prop ? 1 : "any"}" value="${remainingQty(l)}"></td>
-        ${prop ? `<td><input class="w-md" data-pn value="${esc(l.propertyNo || suggested[lines.indexOf(l)] || "")}" placeholder="${esc(propertyNoPrefix(l.accountCode, year))}-0001"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
+        ${prop ? `<td><input class="w-md" data-pn value="${esc(airItemNo(l) || suggested[lines.indexOf(l)] || "")}" placeholder="${esc(propertyNoPrefix(l.accountCode, year))}-0001"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
     <div class="grid g3" style="margin-top:1rem">
       <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
       ${numberingFor(S.settings, t).mode === "manual" ? (t === "ics"
@@ -101,9 +103,10 @@ function issuePanel(main, airId) {
       // the same number twice on this document is a mistake
       const twice = nos.find((n, i) => nos.indexOf(n) !== i);
       if (twice) return toast(`${label} No. ${twice} is given to two items on this ${t.toUpperCase()}. Each item needs its own number.`, "err");
-      // a number already on a registry item (e.g. the same item brought over from PMS): say where, and let the GSO go on —
-      // the item number on the AIR and on its PAR / ICS is the same by design
-      const held = nos.map(n => [n, S.d.assets.find(x => x.propertyNo === n && x.status !== "cancelled")]).filter(([, x]) => x);
+      // the number given on the AIR is the item's number: it goes on the PAR / ICS as it is, without a question. Only a number
+      // typed differently, and already on a registry item, is shown to the GSO before issuing.
+      const fromAir = new Set(lines.map(airItemNo).filter(Boolean));
+      const held = nos.filter(n => !fromAir.has(n)).map(n => [n, S.d.assets.find(x => x.propertyNo === n && x.status !== "cancelled")]).filter(([, x]) => x);
       if (held.length && !(await confirmBox({ title: `${label} No. already in the registry`,
         body: `${held.map(([n, x]) => `<b>${esc(n)}</b> — ${esc(x.description)}${x.holder?.name ? ` (${esc(x.holder.name)})` : ""}`).join("<br>")}<br><br>Issue with the same number anyway? If it is the same item, choose it under <b>Already in the registry?</b> when Accounting posts this ${t.toUpperCase()}, so it is not counted twice.`,
         confirmText: `Issue ${t.toUpperCase()}` }))) return;

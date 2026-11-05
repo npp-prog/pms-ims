@@ -148,15 +148,17 @@ export function approveAir(id, insp) {
       const inv = lines.filter(l => l.category !== "noninv"), non = lines.filter(l => l.category === "noninv");
       // numbers first (all reads before any write): the AIR No. for the inventoriable items, the CAR No. for the rest
       let airNo = old.airNo || "", ca = null, cc = null;
-      if (inv.length && !airNo) { ca = await readCounter(tx, old.fund, "air", old.date, "", insp.airNo); airNo = ca.number; }
+      // the fund: as encoded, or as the GSO sets it at inspection (the AIR and the CAR are numbered in it)
+      const fund = !old.airNo && insp.fund ? insp.fund : old.fund;
+      if (inv.length && !airNo) { ca = await readCounter(tx, fund, "air", old.date, "", insp.airNo); airNo = ca.number; }
       const cref = non.length ? doc(collection(db, "ccars")) : null;
-      if (non.length) cc = await readCounter(tx, old.fund, "ccar", insp.inspection.dateInspected || old.date, "", insp.ccarNo);
+      if (non.length) cc = await readCounter(tx, fund, "ccar", insp.inspection.dateInspected || old.date, "", insp.ccarNo);
       if (ca) useNumber(tx, ca, ref, "air");
       if (cc) {
         useNumber(tx, cc, cref, "ccar");
         const clines = ccarLines(non.map(l => ({ id: l.id, component: l.component, description: l.description, specs: l.specs, unit: l.unit, qty: l.qty, unitCost: l.unitCost })));
         tx.set(cref, {
-          fund: old.fund, number: cc.number, date: insp.inspection.dateInspected || old.date, office: old.office, supplier: old.supplier, poNo: old.poNo || "", poDate: old.poDate || "",
+          fund, number: cc.number, date: insp.inspection.dateInspected || old.date, office: old.office, supplier: old.supplier, poNo: old.poNo || "", poDate: old.poDate || "",
           invNo: old.invNo || "", invDate: old.invDate || "", purpose: old.purpose || "", lines: clines, ...ccarTotals(clines),
           verification: { date: insp.inspection.dateInspected, ok: !!insp.inspection.inspectedOk, name: insp.inspection.inspectorName || "", position: "General Services Officer" },
           acceptance: { date: insp.acceptance.dateReceived, status: insp.acceptance.status || "complete", partialNote: insp.acceptance.partialNote || "" },
@@ -171,7 +173,8 @@ export function approveAir(id, insp) {
       const hist = [stamp(inv.length ? (old.airNo ? "Inspected and approved by GSO" : `Inspected and approved by GSO — AIR No. ${airNo}`) : "Inspected by GSO — nothing inventoriable", insp.remarks || "")];
       if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CAR ${cc.number}`));
       if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
-      tx.update(ref, { airNo, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
+      if (fund !== old.fund) hist.push(stamp(`Fund set by the GSO at inspection: ${fundName(old.fund)} → ${fundName(fund)}`));
+      tx.update(ref, { ...(fund !== old.fund ? { fund } : {}), airNo, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
         status: inv.length ? "approved" : "ccar", ...(cc ? { ccarId: cref.id, ccarNo: cc.number } : {}),
         approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), ...hist], updatedAt: serverTimestamp() });
       out = { airNo: inv.length ? airNo : "", ccarNo: cc?.number || "", ccarId: cref?.id || "" };
@@ -404,6 +407,29 @@ export function renumber(kind, id, newNumber, reason = "") {
  * The GSO cancels an approved AIR: only while nothing was issued from it (or all of it was cancelled) and Accounting has
  * not posted it. Its number stays with it. A CAR made from the same Delivery Report is not affected.
  */
+/**
+ * The GSO moves an approved AIR to another fund — while nothing issued from it is still live and Accounting has not posted
+ * it. Its AIR No. moves too: claimed in the new fund, released in the old one.
+ */
+export function changeAirFund(id, fund) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "airs", id), a = (await tx.get(ref)).data();
+      if (!a || a.status !== "approved") throw fail("Only an approved AIR with nothing issued from it can move to another fund.");
+      if (fund === a.fund) throw fail("The AIR is already in that fund.");
+      if (a.posting?.posted) throw fail("Accounting has posted this AIR. Ask Accounting to unpost it first.");
+      const live = S.d.docs.filter(d => d.airId === id && d.status !== "cancelled");
+      if (live.length) throw fail(`Cancel the documents issued from this AIR first: ${live.map(d => `${d.docType.toUpperCase()} ${d.number}`).join(", ")}.`);
+      const claim = doc(db, "docNumbers", `${fund}_air_${encodeURIComponent(a.airNo)}`), oldClaim = doc(db, "docNumbers", `${a.fund}_air_${encodeURIComponent(a.airNo)}`);
+      if ((await tx.get(claim)).exists() || numberTaken(fund, "air", a.airNo)) throw fail(`AIR No. ${a.airNo} is already used in the ${fundName(fund)}. Change the AIR No. first, then move it.`);
+      const hadOld = (await tx.get(oldClaim)).exists();
+      tx.set(claim, { number: a.airNo, type: "air", path: ref.path, by: S.user.uid, at: serverTimestamp() });
+      if (hadOld) tx.delete(oldClaim);
+      tx.update(ref, { fund, history: [...(a.history || []), stamp(`Moved by the GSO from the ${fundName(a.fund)} to the ${fundName(fund)}`)], updatedAt: serverTimestamp() });
+    });
+    audit("air_fund", "air", id, { fund });
+  });
+}
 export function cancelAir(id, reason) {
   return wrap(async () => {
     if (!String(reason || "").trim()) throw fail("Enter the reason for cancelling.");

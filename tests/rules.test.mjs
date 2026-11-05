@@ -705,3 +705,23 @@ test("the GSO cancels an approved AIR Accounting has not posted", async () => {
   await assertFails(updateDoc(doc(ctx("gso"), "airs/A_CX"), { status: "cancelled", cancel: { reason: "x" }, airNo: "" }), "it keeps its number");
   await assertSucceeds(updateDoc(doc(ctx("gso"), "airs/A_CX"), { status: "cancelled", cancel: { reason: "duplicate encoding" } }));
 });
+
+
+test("an AIR's fund: set by the GSO at inspection, or moved later with its AIR No.", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore();
+    await setDoc(doc(d, "airs/A_F1"), baseAir({ status: "submitted", airNo: "" }));
+    await setDoc(doc(d, "airs/A_F2"), baseAir({ status: "approved", airNo: "2026-11-0201" }));
+    await setDoc(doc(d, "docNumbers/GF_air_2026-11-0201"), { number: "2026-11-0201", type: "air", path: "airs/A_F2", by: "gso" }); });
+  const g = ctx("gso");
+  // at inspection, before it has a number
+  await assertSucceeds(updateDoc(doc(g, "airs/A_F1"), { status: "approved", airNo: "2026-11-0300", fund: "SEF", inspection: {}, acceptance: {} }));
+  // later, only with its AIR No. claimed in the new fund
+  await assertFails(updateDoc(doc(g, "airs/A_F2"), { fund: "SEF" }), "not without its number");
+  const b = writeBatch(g);
+  b.set(doc(g, "docNumbers/SEF_air_2026-11-0201"), { number: "2026-11-0201", type: "air", path: "airs/A_F2", by: "gso" });
+  b.delete(doc(g, "docNumbers/GF_air_2026-11-0201"));
+  b.update(doc(g, "airs/A_F2"), { fund: "SEF" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(ctx("acc"), "airs/A_F2"), { fund: "GF" }), "only the GSO");
+});

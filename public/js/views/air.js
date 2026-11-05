@@ -6,7 +6,7 @@ import {
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
 import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir, suggestStockNo } from "../core/logic.js";
-import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles, cancelAir } from "../data.js";
+import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles, cancelAir, changeAirFund } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
@@ -248,7 +248,7 @@ export function detail(main, [id]) {
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
-          ${can("issue") && a.status === "approved" && !a.posting?.posted && !docs.some(d => d.status !== "cancelled") ? `<button class="btn sm danger" id="cxair">Cancel AIR</button>` : ""}
+          ${can("issue") && a.status === "approved" && !a.posting?.posted && !docs.some(d => d.status !== "cancelled") ? `<button class="btn sm" id="fundair">Change fund</button><button class="btn sm danger" id="cxair">Cancel AIR</button>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>
         ${missing.length ? `<div class="notice warn">Attach the ${missing.join(" and the ")} of the delivery below — the Delivery Report can be submitted to the GSO only once the photo and the invoice are attached.</div>` : ""}
@@ -271,6 +271,11 @@ export function detail(main, [id]) {
     if (v) busy(e.target, () => returnAir(a.id, v.remarks), "Delivery Report returned to the End-User.").catch(() => {});
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
+  $("#fundair", main) && ($("#fundair", main).onclick = async e => {
+    const v = await confirmBox({ title: `Move AIR ${a.airNo} to another fund`, body: "Nothing has been issued from it and Accounting has not posted it. Its AIR No. moves with it.",
+      fields: [{ name: "fund", label: "Fund", type: "select", options: FUNDS.filter(f => f.code !== a.fund).map(f => [f.code, f.name]), required: true }], confirmText: "Move" });
+    if (v) busy(e.target, () => changeAirFund(a.id, v.fund), "AIR moved to the other fund.").catch(() => {});
+  });
   $("#cxair", main) && ($("#cxair", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel AIR ${a.airNo}?`, body: "Nothing has been issued from it and Accounting has not posted it. It keeps its number, marked Cancelled.",
       fields: [{ name: "reason", label: "Reason", required: true }], confirmText: "Cancel AIR", danger: true });
@@ -302,7 +307,8 @@ function inspectModal(a) {
   suggest();
   const airManual = !a.airNo && numberingFor(S.settings, "air").mode === "manual";
   const m = openModal(`<h2>Inspect the Delivery Report</h2>
-    ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
+    ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="req">Fund</label><select id="ifund">${opts(FUNDS.map(f => [f.code, f.name]), a.fund)}</select><div class="xs muted">The AIR and CAR are numbered in this fund.</div></div>
+      <div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
     <p class="muted small">Check each item against the delivery and correct it if needed (description, specifications, unit, quantity, unit cost). Classify it: <b>inventoriable</b> items —
       PPE (PAR), Semi-Expendable (ICS) or supplies (RIS) — go on the <b>AIR</b>, with their account; <b>non-inventoriable</b> goods and labor / services go on a <b>CAR</b>. Stock numbers of supplies are suggested from the Inventory Registry.</p>
     <div id="ccarno"></div>
@@ -365,7 +371,7 @@ function inspectModal(a) {
         category: l.category, accountCode: l.accountCode, stockNo: l.stockNo || "", propertyNo: l.propertyNo || "", usefulLife: l.usefulLife || "" })),
       inspection: { dateInspected: $("#di", m).value, inspectorName: $("#iname", m).value.trim(), inspectedOk: $("#iok", m).checked },
       acceptance: { dateReceived: $("#dr", m).value, status: $("#acc", m).value, partialNote: $("#pn", m).value.trim(), custodianName: $("#cust", m).value.trim() },
-      remarks: $("#rem", m).value.trim(),
+      remarks: $("#rem", m).value.trim(), fund: $("#ifund", m)?.value || a.fund,
       airNo: $("#airno", m)?.value.trim() || "", ccarNo: $("#ccarnoin", m)?.value.trim() || ""
     };
     insp.lines.forEach((x, i) => { x.component = lines[i].component; });

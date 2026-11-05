@@ -235,6 +235,10 @@ continue at step 4.
   (Change number). The new number must be free in the fund; the old one is released, and the AIR No. on its PAR / ICS /
   RIS, the CAR No. on its Delivery Report, and the numbers on the items follow. The PAR / ICS / RIS list links each
   document to its AIR.
+- **Changing an AIR's or CAR's fund:** the GSO sets the fund when inspecting a Delivery Report (the AIR and CAR are
+  numbered in it). Later, an approved AIR with nothing issued from it still live and not posted can be moved with
+  **Change fund**, and an unposted CAR by editing it; the AIR / CAR No. moves too (claimed in the new fund, released in
+  the old one). If that number is already used in the new fund, change the number first.
 - **Cancelling an AIR:** the GSO can cancel an approved AIR while nothing issued from it is still live (cancel its PAR /
   ICS / RIS first) and Accounting has not posted it. It keeps its number, marked Cancelled (AIR list → Status →
   Cancelled); a CAR from the same Delivery Report is not affected.

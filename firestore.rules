@@ -182,7 +182,9 @@ service cloud.firestore {
           && ((request.resource.data.status == 'returned' && request.resource.data.airNo == resource.data.airNo)
             || (request.resource.data.status == 'approved' && request.resource.data.airNo is string && request.resource.data.airNo.size() > 0
               && (resource.data.airNo == '' || request.resource.data.airNo == resource.data.airNo)))
-          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'ccarId', 'ccarNo'])
+          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'ccarId', 'ccarNo', 'fund'])
+          // the GSO may set the fund at inspection, before the AIR has a number
+          && validFund(request.resource.data.fund) && (request.resource.data.fund == resource.data.fund || resource.data.airNo == '')
           // its non-inventoriable items go to a CCAR made in the same transaction
           && (request.resource.data.get('ccarId', '') == ''
             || getAfter(/databases/$(database)/documents/ccars/$(request.resource.data.ccarId)).data.fromAirId == id))
@@ -196,6 +198,10 @@ service cloud.firestore {
         // Accounting posts / unposts the receipt of supplies
         || (poster() && resource.data.status in ['approved', 'issued']
           && onlyChanged(['posting', 'history', 'updatedAt']))
+        // the GSO moves an approved AIR Accounting has not posted to another fund, its AIR No. claimed there in the same write
+        || (issuer() && resource.data.status == 'approved' && resource.data.get('posting', {}).get('posted', false) == false
+          && onlyChanged(['fund', 'history', 'updatedAt']) && validFund(request.resource.data.fund)
+          && getAfter(/databases/$(database)/documents/docNumbers/$(request.resource.data.fund + '_air_' + resource.data.airNo)).data.path == 'airs/' + id)
         // the GSO cancels an approved AIR Accounting has not posted (the app checks nothing issued from it is still live)
         || (issuer() && resource.data.status == 'approved' && request.resource.data.status == 'cancelled'
           && resource.data.get('posting', {}).get('posted', false) == false
@@ -205,7 +211,8 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/ccars/$(resource.data.ccarId)).data.number == request.resource.data.ccarNo)
         // GSO inspects a Delivery Report with nothing inventoriable: it all goes to a CCAR (created in the same transaction) …
         || (issuer() && resource.data.status == 'submitted' && request.resource.data.status == 'ccar' && request.resource.data.airNo == resource.data.airNo
-          && onlyChanged(['status', 'ccarId', 'ccarNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'approvedBy', 'approvedAt', 'history', 'updatedAt'])
+          && onlyChanged(['status', 'ccarId', 'ccarNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'fund'])
+          && validFund(request.resource.data.fund)
           && getAfter(/databases/$(database)/documents/ccars/$(request.resource.data.ccarId)).data.fromAirId == id)
         // … and goes back to inspection if that CCAR is cancelled
         || (issuer() && resource.data.status == 'ccar' && request.resource.data.status == 'submitted'

@@ -32,8 +32,9 @@ export const COMPONENTS = {
 export const ACQUISITION_TYPES = [["purchased", "Purchased / acquired"], ["donated", "Donated"], ["found", "Found at the station"], ["transferred", "Transferred in from another agency"]];
 const acqLabel = t => (ACQUISITION_TYPES.find(x => x[0] === t) || [])[1] || "";
 
-/** Where the item came from, for the card's acquisition row. */
+/** Where the item came from, for the card's acquisition row — or the reference an administrator set for it. */
 export function acquisitionRef(a) {
+  if (String(a.cardRef || "").trim()) return String(a.cardRef).trim();
   const src = a.source?.kind === "import" ? "Brought forward from PMS" : a.source?.kind === "manual" ? "" : a.source?.kind === "cip" ? `CIP ${a.source.number}` : a.source?.number ? `${a.source.kind.toUpperCase()} ${a.source.number}` : "";
   const acq = a.acquisition?.type && a.acquisition.type !== "purchased" ? `${acqLabel(a.acquisition.type)}${a.acquisition.source ? ` — ${a.acquisition.source}` : ""}` : "";
   return [src, a.parIcs?.number ? `${a.parIcs.docType.toUpperCase()} ${a.parIcs.number}` : "", a.dvNo, a.source?.ref, acq].filter(Boolean).join(" — ");

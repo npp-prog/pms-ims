@@ -430,6 +430,15 @@ export function changeAirFund(id, fund) {
     audit("air_fund", "air", id, { fund });
   });
 }
+/** An administrator sets the reference shown on the item's Property / Ledger Card (blank: back to the automatic one). */
+export function setCardReference(id, ref) {
+  return wrap(async () => {
+    const text = String(ref || "").trim();
+    await updateDoc(doc(db, "assets", id), { cardRef: text,
+      history: arrayUnion(stamp(text ? `Card reference set: ${text}` : "Card reference back to the automatic one")), updatedAt: serverTimestamp() });
+    audit("asset_card_ref", "asset", id, { ref: text });
+  });
+}
 export function cancelAir(id, reason) {
   return wrap(async () => {
     if (!String(reason || "").trim()) throw fail("Enter the reason for cancelling.");

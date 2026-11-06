@@ -107,3 +107,11 @@ test("global search spans property, documents, movements, repairs, AIRs and CIP 
   assert.equal(r.repairs.length, 1);
   assert.equal(searchAll("t", d, "GF"), null);
 });
+
+
+test("the card's reference: automatic, or the one an administrator set", async () => {
+  const { acquisitionRef } = await import("../public/js/core/cards.js");
+  assert.equal(acquisitionRef({ source: { kind: "import" } }), "Brought forward from PMS");
+  assert.equal(acquisitionRef({ source: { kind: "import" }, cardRef: "PAR No. 2019-05-0012" }), "PAR No. 2019-05-0012");
+  assert.equal(acquisitionRef({ source: { kind: "import" }, cardRef: "  " }), "Brought forward from PMS");
+});

@@ -725,3 +725,11 @@ test("an AIR's fund: set by the GSO at inspection, or moved later with its AIR N
   await assertSucceeds(b.commit());
   await assertFails(updateDoc(doc(ctx("acc"), "airs/A_F2"), { fund: "GF" }), "only the GSO");
 });
+
+
+test("the card reference of an item: administrators set it, not the GSO or Accounting", async () => {
+  await env.withSecurityRulesDisabled(async c => { await setDoc(doc(c.firestore(), "assets/REF1"), asset({ source: { kind: "import" } })); });
+  await assertSucceeds(updateDoc(doc(ctx("ad"), "assets/REF1"), { cardRef: "PAR No. 2019-05-0012" }));
+  await assertFails(updateDoc(doc(ctx("gso"), "assets/REF1"), { cardRef: "x" }));
+  await assertFails(updateDoc(doc(ctx("acc"), "assets/REF1"), { cardRef: "x" }));
+});

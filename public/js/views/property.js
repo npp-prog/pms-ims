@@ -1,14 +1,14 @@
 // Property register: PPE and semi-expendable records, their movements (PTR / ITR, PRS / RRSP, disposals)
 // and each record's property card with its depreciation.
-import { S, can, settings, fundAssets, assetById, activeUsers, inRegistry, awaitingPosting, docById } from "../state.js";
+import { S, can, settings, fundAssets, assetById, activeUsers, inRegistry, awaitingPosting, docById, isAdmin } from "../state.js";
 import { officeSelect, $, $$, esc, busy, toast, money, num, qty, fmtDate, fmtDateTime, manilaToday, opts, renderTable, openModal, confirmBox, downloadCSV } from "../ui.js";
 import { fundName, accountName, FUNDS } from "../core/catalog.js";
 import { accumAsOf, isDepreciable, periodOf, monthlyRate, TRANSFER_TYPES, DISPOSAL_MODES, checkMovement, movementDocType, impairmentAsOf, adjustedCostAsOf } from "../core/assets.js";
 import { round2, numberingFor } from "../core/logic.js";
-import { saveMovement, cancelMovement, editMovementDetails } from "../data.js";
+import { saveMovement, cancelMovement, editMovementDetails, setCardReference } from "../data.js";
 import { printForm, movementHtml, tableReportHtml } from "../print.js";
 import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, printCards, activityLog } from "./assetforms.js";
-import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES } from "../core/cards.js";
+import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES, acquisitionRef } from "../core/cards.js";
 import { repairsOf, printHistory } from "./repairs.js";
 import { attachmentsCard, attachmentsOf } from "./attachments.js";
 
@@ -138,7 +138,7 @@ export function detail(main, [id]) {
     ${a.matchedTo ? (m => `<div class="notice info"><b>Matched to an item already in the registry.</b> When Accounting posted ${esc(a.source.kind.toUpperCase())} <a href="#/issuances/${esc(a.source.docId)}">${esc(a.source.number)}</a>, this line was matched to <a href="#/assets/${esc(a.matchedTo)}">${esc(m?.propertyNo || m?.description || "the registry item")}</a>, which now carries the ${esc(a.source.kind.toUpperCase())}; this record is set aside so nothing is counted twice.</div>`)(assetById(a.matchedTo)) : ""}
     ${registered ? "" : `<div class="notice warn"><b>Not in the registry yet.</b> This item was issued on ${esc(a.source.kind.toUpperCase())} <a href="#/issuances/${esc(a.source.docId)}">${esc(a.source.number)}</a>${srcDoc?.status === "cancelled" ? ", which was cancelled" : ""}; it enters the ${ppe ? "PPE" : "Semi-Expendable"} Registry once Accounting posts that ${esc(a.source.kind.toUpperCase())}. Until then it can't be transferred, returned, disposed of, revalued or depreciated.</div>`}
     <div class="card"><div class="btn-row">
-      <button class="btn sm" id="lc">Print Ledger Card</button><button class="btn sm" id="pc">Print Property Card</button><button class="btn sm" id="tag">ID tag (QR)</button>
+      <button class="btn sm" id="lc">Print Ledger Card</button>${isAdmin() && a.status !== "cancelled" ? `<button class="btn sm" id="cardref">Edit card reference</button>` : ""}<button class="btn sm" id="pc">Print Property Card</button><button class="btn sm" id="tag">ID tag (QR)</button>
       ${(gso || acct) && a.status !== "cancelled" ? `<button class="btn sm" id="edit">Correct record</button>` : ""}
       ${gso && onHand ? `<button class="btn sm" data-mv="transfer">Transfer</button>${a.status === "active" ? `<button class="btn sm" data-mv="return">Return to GSO</button>` : ""}<button class="btn sm danger" data-mv="dispose">Dispose</button>` : ""}
       ${acct && a.status !== "cancelled" ? `${ppe && a.status !== "disposed" ? `<button class="btn sm" id="rv">Revalue</button>` : ""}<button class="btn sm" id="le">Ledger entry</button><button class="btn sm" id="rc">Reclassify</button>${a.status === "disposed" ? `<button class="btn sm" id="ra">Reactivate</button>` : ""}` : ""}
@@ -183,6 +183,12 @@ export function detail(main, [id]) {
   const moves = S.d.movements.filter(x => (x.lines || []).some(l => l.assetId === a.id)).map(x => ({ type: "movement", id: x.id }));
   attachmentsCard($("#att", main), { type: "asset", id: a.id, office: a.holder?.office || "", fund: a.fund, label: a.propertyNo || a.description },
     { also: [...docIds.map(id => ({ type: "issuance", id })), ...moves], defaultLabel: ppe ? "Signed PAR" : "Signed ICS", title: "Signed PAR / ICS and other attachments" });
+  // administrators: the reference on the card's first row (e.g. instead of "Brought forward from PMS")
+  $("#cardref", main) && ($("#cardref", main).onclick = async e => {
+    const v = await confirmBox({ title: "Card reference", body: `Shown as the Reference of the first row of the Property / Ledger Card. Leave it blank to go back to the automatic one${a.cardRef ? ` (${esc(acquisitionRef({ ...a, cardRef: "" }))})` : ""}.`,
+      fields: [{ name: "ref", label: "Reference", value: acquisitionRef(a), placeholder: "e.g. PAR No. 2019-05-0012 / DV No. 101-2019-05-334" }], confirmText: "Save" });
+    if (v) busy(e.target, () => setCardReference(a.id, v.ref), "Card reference saved.").catch(() => {});
+  });
   $("#lc", main).onclick = () => printCards([a], "ledger");
   $("#pc", main).onclick = () => printCards([a], "property");
   $("#tag", main).onclick = () => printCards([a], "tags");

@@ -39,7 +39,7 @@ function registry(main, itemType) {
     <div class="btn-row end"><span class="small muted" style="align-self:center">Print the items listed (filters apply):</span><button class="btn sm" id="lc">Ledger Cards</button><button class="btn sm" id="pc">Property Cards</button><button class="btn sm" id="tg">ID tags (QR)</button><button class="btn sm" id="csv">CSV</button><button class="btn sm" id="pr">Register</button></div>`;
   const sel = new Set();
   const t = renderTable($("#t", main), {
-    id: "assets-" + itemType, rows, pageSize: 50, defaultSort: 1,
+    id: "assets-" + itemType, rows, pageSize: 50, defaultSort: canMove ? 1 : 2, // Property No. (with the checkbox column) / Description, as before the PAR / ICS No. column
     searchText: a => `${a.propertyNo} ${a.description} ${a.specs} ${a.holder?.name} ${a.holder?.office} ${a.location} ${a.source?.number}`,
     searchPlaceholder: "Property no., item, officer, office, PAR/ICS",
     filters: [

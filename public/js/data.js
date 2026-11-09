@@ -175,7 +175,7 @@ export function approveAir(id, insp) {
       if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CAR ${cc.number}`));
       if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
       if (fund !== old.fund) hist.push(stamp(`Fund set by the GSO at inspection: ${fundName(old.fund)} → ${fundName(fund)}`));
-      tx.update(ref, { ...(fund !== old.fund ? { fund } : {}), airNo, airDate, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
+      tx.update(ref, { ...(fund !== old.fund ? { fund } : {}), airNo, ...(inv.length ? { airDate } : {}), lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
         status: inv.length ? "approved" : "ccar", ...(cc ? { ccarId: cref.id, ccarNo: cc.number } : {}),
         approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), ...hist], updatedAt: serverTimestamp() });
       out = { airNo: inv.length ? airNo : "", ccarNo: cc?.number || "", ccarId: cref?.id || "" };

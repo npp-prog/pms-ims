@@ -27,7 +27,7 @@ const DOC_LABEL = Object.fromEntries(NUMBERED_DOCS.map(([k, l]) => [k, l.split("
 function numberTaken(fund, type, number) {
   const n = number.toLowerCase(), same = x => x.fund === fund && String(x.number ?? x.airNo ?? "").toLowerCase() === n;
   if (type === "air") return S.d.airs.some(a => a.fund === fund && String(a.airNo || "").toLowerCase() === n);
-  if (["par", "ics", "ris"].includes(type)) return S.d.docs.some(d => d.docType === type && same(d));
+  if (["par", "ics", "ris"].includes(type)) return S.d.docs.some(d => d.docType === type && d.status !== "cancelled" && same(d));
   if (type === "rsmi") return S.d.rsmis.some(x => x.status !== "cancelled" && same(x));
   if (type === "ccar") return (S.d.ccars || []).some(x => x.status !== "cancelled" && same(x));
   return S.d.movements.some(m => m.docType === type && same(m));
@@ -40,7 +40,7 @@ function numberTaken(fund, type, number) {
 async function readCounter(tx, fund, type, date, cls = "", manual = "") {
   const cfg = numberingFor(S.settings, type);
   let out;
-  if (cfg.mode === "manual") {
+  if (cfg.mode === "manual" || cleanDocNo(manual)) {
     const number = cleanDocNo(manual);
     if (!number) throw fail(`Enter the ${DOC_LABEL[type]}${type === "ics" ? ` (${cls === "low" ? "low value, SPLV" : "high value, SPHV"})` : ""} number — numbering is set to manual.`);
     out = { number };
@@ -150,7 +150,8 @@ export function approveAir(id, insp) {
       let airNo = old.airNo || "", ca = null, cc = null;
       // the fund: as encoded, or as the GSO sets it at inspection (the AIR and the CAR are numbered in it)
       const fund = !old.airNo && insp.fund ? insp.fund : old.fund;
-      if (inv.length && !airNo) { ca = await readCounter(tx, fund, "air", old.date, "", insp.airNo); airNo = ca.number; }
+      const airDate = insp.airDate || old.airDate || old.date;
+      if (inv.length && !airNo) { ca = await readCounter(tx, fund, "air", airDate, "", insp.airNo); airNo = ca.number; }
       const cref = non.length ? doc(collection(db, "ccars")) : null;
       if (non.length) cc = await readCounter(tx, fund, "ccar", insp.inspection.dateInspected || old.date, "", insp.ccarNo);
       if (ca) useNumber(tx, ca, ref, "air");
@@ -174,7 +175,7 @@ export function approveAir(id, insp) {
       if (cc) hist.push(stamp(`${non.length} non-inventoriable item${non.length === 1 ? "" : "s"} accepted on CAR ${cc.number}`));
       if (changed.length) hist.unshift(stamp(`Items corrected by the GSO: ${changed.map(l => l.description).join("; ")}`));
       if (fund !== old.fund) hist.push(stamp(`Fund set by the GSO at inspection: ${fundName(old.fund)} → ${fundName(fund)}`));
-      tx.update(ref, { ...(fund !== old.fund ? { fund } : {}), airNo, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
+      tx.update(ref, { ...(fund !== old.fund ? { fund } : {}), airNo, airDate, lines: inv.length ? inv : lines, total: linesTotal(inv.length ? inv : lines), inspection: insp.inspection, acceptance: insp.acceptance, gsoRemarks: insp.remarks || "",
         status: inv.length ? "approved" : "ccar", ...(cc ? { ccarId: cref.id, ccarNo: cc.number } : {}),
         approvedBy: me(), approvedAt: serverTimestamp(), history: [...(old.history || []), ...hist], updatedAt: serverTimestamp() });
       out = { airNo: inv.length ? airNo : "", ccarNo: cc?.number || "", ccarId: cref?.id || "" };
@@ -205,7 +206,8 @@ export function issueDocs(airId, docType, picks, header) {
       const groups = new Map();
       for (const l of lines) { const k = docType === "ics" ? sxClass(l.unitCost, th) : ""; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
       const counters = [];
-      for (const k of groups.keys()) counters.push(await readCounter(tx, air.fund, docType, header.date, k, header.numbers?.[k || "main"]));
+      const docDate = header.docDate || header.date;
+      for (const k of groups.keys()) counters.push(await readCounter(tx, air.fund, docType, docDate, k, header.numbers?.[k || "main"]));
       if (counters.length > 1 && counters[0].number === counters[1].number) throw fail("The low- and high-value ICS need different numbers.");
       [...groups.entries()].forEach(([cls, gl], i) => {
         const c = counters[i];
@@ -216,7 +218,8 @@ export function issueDocs(airId, docType, picks, header) {
           const assetRef = docType === "ris" ? null : doc(collection(db, "assets"));
           return { ...(assetRef ? { assetId: assetRef.id, assetRef } : {}), airLineId: l.id, description: l.description, specs: l.specs || "", unit: l.unit, qty: l.issueQty, unitCost: l.unitCost,
             amount: round2(l.issueQty * l.unitCost), accountCode: l.accountCode, stockNo: l.stockNo || "",
-            propertyNo: String(info.propertyNo ?? l.propertyNo ?? "").trim(), usefulLife: String(info.usefulLife ?? l.usefulLife ?? "").trim(), qtyRequested: Number(info.qtyRequested) || l.issueQty };
+            propertyNo: String(info.propertyNo ?? l.propertyNo ?? "").trim(), usefulLife: String(info.usefulLife ?? l.usefulLife ?? "").trim(), qtyRequested: Number(info.qtyRequested) || l.issueQty,
+            remarks: String(info.remarks || "").trim() };
         });
         // PAR / ICS lines become property records (one per line) in the same transaction.
         for (const dl of docLines) {
@@ -236,7 +239,7 @@ export function issueDocs(airId, docType, picks, header) {
           delete dl.assetRef;
         }
         tx.set(ref, {
-          docType, number: c.number, fund: air.fund, date: header.date, sxClass: cls || null,
+          docType, number: c.number, fund: air.fund, date: docDate, ...(docDate !== header.date ? { issuedOn: header.date } : {}), sxClass: cls || null,
           airId, airNo: air.airNo, endUserUid: air.endUserUid, office: air.office, supplier: air.supplier,
           recipient: header.recipient, issuedBy: header.issuedBy || {}, approvedBy: header.approvedBy || {}, purpose: header.purpose || "",
           lines: docLines, total: linesTotal(docLines), status: "issued",
@@ -266,6 +269,7 @@ export function issueRisFromStock(fund, picks, header) {
     if (!picks.length) throw fail("Enter the quantity to issue for at least one item.");
     const key = l => String(l.stockNo || "").trim().toUpperCase();
     const wanted = new Set(picks.map(p => p.stockNo));
+    picks.forEach(p => { p.airId = String(p.airId || ""); });
     const ids = S.d.airs.filter(a => a.fund === fund && ["approved", "issued"].includes(a.status) && a.posting?.posted
       && (a.lines || []).some(l => l.category === "cons" && wanted.has(key(l))))
       .sort((x, y) => String(x.acceptance?.dateReceived || x.date).localeCompare(String(y.acceptance?.dateReceived || y.date))).map(a => a.id);
@@ -276,14 +280,16 @@ export function issueRisFromStock(fund, picks, header) {
       const lines = [], take = new Map();
       for (const p of picks) {
         let need = p.qty, first = true;
-        for (const id of ids) {
+        // from the AIR the GSO chose (its issued price), or the oldest delivery first
+        for (const id of p.airId ? [p.airId] : ids) {
           const a = airs.get(id); if (!a?.posting?.posted || !["approved", "issued"].includes(a.status)) continue;
           for (const l of a.lines) {
             if (need <= 0) break;
             if (l.category !== "cons" || key(l) !== p.stockNo) continue;
             const q = round2(Math.min(remainingQty(l), need)); if (q <= 0) continue;
             lines.push({ airId: id, airNo: a.airNo, airLineId: l.id, description: l.description, specs: l.specs || "", unit: l.unit, qty: q, unitCost: l.unitCost,
-              amount: round2(q * l.unitCost), accountCode: l.accountCode, stockNo: l.stockNo, propertyNo: "", usefulLife: "", qtyRequested: first ? Number(p.qtyRequested) || p.qty : 0 });
+              amount: round2(q * l.unitCost), accountCode: l.accountCode, stockNo: l.stockNo, propertyNo: "", usefulLife: "", qtyRequested: first ? Number(p.qtyRequested) || p.qty : 0,
+              remarks: first ? String(p.remarks || "").trim() : "" });
             if (!take.has(id)) take.set(id, new Map());
             take.get(id).set(l.id, round2((take.get(id).get(l.id) || 0) + q));
             need = round2(need - q); first = false;
@@ -291,11 +297,12 @@ export function issueRisFromStock(fund, picks, header) {
         }
         if (need > 0) throw fail(`Only ${round2(p.qty - need)} of ${p.stockNo} are available.`);
       }
-      const c = await readCounter(tx, fund, "ris", header.date, "", header.numbers?.main);
+      const docDate = header.docDate || header.date;
+      const c = await readCounter(tx, fund, "ris", docDate, "", header.numbers?.main);
       const primaryId = lines[0].airId, primary = airs.get(primaryId), ref = doc(collection(db, "issuances"));
       useNumber(tx, c, ref, "ris");
       tx.set(ref, {
-        docType: "ris", number: c.number, fund, date: header.date, sxClass: null, airId: primaryId, airNo: primary.airNo, sources: [...take.keys()], fromRegistry: true,
+        docType: "ris", number: c.number, fund, date: docDate, ...(docDate !== header.date ? { issuedOn: header.date } : {}), sxClass: null, airId: primaryId, airNo: primary.airNo, sources: [...take.keys()], fromRegistry: true,
         endUserUid: primary.endUserUid, office: header.recipient.office || "", supplier: "", recipient: header.recipient, issuedBy: header.issuedBy || {}, approvedBy: header.approvedBy || {},
         purpose: header.purpose || "", lines, total: linesTotal(lines), status: "issued", posting: { posted: false }, createdBy: me(), createdAt: serverTimestamp(), updatedAt: serverTimestamp()
       });
@@ -344,7 +351,9 @@ export function cancelDoc(docId, reason) {
       for (const r of assetRefs) assets.push(await tx.get(r));
       if (assets.some(x => x.exists() && (x.data().status !== "active" || (x.data().history || []).length > 1)))
         throw fail("Some of this property was already transferred, returned or disposed. Reverse those first.");
+      const claim = doc(db, "docNumbers", `${d.fund}_${d.docType}_${encodeURIComponent(d.number)}`), hadClaim = (await tx.get(claim)).exists();
       tx.update(ref, { status: "cancelled", cancel: { reason, by: me(), at: new Date().toISOString() }, updatedAt: serverTimestamp() });
+      if (hadClaim) tx.delete(claim); // the number can be used again
       assets.forEach(x => { if (x.exists()) tx.update(x.ref, { status: "cancelled", history: [...(x.data().history || []), stamp(`${d.docType.toUpperCase()} ${d.number} cancelled`, reason)], updatedAt: serverTimestamp() }); });
       for (const x of srcs) {
         const air = x.data();
@@ -368,7 +377,7 @@ export function renumber(kind, id, newNumber, reason = "") {
     if (!number) throw fail("Enter the new number.");
     let label = "";
     await runTransaction(db, async tx => {
-      const ref = doc(db, kind === "air" ? "airs" : kind === "ccar" ? "ccars" : "issuances", id), snap = await tx.get(ref);
+      const ref = doc(db, kind === "air" ? "airs" : kind === "ccar" ? "ccars" : kind === "movement" ? "movements" : "issuances", id), snap = await tx.get(ref);
       const d = snap.data(); if (!d) throw fail("This document no longer exists.");
       const type = kind === "air" ? "air" : kind === "ccar" ? "ccar" : d.docType, old = kind === "air" ? d.airNo : d.number;
       label = kind === "air" ? "AIR" : DOC_LABEL[type];
@@ -381,7 +390,7 @@ export function renumber(kind, id, newNumber, reason = "") {
       const hadOld = (await tx.get(oldClaim)).exists();
       // what follows the number
       const docs = kind === "air" ? S.d.docs.filter(x => x.airId === id) : [];
-      const assetIds = kind === "air" ? S.d.assets.filter(a => a.source?.airId === id).map(a => a.id) : kind === "ccar" ? [] : (d.lines || []).map(l => l.assetId).filter(Boolean);
+      const assetIds = kind === "air" ? S.d.assets.filter(a => a.source?.airId === id).map(a => a.id) : ["ccar", "movement"].includes(kind) ? [] : (d.lines || []).map(l => l.assetId).filter(Boolean);
       // a CAR's Delivery Report keeps its copy of the CAR No.
       const carAir = kind === "ccar" && d.fromAirId ? await tx.get(doc(db, "airs", d.fromAirId)) : null;
       const assets = [];
@@ -398,7 +407,7 @@ export function renumber(kind, id, newNumber, reason = "") {
         tx.update(x.ref, { source, history: [...(a.history || []), stamp(`Renumbered: ${note}`, reason)], updatedAt: serverTimestamp() });
       }
     });
-    audit("renumber", kind === "air" ? "air" : kind === "ccar" ? "ccar" : "issuance", id, { to: number, reason });
+    audit("renumber", kind === "air" ? "air" : kind === "ccar" ? "ccar" : kind === "movement" ? "movement" : "issuance", id, { to: number, reason });
     return number;
   });
 }
@@ -415,19 +424,53 @@ export function changeAirFund(id, fund) {
   return wrap(async () => {
     await runTransaction(db, async tx => {
       const ref = doc(db, "airs", id), a = (await tx.get(ref)).data();
-      if (!a || a.status !== "approved") throw fail("Only an approved AIR with nothing issued from it can move to another fund.");
+      if (!a || !["approved", "issued"].includes(a.status)) throw fail("Only an approved AIR can move to another fund.");
       if (fund === a.fund) throw fail("The AIR is already in that fund.");
       if (a.posting?.posted) throw fail("Accounting has posted this AIR. Ask Accounting to unpost it first.");
-      const live = S.d.docs.filter(d => d.airId === id && d.status !== "cancelled");
-      if (live.length) throw fail(`Cancel the documents issued from this AIR first: ${live.map(d => `${d.docType.toUpperCase()} ${d.number}`).join(", ")}.`);
-      const claim = doc(db, "docNumbers", `${fund}_air_${encodeURIComponent(a.airNo)}`), oldClaim = doc(db, "docNumbers", `${a.fund}_air_${encodeURIComponent(a.airNo)}`);
-      if ((await tx.get(claim)).exists() || numberTaken(fund, "air", a.airNo)) throw fail(`AIR No. ${a.airNo} is already used in the ${fundName(fund)}. Change the AIR No. first, then move it.`);
-      const hadOld = (await tx.get(oldClaim)).exists();
-      tx.set(claim, { number: a.airNo, type: "air", path: ref.path, by: S.user.uid, at: serverTimestamp() });
-      if (hadOld) tx.delete(oldClaim);
-      tx.update(ref, { fund, history: [...(a.history || []), stamp(`Moved by the GSO from the ${fundName(a.fund)} to the ${fundName(fund)}`)], updatedAt: serverTimestamp() });
+      const live = S.d.docs.filter(d => (d.airId === id || (d.sources || []).includes(id)) && d.status !== "cancelled");
+      const posted = live.find(d => d.posting?.posted);
+      if (posted) throw fail(`${posted.docType.toUpperCase()} ${posted.number} is posted. Ask Accounting to unpost it first.`);
+      const shared = live.find(d => (d.sources || []).some(x => x !== id) || (d.lines || []).some(l => l.airId && l.airId !== id));
+      if (shared) throw fail(`${shared.docType.toUpperCase()} ${shared.number} also draws on other AIRs. Cancel it first, then move the AIR.`);
+      // every number moves with its document: claimed in the new fund, released in the old one
+      const moves = [{ type: "air", number: a.airNo, path: ref.path }, ...live.map(d => ({ type: d.docType, number: d.number, path: `issuances/${d.id}` }))];
+      const claims = [];
+      for (const m of moves) {
+        const claim = doc(db, "docNumbers", `${fund}_${m.type}_${encodeURIComponent(m.number)}`), oldClaim = doc(db, "docNumbers", `${a.fund}_${m.type}_${encodeURIComponent(m.number)}`);
+        if ((await tx.get(claim)).exists() || numberTaken(fund, m.type, m.number))
+          throw fail(`${m.type.toUpperCase()} No. ${m.number} is already used in the ${fundName(fund)}. Change that number first, then move the AIR.`);
+        claims.push({ ...m, claim, oldClaim, hadOld: (await tx.get(oldClaim)).exists() });
+      }
+      const assets = [];
+      for (const d of live) for (const l of d.lines || []) if (l.assetId) { const x = await tx.get(doc(db, "assets", l.assetId)); if (x.exists()) assets.push(x); }
+      for (const c of claims) { tx.set(c.claim, { number: c.number, type: c.type, path: c.path, by: S.user.uid, at: serverTimestamp() }); if (c.hadOld) tx.delete(c.oldClaim); }
+      const note = `Moved by the GSO from the ${fundName(a.fund)} to the ${fundName(fund)}`;
+      tx.update(ref, { fund, history: [...(a.history || []), stamp(note)], updatedAt: serverTimestamp() });
+      for (const d of live) tx.update(doc(db, "issuances", d.id), { fund, updatedAt: serverTimestamp() });
+      for (const x of assets) tx.update(x.ref, { fund, history: [...(x.data().history || []), stamp(note)], updatedAt: serverTimestamp() });
     });
     audit("air_fund", "air", id, { fund });
+  });
+}
+/** The GSO corrects an approved AIR nothing has been issued from (and Accounting has not posted): its AIR date and items. */
+export function correctAir(id, f) {
+  return wrap(async () => {
+    await runTransaction(db, async tx => {
+      const ref = doc(db, "airs", id), a = (await tx.get(ref)).data();
+      if (!a || a.status !== "approved") throw fail("Only an approved AIR can be corrected here.");
+      if (a.posting?.posted) throw fail("Accounting has posted this AIR. Ask Accounting to unpost it first.");
+      if (S.d.docs.some(d => (d.airId === id || (d.sources || []).includes(id)) && d.status !== "cancelled")) throw fail("Cancel the documents issued from this AIR first.");
+      const lines = a.lines.map(l => {
+        const c = (f.lines || []).find(x => x.id === l.id) || {};
+        const qtyN = round2(c.qty ?? l.qty), cost = round2(c.unitCost ?? l.unitCost);
+        return { ...l, description: String(c.description ?? l.description).trim(), unit: String(c.unit ?? l.unit).trim(), qty: qtyN, unitCost: cost, amount: round2(qtyN * cost), issuedQty: 0 };
+      });
+      if (lines.some(l => !l.description || !(l.qty > 0) || l.unitCost < 0)) throw fail("Every item needs a description, a quantity above zero and a unit cost.");
+      if (!f.airDate) throw fail("Enter the AIR date.");
+      tx.update(ref, { lines, total: linesTotal(lines), airDate: f.airDate,
+        history: [...(a.history || []), stamp("AIR corrected by the GSO", String(f.reason || "").trim())], updatedAt: serverTimestamp() });
+    });
+    audit("air_correct", "air", id, {});
   });
 }
 /** An administrator sets the reference shown on the item's Property / Ledger Card (blank: back to the automatic one). */
@@ -980,6 +1023,8 @@ export function updateAsset(id, patch, note) {
       if ("acquisitionType" in patch) clean.acquisition = { type: patch.acquisitionType || "purchased", source: str(patch.acquisitionSource) };
       if (ppe) for (const k of ["usefulLifeYears", "residualValue"]) if (k in patch && patch[k] !== "") clean[k] = k === "residualValue" ? round2(patch[k]) : Number(patch[k]) || 0;
       if ("office" in patch && patch.office !== (a.holder?.office || "")) clean.holder = { ...(a.holder || {}), office: patch.office };
+      if ("holderName" in patch && (str(patch.holderName) !== (a.holder?.name || "") || str(patch.holderPosition) !== (a.holder?.position || "")))
+        clean.holder = { ...(clean.holder || a.holder || {}), name: str(patch.holderName), position: str(patch.holderPosition) };
       if (acct) {
         if ("components" in patch) clean.components = cleanComponents(patch.components);
         const locked = hasPostedDepreciation(a, runs);
@@ -1099,7 +1144,7 @@ export function reactivateAsset(id, f) {
 /** Edits the printed details of a PTR / ITR / PRS / RRSP / disposal (signatories, reason, reference) — the items are not touched. */
 export function editMovementDetails(id, f) {
   return wrap(async () => {
-    const patch = { reason: str(f.reason), ref: str(f.ref), typeOther: str(f.typeOther),
+    const patch = { reason: str(f.reason), ref: str(f.ref), typeOther: str(f.typeOther), ...(f.date ? { date: f.date } : {}),
       approvedBy: { name: str(f.approvedBy?.name), position: str(f.approvedBy?.position) }, issuedBy: { name: str(f.issuedBy?.name), position: str(f.issuedBy?.position) },
       edited: arrayUnion({ by: me().name, at: new Date().toISOString() }), updatedAt: serverTimestamp() };
     await updateDoc(doc(db, "movements", id), patch);

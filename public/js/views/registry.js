@@ -1,11 +1,21 @@
 // Inventory Registry of supplies (consumable and for distribution): AIR receipts (and imported beginning balances) less
 // RIS issues, with each item's Stock Card and Supplies Ledger Card. Property registers are in property.js.
 import { S, can, settings, activeUsers } from "../state.js";
-import { $, $$, esc, money, num, qty, fmtDate, manilaToday, renderTable, openModal, downloadCSV, toast, busy, officeSelect } from "../ui.js";
+import { $, $$, esc, money, num, qty, fmtDate, manilaToday, renderTable, openModal, downloadCSV, toast, busy, officeSelect, opts } from "../ui.js";
 import { fundName, accountName, isDistributionAccount } from "../core/catalog.js";
-import { stockCards, numberingFor } from "../core/logic.js";
+import { stockCards, numberingFor, remainingQty } from "../core/logic.js";
 import { issueRisFromStock } from "../data.js";
+
 import { printForm, stockCardHtml, tableReportHtml } from "../print.js";
+
+/** The posted AIRs holding a stock number, with what is left of it and at what unit cost — oldest delivery first. */
+function sourcesOf(stockNo) {
+  const key = v => String(v || "").trim().toUpperCase(), sn = key(stockNo);
+  return S.d.airs.filter(a => a.fund === S.fund && ["approved", "issued"].includes(a.status) && a.posting?.posted)
+    .sort((x, y) => String(x.acceptance?.dateReceived || x.date).localeCompare(String(y.acceptance?.dateReceived || y.date)))
+    .flatMap(a => (a.lines || []).filter(l => l.category === "cons" && key(l.stockNo) === sn && remainingQty(l) > 0)
+      .map(l => ({ id: a.id, airNo: a.airNo, left: remainingQty(l), unitCost: l.unitCost })));
+}
 
 const st = { asOf: "" };
 const typeOf = c => isDistributionAccount(c.accountCode) ? "dist" : "cons";
@@ -94,13 +104,16 @@ function risModal(items) {
   const s = settings(), manual = numberingFor(S.settings, "ris").mode === "manual";
   const m = openModal(`<h2>Requisition and Issue Slip</h2><p class="muted small">Supplies available in the Inventory Registry (on hand, less what is reserved on RIS not yet posted). Each quantity is taken from the AIRs that hold the item, oldest delivery first.</p>
     <form id="rsf" class="grid" novalidate>
-      <div class="table-wrap"><table class="lines"><thead><tr><th>Stock No.</th><th>Item</th><th class="right">Available</th><th class="right">Requested</th><th class="right">Issue qty</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="lines"><thead><tr><th>Stock No.</th><th>Item</th><th class="right">Available</th><th class="right">Requested</th><th class="right">Issue qty</th><th>From AIR (issued price)</th><th>Remarks</th></tr></thead><tbody>
         ${items.map(c => `<tr data-sn="${esc(c.stockNo)}"><td><b>${esc(c.stockNo)}</b></td><td>${esc(c.description)}<div class="xs muted">${esc(c.unit)}</div></td><td class="right">${qty(c.available)}</td>
-          <td><input type="number" class="w-xs" data-rq min="0" step="any" value="${c.available}"></td><td><input type="number" class="w-xs" data-q min="0" max="${c.available}" step="any" value=""></td></tr>`).join("")}
+          <td><input type="number" class="w-xs" data-rq min="0" step="any" value="${c.available}"></td><td><input type="number" class="w-xs" data-q min="0" max="${c.available}" step="any" value=""></td>
+          <td><select data-src class="w-md">${opts([["", "Oldest delivery first"], ...sourcesOf(c.stockNo).map(x => [x.id, `AIR ${x.airNo} — ${qty(x.left)} left @ ${num(x.unitCost)}`])], "")}</select></td>
+          <td><input class="w-md" data-rmk placeholder="e.g. serial no."></td></tr>`).join("")}
       </tbody></table></div>
       <div class="grid g3">
         <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
-        ${manual ? `<div><label class="req">RIS No.</label><input name="no_main" placeholder="as on the printed form"></div>` : ""}
+        <div><label>RIS date</label><input type="date" name="docDate"><div class="xs muted">If earlier than the date issued (the RIS No. follows it).</div></div>
+        <div><label class="${manual ? "req" : ""}">RIS No.</label><input name="no_main" placeholder="${manual ? "as on the printed form" : "blank: next in the series"}"></div>
         <div><label class="req">Requested / received by</label><input name="rname" list="rulist" autocomplete="off"></div>
         <datalist id="rulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
         <div><label>Position / designation</label><input name="rpos"></div>
@@ -119,10 +132,13 @@ function risModal(items) {
   f.onsubmit = e => {
     e.preventDefault();
     const v = Object.fromEntries(new FormData(f).entries());
-    const picks = $$("tbody tr", f).map(tr => ({ stockNo: tr.dataset.sn, qty: Number($("[data-q]", tr).value) || 0, qtyRequested: Number($("[data-rq]", tr).value) || 0 }));
+    const picks = $$("tbody tr", f).map(tr => ({ stockNo: tr.dataset.sn, qty: Number($("[data-q]", tr).value) || 0, qtyRequested: Number($("[data-rq]", tr).value) || 0,
+      airId: $("[data-src]", tr).value || "", remarks: $("[data-rmk]", tr).value || "" }));
+    const short = picks.find(p => p.airId && p.qty > (sourcesOf(p.stockNo).find(x => x.id === p.airId)?.left || 0));
+    if (short) { $("#rsm", m).textContent = `AIR ${sourcesOf(short.stockNo).find(x => x.id === short.airId)?.airNo} has only ${qty(sourcesOf(short.stockNo).find(x => x.id === short.airId)?.left || 0)} of ${short.stockNo} left. Choose "Oldest delivery first" or issue less.`; return; }
     const over = picks.find(p => p.qty > (items.find(c => c.stockNo === p.stockNo)?.available || 0));
     if (over) { $("#rsm", m).textContent = `Only ${qty(items.find(c => c.stockNo === over.stockNo).available)} of ${over.stockNo} are available.`; return; }
-    const header = { date: v.date, purpose: v.purpose || "", numbers: { main: v.no_main },
+    const header = { date: v.date, docDate: v.docDate || "", purpose: v.purpose || "", numbers: { main: v.no_main },
       recipient: { uid: activeUsers().find(u => u.displayName === v.rname.trim())?.id || "", name: v.rname.trim(), position: v.rpos.trim(), office: v.roffice.trim(), rcc: (v.rcc || "").trim() },
       issuedBy: { name: v.iname.trim(), position: v.ipos.trim() }, approvedBy: { name: (v.aname || "").trim(), position: (v.apos || "").trim() } };
     busy(e.submitter, async () => {

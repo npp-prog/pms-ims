@@ -59,7 +59,7 @@ export function airHtml(a) {
   return `<div class="pf">${head("ACCEPTANCE AND INSPECTION REPORT")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(s.entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(a.fund))}</b></td></tr>
       <tr><td>Supplier: <b>${esc(a.supplier)}</b></td><td>AIR No.: <b>${esc(a.airNo || "")}</b></td></tr>
-      <tr><td>PO No./Date: <b>${esc(a.poNo)}${a.poDate ? " / " + fmtDate(a.poDate) : ""}</b></td><td>Date: <b>${fmtDate(a.date)}</b></td></tr>
+      <tr><td>PO No./Date: <b>${esc(a.poNo)}${a.poDate ? " / " + fmtDate(a.poDate) : ""}</b></td><td>Date: <b>${fmtDate(a.airDate || a.date)}</b></td></tr>
       <tr><td>Requisitioning Office/Dept.: <b>${esc(a.office)}</b></td><td>Invoice No./Date: <b>${esc(a.invNo)}${a.invDate ? " / " + fmtDate(a.invDate) : ""}</b></td></tr></table>
     <table class="pt"><thead><tr><th style="width:15%">Stock / Property / Item No.</th><th>Description</th><th style="width:9%">Unit</th><th style="width:9%">Quantity</th><th style="width:12%">Unit Cost</th><th style="width:13%">Amount</th></tr></thead>
       <tbody>${rows}<tr class="nothing"><td colspan="6">*** NOTHING FOLLOWS ***</td></tr>${blanks(14 - (a.lines || []).length, 6)}
@@ -80,7 +80,7 @@ export function airHtml(a) {
  *  verifies, and the End-User who accepts and receives (the Property Custodian does not accept non-inventoriable items). */
 export function ccarHtml(c) {
   const s = settings(), lines = c.lines || [];
-  const rows = lines.map((l, i) => `<tr><td class="c">${i + 1}</td><td class="c">${l.component === "labor" ? "Labor" : "Goods"}</td>
+  const rows = lines.map((l, i) => `<tr><td class="c">${i + 1}</td><td class="c">${l.component === "labor" ? "Labor" : `Goods${l.use === "distribution" ? "<br><span class=\"pf-spec\">(Distribution)</span>" : l.use === "consumption" ? "<br><span class=\"pf-spec\">(Consumption)</span>" : ""}`}</td>
     <td>${esc(l.description)}${l.specs ? `<div class="pf-spec">${esc(l.specs).replace(/\n/g, "<br>")}</div>` : ""}</td>
     <td class="c">${esc(l.unit)}</td><td class="r">${qty(l.qty)}</td><td class="r">${num(l.unitCost)}</td><td class="r">${num(l.amount)}</td></tr>`).join("");
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {};
@@ -96,6 +96,7 @@ export function ccarHtml(c) {
       <tr><td colspan="6" class="r">Goods</td><td class="r">${num(c.goodsTotal)}</td></tr>
       <tr><td colspan="6" class="r">Labor / Services</td><td class="r">${num(c.laborTotal)}</td></tr>
       <tr><td colspan="6" class="r"><b>TOTAL</b></td><td class="r"><b>${num(c.total)}</b></td></tr></tbody></table>
+    ${c.purpose ? `<div class="pf-ref">Purpose of Procurement: ${esc(c.purpose)}</div>` : ""}
     <p style="margin:8px 0;font-size:11px">This is to certify that the goods/services itemized above have been completed, delivered, and verified, and are found to be in order as to quantity and specifications. The same are hereby accepted for official use by the end-user.</p>
     <table class="pt">${sigRows([
       cell("Received and Accepted by:", r.date, "Date Accepted / Received", `<div>${box(a.status === "complete")} Complete</div><div>${box(a.status === "partial")} Partial (pls. specify) <i>${esc(a.partialNote || "")}</i></div>
@@ -142,7 +143,7 @@ export function icsHtml(d) {
 
 export function risHtml(d) {
   const rows = d.lines.map(l => `<tr><td>${esc(l.stockNo)}</td><td>${esc(l.unit)}</td><td>${esc(l.description)}</td><td class="r">${qty(l.qtyRequested || l.qty)}</td>
-    <td class="c">${box(true)}</td><td class="c">${box(false)}</td><td class="r">${qty(l.qty)}</td><td>AIR ${esc(d.airNo)}</td></tr>`).join("");
+    <td class="c">${box(true)}</td><td class="c">${box(false)}</td><td class="r">${qty(l.qty)}</td><td>${l.remarks ? `${esc(l.remarks)}<br>` : ""}AIR ${esc(l.airNo || d.airNo)}</td></tr>`).join("");
   const sg = d.approvedBy || {};
   return `<div class="pf">${head("REQUISITION AND ISSUE SLIP")}
     <table class="pmeta-t"><tr><td>Entity Name: <b>${esc(settings().entityName)}</b></td><td>Fund Cluster: <b>${esc(fundName(d.fund))}</b></td></tr>
@@ -296,7 +297,8 @@ function equipmentLedger(a, rows) {
 function equipmentProperty(a, rows) {
   const list = propertyCardRows(rows);
   return `<div class="pf card-l">${cardHead("PROPERTY CARD", a)}
-    ${info([[["Property, Plant and Equipment:", esc(a.articleType || accountName(a.accountCode))], ["Property Number:", esc(a.propertyNo)]], [["Description:", esc(a.description) + (a.specs ? ` — ${esc(a.specs)}` : ""), 3]]])}
+    ${info([[["Property, Plant and Equipment:", esc(a.articleType || accountName(a.accountCode))], ["Property Number:", esc(a.propertyNo)]], [["Description:", esc(a.description) + (a.specs ? ` — ${esc(a.specs)}` : ""), 3]],
+      [["Accountable Officer:", esc(a.holder?.name || "—")], ["Location/Office:", esc(a.holder?.office || a.location || "—")]]])}
     <table class="pt"><thead><tr><th rowspan="2" style="width:9%">Date</th><th rowspan="2" style="width:14%">Reference/ PAR No.</th><th style="width:8%">Receipt</th><th colspan="2">Issue/Transfer/Disposal</th>
       <th rowspan="2" style="width:8%">Balance Qty.</th><th rowspan="2" style="width:12%">Amount</th><th rowspan="2" style="width:15%">Remarks</th></tr><tr><th>Qty.</th><th style="width:8%">Qty.</th><th style="width:18%">Office/Officer</th></tr></thead>
     <tbody>${list.map(r => { const out = ["transfer", "retire", "return"].includes(r.kind);

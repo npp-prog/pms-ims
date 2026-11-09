@@ -63,7 +63,8 @@ export function assetFormModal(a) {
       <div><label>Acquired by</label><select name="acquisitionType">${opts(ACQUISITION_TYPES, a.acquisition?.type || "purchased")}</select></div>
       <div><label>Donor / source</label><input name="acquisitionSource" value="${esc(a.acquisition?.source || "")}"></div>
       <div><label>DV No. / Accounting reference</label><input name="dvNo" value="${esc(a.dvNo || "")}"></div>
-      ${gso ? `<div><label>Office</label>${officeSelect("office", a.holder?.office || "", s.offices, { blank: "No office" })}</div>` : ""}
+      ${gso ? `<div><label>Accountable officer</label><input name="holderName" value="${esc(a.holder?.name || "")}"></div><div><label>Position</label><input name="holderPosition" value="${esc(a.holder?.position || "")}"></div>
+        <div><label>Office</label>${officeSelect("office", a.holder?.office || "", s.offices, { blank: "No office" })}</div>` : ""}
       <div><label>Location</label><input name="location" value="${esc(a.location || "")}"></div>
       <div><label>Condition</label><select name="condition">${opts(CONDITIONS, a.condition || "Serviceable")}</select></div>
       <div class="spanall"><label>Remarks</label><input name="remarks" value="${esc(a.remarks || "")}"></div>

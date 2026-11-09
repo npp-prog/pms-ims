@@ -264,6 +264,29 @@ and property. Files are kept in Firestore itself (split into 600 KB pieces), bec
 Firestore's free tier holds 1 GB (beyond that, on the Blaze plan, about US$0.18 per GB a month). A large file is uploaded
 in parts with a progress count; one cut off halfway leaves nothing behind.
 
+### Corrections and monitoring (feedback of 7 November 2026)
+
+- **AIR No. and AIR date at inspection.** The GSO may type the AIR No. (blank: the next in the
+  series) and set the AIR date apart from the delivery date; the number follows the AIR date. An
+  AIR dated 2025 may still have its ICS / PAR issued in 2026.
+- **Correct AIR.** While nothing has been issued from it and Accounting has not posted it, the GSO
+  corrects an approved AIR's date and its items (description, unit, quantity, unit cost).
+- **Change fund.** An approved AIR moves to another fund with the PAR / ICS / RIS issued from it
+  (none posted yet), their numbers and their items.
+- **Cancelled numbers can be used again** on the corrected document (PAR, ICS, RIS, ITR, PTR, …).
+- **RIS:** its own RIS date (the number follows it) apart from the date issued; Remarks per line
+  (e.g. serial numbers); from the Inventory Registry, the AIR to issue from (its price) may be
+  chosen; **Save draft** keeps an unfinished PAR / ICS / RIS in this browser until it is issued.
+- **Registries:** PAR / ICS No. and Specification columns; filters by PAR / ICS No. and Article;
+  status *Recorded by GSO, not yet posted*, so items can be tagged once issued.
+- **ID tags:** choose how many tags to print (ten per A4 page).
+- **ITR / PTR:** Change No. and an editable date; *Released/Issued by* (Property Officer) on the form.
+- **Correct record:** the GSO can change the accountable officer and position.
+- **Property Card** shows the Accountable Officer.
+- **CAR:** Purpose of Procurement; each Goods line marked for consumption or distribution.
+- **Reports:** AIR Monitoring sorts by any column and filters by status and posting; PAR, ICS and
+  CAR Monitoring list every document in a period (CSV and print).
+
 ### Trial Balance reconciliation
 
 Paste the Trial Balance from Excel or upload the file (account code, name, debit, credit). For the
@@ -288,7 +311,8 @@ Trees) differ in the source data itself.
   posted (date + JEV no.) instead of re-encoding it. Posting can be undone only by Accounting;
   a posted document cannot be cancelled by the GSO.
 - **Cancellation instead of deletion.** A wrong PAR, ICS or RIS is cancelled (with a reason) before
-  posting. Its quantities return to the AIR for re-issue, and its number stays used.
+  posting. Its quantities return to the AIR for re-issue, and its number is free to be typed on
+  the corrected document.
 - **Exact supply costing.** Each RIS line draws from a specific AIR line, so the Stock Card and
   Supplies Ledger Card balances in pesos are exact.
 - **One property register for both systems.** PAR / ICS issuance, transfers, returns, disposals

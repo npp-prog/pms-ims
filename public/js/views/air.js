@@ -6,7 +6,7 @@ import {
 } from "../ui.js";
 import { FUNDS, fundName, CATEGORIES, ACCOUNTS_BY_CATEGORY, accountName } from "../core/catalog.js";
 import { numberingFor, buildItemCatalog, findItem, AIR_STATUS, suggestCategory, lineAmount, linesTotal, remainingQty, postingSummary, stockCards, validateAir, suggestStockNo } from "../core/logic.js";
-import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles, cancelAir, changeAirFund } from "../data.js";
+import { saveAir, deleteAir, approveAir, returnAir, airMissingFiles, cancelAir, changeAirFund, correctAir } from "../data.js";
 import { printForm, airHtml } from "../print.js";
 import { attachmentsCard } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
@@ -35,7 +35,7 @@ export function list(main) {
       ...(enduser ? [{ key: "f", label: "Fund", options: FUNDS.map(f => [f.code, f.name]), test: (a, v) => a.fund === v },
         { key: "w", label: "Encoded by", options: [["me", "Me"], ["others", "Others in my office"]], test: (a, v) => (v === "me") === mine(a) }] : [])],
     columns: [
-      { label: "Date", render: a => fmtDate(a.date), sort: a => a.date || "" },
+      { label: "Date", render: a => fmtDate(a.airDate || a.date), sort: a => a.airDate || a.date || "" },
       { label: enduser ? "AIR / CAR No." : "AIR No.", render: a => `<b>${esc(!enduser ? a.airNo : a.airNo ? `AIR ${a.airNo}` : a.status === "draft" ? "Draft" : a.status === "ccar" ? "" : "—")}</b>${enduser && a.ccarNo ? `<div class="xs">CAR ${esc(a.ccarNo)}</div>` : ""}${enduser ? `<div class="xs muted">${esc(fundName(a.fund))}</div>` : ""}`, sort: a => a.airNo || a.ccarNo || "" },
       { label: "Supplier", render: a => esc(a.supplier), sort: a => a.supplier || "" },
       { label: "Office / End-User", render: a => `${esc(a.office)}<div class="xs muted">${enduser && mine(a) ? "<b>You</b>" : esc(a.endUserName)}</div>`, sort: a => a.office || "" },
@@ -232,7 +232,7 @@ export function detail(main, [id]) {
       </div>
       <div>
         <div class="card"><h3>Details</h3><dl class="kv">
-          <dt>Delivery date</dt><dd>${fmtDate(a.date)}</dd><dt>Supplier</dt><dd>${esc(a.supplier)}</dd>
+          ${a.airDate && a.airDate !== a.date ? `<dt>AIR date</dt><dd>${fmtDate(a.airDate)}</dd>` : ""}<dt>Delivery date</dt><dd>${fmtDate(a.date)}</dd><dt>Supplier</dt><dd>${esc(a.supplier)}</dd>
           <dt>PO No./Date</dt><dd>${esc(a.poNo || "—")}${a.poDate ? " · " + fmtDate(a.poDate) : ""}</dd>
           <dt>Invoice No./Date</dt><dd>${esc(a.invNo || "—")}${a.invDate ? " · " + fmtDate(a.invDate) : ""}</dd>
           ${a.purpose ? `<dt>Purpose</dt><dd>${esc(a.purpose)}</dd>` : ""}
@@ -248,7 +248,8 @@ export function detail(main, [id]) {
           ${toSubmit && !missing.length ? `<button class="btn sm primary" id="sub">${a.status === "returned" ? "Resubmit to GSO" : "Submit to GSO"}</button>` : ""}
           ${can("inspectAir") && a.status === "submitted" ? `<button class="btn sm primary" id="approve">Inspect &amp; approve</button><button class="btn sm danger" id="ret">Return to End-User</button>` : ""}
           ${can("issue") && a.status === "approved" ? `<a class="btn sm primary" href="#/issue/${a.id}">Issue PAR / ICS / RIS</a>` : ""}
-          ${can("issue") && a.status === "approved" && !a.posting?.posted && !docs.some(d => d.status !== "cancelled") ? `<button class="btn sm" id="fundair">Change fund</button><button class="btn sm danger" id="cxair">Cancel AIR</button>` : ""}
+          ${can("issue") && ["approved", "issued"].includes(a.status) && !a.posting?.posted && !docs.some(d => d.status !== "cancelled" && d.posting?.posted) ? `<button class="btn sm" id="fundair">Change fund</button>` : ""}
+          ${can("issue") && a.status === "approved" && !a.posting?.posted && !docs.some(d => d.status !== "cancelled") ? `<button class="btn sm" id="fixair">Correct AIR</button><button class="btn sm danger" id="cxair">Cancel AIR</button>` : ""}
           ${can("post") && issuedStage ? `<a class="btn sm" href="#/posting">Go to posting</a>` : ""}
         </div></div>
         ${missing.length ? `<div class="notice warn">Attach the ${missing.join(" and the ")} of the delivery below — the Delivery Report can be submitted to the GSO only once the photo and the invoice are attached.</div>` : ""}
@@ -262,7 +263,7 @@ export function detail(main, [id]) {
   // gives the AIR its number, every file is shown and downloaded as "<AIR No.>-<document type>".
   const mineOffice = role() === "enduser" && S.account?.office && S.account.office === a.office;
   attachmentsCard($("#att", main), { type: "air", id: a.id, office: a.office, fund: a.fund, label: `AIR ${a.airNo || "(no number yet)"}` }, {
-    title: "Photos and invoice", labels: ["Photo", "Invoice", "Delivery receipt", "Purchase order", "Other"], defaultLabel: "Photo",
+    title: "Photos and invoice", labels: ["Photo", "Invoice", "Delivery receipt", "Purchase order", "Signed AIR", "PR / TOR / SOW", "Other"], defaultLabel: "Photo",
     canAdd: mineOffice || can("issue") || can("post"), canRemove: x => can("issue") || can("post") || x.uploadedBy?.uid === S.user.uid, namePrefix: a.airNo || "",
     note: a.airNo ? "" : "Files are renamed to the AIR No. and the type of document once the GSO approves this AIR."
   });
@@ -272,9 +273,27 @@ export function detail(main, [id]) {
   });
   $("#approve", main) && ($("#approve", main).onclick = () => inspectModal(a));
   $("#fundair", main) && ($("#fundair", main).onclick = async e => {
-    const v = await confirmBox({ title: `Move AIR ${a.airNo} to another fund`, body: "Nothing has been issued from it and Accounting has not posted it. Its AIR No. moves with it.",
+    const v = await confirmBox({ title: `Move AIR ${a.airNo} to another fund`, body: "For correcting an error. Its AIR No. moves with it, and so do the PAR / ICS / RIS issued from it (none posted yet), their numbers and their items.",
       fields: [{ name: "fund", label: "Fund", type: "select", options: FUNDS.filter(f => f.code !== a.fund).map(f => [f.code, f.name]), required: true }], confirmText: "Move" });
     if (v) busy(e.target, () => changeAirFund(a.id, v.fund), "AIR moved to the other fund.").catch(() => {});
+  });
+  $("#fixair", main) && ($("#fixair", main).onclick = () => {
+    const m = openModal(`<h2>Correct AIR ${esc(a.airNo)}</h2><p class="muted small">Nothing has been issued from it and Accounting has not posted it, so its AIR date and items can still be corrected.</p>
+      <form id="cxf" class="grid">
+        <div class="grid g3"><div><label class="req">AIR date</label><input type="date" name="airDate" value="${esc(a.airDate || a.date)}"></div></div>
+        <div class="table-wrap"><table class="lines"><thead><tr><th>Description</th><th>Unit</th><th class="right">Qty</th><th class="right">Unit cost</th></tr></thead><tbody>
+          ${(a.lines || []).map(l => `<tr data-id="${esc(l.id)}"><td><input class="w-lg" data-k="description" value="${esc(l.description)}"></td><td><input class="w-xs" data-k="unit" value="${esc(l.unit)}"></td>
+            <td><input type="number" min="0" step="any" class="w-xs" data-k="qty" value="${esc(l.qty)}"></td><td><input type="number" min="0" step="0.01" class="w-sm" data-k="unitCost" value="${esc(l.unitCost)}"></td></tr>`).join("")}
+        </tbody></table></div>
+        <div><label>Reason</label><input name="reason" placeholder="e.g. quantity as delivered"></div>
+        <div class="form-msg err" id="cxm"></div>
+        <div class="modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn primary" type="submit">Save</button></div></form>`, { size: "wide" });
+    $("[data-x]", m).onclick = () => m.close();
+    $("#cxf", m).onsubmit = e => {
+      e.preventDefault();
+      const f = e.target, lines = [...f.querySelectorAll("tbody tr")].map(tr => ({ id: tr.dataset.id, ...Object.fromEntries([...tr.querySelectorAll("[data-k]")].map(x => [x.dataset.k, x.value])) }));
+      busy(e.submitter, async () => { try { await correctAir(a.id, { airDate: f.airDate.value, reason: f.reason.value, lines }); m.close(); } catch (err) { $("#cxm", m).textContent = err.message; throw err; } }, "AIR corrected.").catch(() => {});
+    };
   });
   $("#cxair", main) && ($("#cxair", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel AIR ${a.airNo}?`, body: "Nothing has been issued from it and Accounting has not posted it. It keeps its number, marked Cancelled.",
@@ -308,7 +327,8 @@ function inspectModal(a) {
   const airManual = !a.airNo && numberingFor(S.settings, "air").mode === "manual";
   const m = openModal(`<h2>Inspect the Delivery Report</h2>
     ${a.airNo ? "" : `<div class="grid g3" style="margin-bottom:.8rem"><div><label class="req">Fund</label><select id="ifund">${opts(FUNDS.map(f => [f.code, f.name]), a.fund)}</select><div class="xs muted">The AIR and CAR are numbered in this fund.</div></div>
-      <div><label class="${airManual ? "req" : ""}">AIR No.</label>${airManual ? `<input id="airno" placeholder="as on the printed AIR">` : `<input disabled value="Next in the series — given on approval">`}</div></div>`}
+      <div><label class="${airManual ? "req" : ""}">AIR No.</label><input id="airno" placeholder="${airManual ? "as on the printed AIR" : "blank: the next in the series"}"></div>
+      <div><label class="req">AIR date</label><input type="date" id="airdate" value="${esc(a.airDate || a.date || manilaToday())}"><div class="xs muted">The AIR No. follows this date; the delivery date stays as encoded.</div></div></div>`}
     <p class="muted small">Check each item against the delivery and correct it if needed (description, specifications, unit, quantity, unit cost). Classify it: <b>inventoriable</b> items —
       PPE (PAR), Semi-Expendable (ICS) or supplies (RIS) — go on the <b>AIR</b>, with their account; <b>non-inventoriable</b> goods and labor / services go on a <b>CAR</b>. Stock numbers of supplies are suggested from the Inventory Registry.</p>
     <div id="ccarno"></div>
@@ -371,7 +391,7 @@ function inspectModal(a) {
         category: l.category, accountCode: l.accountCode, stockNo: l.stockNo || "", propertyNo: l.propertyNo || "", usefulLife: l.usefulLife || "" })),
       inspection: { dateInspected: $("#di", m).value, inspectorName: $("#iname", m).value.trim(), inspectedOk: $("#iok", m).checked },
       acceptance: { dateReceived: $("#dr", m).value, status: $("#acc", m).value, partialNote: $("#pn", m).value.trim(), custodianName: $("#cust", m).value.trim() },
-      remarks: $("#rem", m).value.trim(), fund: $("#ifund", m)?.value || a.fund,
+      remarks: $("#rem", m).value.trim(), fund: $("#ifund", m)?.value || a.fund, airDate: $("#airdate", m)?.value || "",
       airNo: $("#airno", m)?.value.trim() || "", ccarNo: $("#ccarnoin", m)?.value.trim() || ""
     };
     insp.lines.forEach((x, i) => { x.component = lines[i].component; });

@@ -13,6 +13,13 @@ import { attachmentsCard, attachmentsOf } from "./attachments.js";
 import { canRenumber, renumberDialog } from "./common.js";
 
 const clean = () => window.dispatchEvent(new Event("app:clean"));
+/** Drafts of a PAR / ICS / RIS being prepared, kept in this browser (per AIR and document type) until issued or discarded. */
+const draftStore = {
+  key: (airId, t) => `pim.draft.${airId}.${t}`,
+  get(airId, t) { try { return JSON.parse(localStorage.getItem(this.key(airId, t)) || "null"); } catch { return null; } },
+  set(airId, t, v) { try { localStorage.setItem(this.key(airId, t), JSON.stringify(v)); } catch { /* private mode: nothing kept */ } },
+  clear(airId, t) { try { localStorage.removeItem(this.key(airId, t)); } catch { /* nothing to clear */ } }
+};
 /** The Property / Inventory Item No. an AIR line was given at inspection (or its Item No.): the PAR / ICS carries it. */
 const airItemNo = l => String(l.propertyNo || l.stockNo || "").trim();
 const left = (a, cat) => (a.lines || []).filter(l => l.category === cat && remainingQty(l) > 0);
@@ -63,17 +70,18 @@ function issuePanel(main, airId) {
       t === "ics" ? `Semi-Expendable items are numbered SPLV (unit cost ₱${num(th.sxHighValue)} and below) or SPHV (above). Mixed items are split into one ICS per class automatically.` :
       "Supplies issued for consumption by an office, or for distribution (accounts 10402xxx). Partial quantities stay in the Stock Card for a later RIS."}</p>
     <div class="table-wrap"><table class="lines"><thead><tr><th></th><th>Item</th><th class="right">Unit cost</th><th class="right">Left</th><th class="right">Issue qty</th>
-      ${prop ? `<th>${t === "par" ? "Property No." : "Inventory Item No."}</th><th>${t === "par" ? "Useful life (years)" : "Est. useful life"}</th>` : `<th class="right">Requested</th>`}</tr></thead>
+      ${prop ? `<th>${t === "par" ? "Property No." : "Inventory Item No."}</th><th>${t === "par" ? "Useful life (years)" : "Est. useful life"}</th>` : `<th class="right">Requested</th><th>Remarks</th>`}</tr></thead>
       <tbody>${lines.map(l => `<tr data-id="${esc(l.id)}"><td><input type="checkbox" data-pick checked></td>
         <td><b>${esc(l.description)}</b><div class="xs muted">${esc(l.unit)} · ${esc(l.accountCode)} ${esc(accountName(l.accountCode))}${l.stockNo ? ` · Stock No. ${esc(l.stockNo)}` : ""}${t === "ris" ? ` · ${isDistributionAccount(l.accountCode) ? "Distribution" : "Consumption"}` : ""}${t === "ics" ? ` · ${sxClass(l.unitCost, th) === "low" ? "SPLV" : "SPHV"}` : ""}</div></td>
         <td class="right">${num(l.unitCost)}</td><td class="right">${qty(remainingQty(l))}</td>
         <td><input type="number" class="w-xs" data-q min="0" max="${remainingQty(l)}" step="${prop ? 1 : "any"}" value="${remainingQty(l)}"></td>
-        ${prop ? `<td><input class="w-md" data-pn value="${esc(airItemNo(l) || suggested[lines.indexOf(l)] || "")}" placeholder="${esc(propertyNoPrefix(l.accountCode, year))}-0001"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td>`}</tr>`).join("")}</tbody></table></div>
+        ${prop ? `<td><input class="w-md" data-pn value="${esc(airItemNo(l) || suggested[lines.indexOf(l)] || "")}" placeholder="${esc(propertyNoPrefix(l.accountCode, year))}-0001"></td><td>${t === "par" ? `<input type="number" min="0" step="1" class="w-xs" data-ul value="${esc(Number(String(l.usefulLife || "").replace(/[^\d.]/g, "")) || defaultLife(l.accountCode) || "")}">` : `<input class="w-sm" data-ul value="${esc(l.usefulLife || "")}" placeholder="e.g. 3 years">`}</td>` : `<td><input type="number" class="w-xs" data-rq min="0" step="any" value="${remainingQty(l)}"></td><td><input class="w-md" data-rmk placeholder="e.g. serial no."></td>`}</tr>`).join("")}</tbody></table></div>
     <div class="grid g3" style="margin-top:1rem">
       <div><label class="req">Date issued</label><input type="date" name="date" value="${manilaToday()}"></div>
-      ${numberingFor(S.settings, t).mode === "manual" ? (t === "ics"
-        ? `<div><label>ICS No. — low value (SPLV)</label><input name="no_low" placeholder="if any SPLV item"></div><div><label>ICS No. — high value (SPHV)</label><input name="no_high" placeholder="if any SPHV item"></div>`
-        : `<div><label class="req">${DOC_TYPES[t].short} No.</label><input name="no_main" placeholder="as on the printed form"></div>`) : ""}
+      ${t === "ris" ? `<div><label>RIS date</label><input type="date" name="docDate"><div class="xs muted">When the request was made, if earlier (the RIS No. follows it). Blank: the date issued.</div></div>` : ""}
+      ${(m => t === "ics"
+        ? `<div><label>ICS No. — low value (SPLV)</label><input name="no_low" placeholder="${m ? "if any SPLV item" : "blank: next in the series"}"></div><div><label>ICS No. — high value (SPHV)</label><input name="no_high" placeholder="${m ? "if any SPHV item" : "blank: next in the series"}"></div>`
+        : `<div><label class="${m ? "req" : ""}">${DOC_TYPES[t].short} No.</label><input name="no_main" placeholder="${m ? "as on the printed form" : "blank: next in the series"}"></div>`)(numberingFor(S.settings, t).mode === "manual")}
       <div><label class="req">${t === "ris" ? "Requested / received by" : "Received by (End-User)"}</label><input name="rname" list="ulist" autocomplete="off" value="${esc(a.endUserName || "")}"></div>
       <datalist id="ulist">${activeUsers().map(u => `<option value="${esc(u.displayName)}">${esc(u.office)}</option>`).join("")}</datalist>
       <div><label>Position / designation</label><input name="rpos" value="${esc(activeUsers().find(u => u.id === a.endUserUid)?.position || "")}"></div>
@@ -84,7 +92,23 @@ function issuePanel(main, airId) {
       <div><label>Designation</label><input name="ipos" value="${esc(s.signatories.propertyCustodianPosition)}"></div>
     </div>
     <div class="form-msg err" id="msg"></div>
-    <div class="modal-actions"><span class="small muted" id="sum"></span><button class="btn primary" type="submit">Issue ${DOC_TYPES[t].short}</button></div>`;
+    <div class="modal-actions"><span class="small muted" id="sum"></span><button class="btn" type="button" id="savedraft">Save draft</button><button class="btn primary" type="submit">Issue ${DOC_TYPES[t].short}</button></div>`;
+  // a draft: what was entered on this form, kept in this browser until it is issued or discarded
+  const saved = draftStore.get(a.id, t);
+  if (saved) {
+    f.insertAdjacentHTML("afterbegin", `<div class="notice info btn-row" style="justify-content:space-between" id="draftbar"><span>Draft saved ${esc(fmtDateTime(saved.at))} — restored below.</span><button type="button" class="btn sm" id="dropdraft">Discard draft</button></div>`);
+    for (const [k, v] of Object.entries(saved.fields || {})) if (f.elements[k] && f.elements[k].type !== "file") f.elements[k].value = v;
+    $$("tbody tr", f).forEach(tr => { const r = saved.rows?.[tr.dataset.id]; if (!r) return;
+      $("[data-pick]", tr).checked = r.pick; for (const [sel, v] of Object.entries(r.vals || {})) { const el = $(sel, tr); if (el) el.value = v; } });
+    $("#dropdraft", f).onclick = () => { draftStore.clear(a.id, t); $("#draftbar", f).remove(); toast("Draft discarded.", "ok"); };
+  }
+  $("#savedraft", f).onclick = () => {
+    const rows = {};
+    $$("tbody tr", f).forEach(tr => { const vals = {}; ["[data-q]", "[data-pn]", "[data-ul]", "[data-rq]", "[data-rmk]"].forEach(sel => { const el = $(sel, tr); if (el) vals[sel] = el.value; });
+      rows[tr.dataset.id] = { pick: $("[data-pick]", tr).checked, vals }; });
+    draftStore.set(a.id, t, { at: Date.now(), fields: Object.fromEntries(new FormData(f).entries()), rows });
+    clean(); toast(`${DOC_TYPES[t].short} draft saved in this browser — open this AIR's ${DOC_TYPES[t].short} again to continue.`, "ok");
+  };
   f.rname.addEventListener("change", () => { const u = activeUsers().find(x => x.displayName === f.rname.value); if (u) { f.rpos.value = u.position || ""; f.roffice.value = u.office || f.roffice.value; } });
   const sum = () => { let tot = 0; $$("tbody tr", f).forEach(tr => { if ($("[data-pick]", tr).checked) { const l = lines.find(x => x.id === tr.dataset.id); tot += (Number($("[data-q]", tr).value) || 0) * l.unitCost; } }); $("#sum", f).textContent = `Total ${money(tot)}`; };
   f.addEventListener("input", sum); sum();
@@ -95,7 +119,7 @@ function issuePanel(main, airId) {
     $$("tbody tr", f).forEach(tr => {
       if (!$("[data-pick]", tr).checked) return;
       picks.push({ lineId: tr.dataset.id, qty: Number($("[data-q]", tr).value) || 0 });
-      lineInfo[tr.dataset.id] = prop ? { propertyNo: $("[data-pn]", tr).value, usefulLife: $("[data-ul]", tr).value } : { qtyRequested: Number($("[data-rq]", tr).value) || 0 };
+      lineInfo[tr.dataset.id] = prop ? { propertyNo: $("[data-pn]", tr).value, usefulLife: $("[data-ul]", tr).value } : { qtyRequested: Number($("[data-rq]", tr).value) || 0, remarks: $("[data-rmk]", tr)?.value || "" };
     });
     if (prop) {
       const label = t === "par" ? "Property" : "Inventory Item";
@@ -112,7 +136,7 @@ function issuePanel(main, airId) {
         confirmText: `Issue ${t.toUpperCase()}` }))) return;
     }
     const header = {
-      date: fd.date, purpose: fd.purpose || "", lineInfo, numbers: { main: fd.no_main, low: fd.no_low, high: fd.no_high },
+      date: fd.date, docDate: fd.docDate || "", purpose: fd.purpose || "", lineInfo, numbers: { main: fd.no_main, low: fd.no_low, high: fd.no_high },
       // property shows as "You" in Office Property of the registered user who receives it (none if not a system user)
       recipient: { uid: activeUsers().find(u => u.displayName === fd.rname.trim())?.id || (fd.rname.trim() === a.endUserName ? a.endUserUid : ""), name: fd.rname.trim(), position: fd.rpos.trim(), office: fd.roffice.trim(), rcc: (fd.rcc || "").trim() },
       issuedBy: { name: fd.iname.trim(), position: fd.ipos.trim() },
@@ -122,6 +146,7 @@ function issuePanel(main, airId) {
     busy(e.submitter || $("[type=submit]", f), async () => {
       try {
         const out = await issueDocs(a.id, t, picks, header);
+        draftStore.clear(a.id, t);
         clean();
         toast(`${DOC_TYPES[t].short} ${out.map(x => x.number).join(", ")} issued.`, "ok");
         location.hash = `#/issuances/${out[0].id}`;
@@ -178,7 +203,7 @@ export function detail(main, [id]) {
           <td class="small">${esc(l.accountCode)}<div class="xs muted">${esc(accountName(l.accountCode))}</div></td></tr>`).join("")}</tbody></table></div></div>
     </div><div>
       <div class="card"><h3>Details</h3><dl class="kv">
-        <dt>Date issued</dt><dd>${fmtDate(d.date)}</dd>
+        ${d.issuedOn ? `<dt>${esc(t.short)} date</dt><dd>${fmtDate(d.date)}</dd><dt>Date issued</dt><dd>${fmtDate(d.issuedOn)}</dd>` : `<dt>Date issued</dt><dd>${fmtDate(d.date)}</dd>`}
         <dt>${d.docType === "ris" ? "Requested by" : "Received by"}</dt><dd>${esc(d.recipient?.name)}${d.recipient?.position ? `<div class="xs muted">${esc(d.recipient.position)}</div>` : ""}</dd>
         <dt>Office</dt><dd>${esc(d.recipient?.office)}</dd>
         <dt>Issued by</dt><dd>${esc(d.issuedBy?.name || "—")}</dd>

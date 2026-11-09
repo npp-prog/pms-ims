@@ -140,9 +140,12 @@ service cloud.firestore {
       allow update: if false;
       // released when the GSO renumbers a 2026 document (or moves a CAR to another fund): only once the document no longer
       // carries this number in this fund
-      allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris', 'ccar'] && resource.data.path is string
+      allow delete: if issuer() && resource.data.type in ['air', 'par', 'ics', 'ris', 'ccar', 'ptr', 'itr', 'prs', 'rrsp', 'dsp'] && resource.data.path is string
         && (getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
               .data.get(resource.data.type == 'air' ? 'airNo' : 'number', '') != resource.data.number
+          // a cancelled PAR / ICS / RIS gives its number back
+          || getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
+              .data.get('status', '') == 'cancelled'
           || getAfter(/databases/$(database)/documents/$(resource.data.path.split('/')[0])/$(resource.data.path.split('/')[1]))
               .data.get('fund', '') != id.split('_')[0]);
     }
@@ -182,7 +185,7 @@ service cloud.firestore {
           && ((request.resource.data.status == 'returned' && request.resource.data.airNo == resource.data.airNo)
             || (request.resource.data.status == 'approved' && request.resource.data.airNo is string && request.resource.data.airNo.size() > 0
               && (resource.data.airNo == '' || request.resource.data.airNo == resource.data.airNo)))
-          && onlyChanged(['airNo', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'ccarId', 'ccarNo', 'fund'])
+          && onlyChanged(['airNo', 'airDate', 'lines', 'total', 'inspection', 'acceptance', 'gsoRemarks', 'status', 'approvedBy', 'approvedAt', 'history', 'updatedAt', 'ccarId', 'ccarNo', 'fund'])
           // the GSO may set the fund at inspection, before the AIR has a number
           && validFund(request.resource.data.fund) && (request.resource.data.fund == resource.data.fund || resource.data.airNo == '')
           // its non-inventoriable items go to a CCAR made in the same transaction
@@ -191,7 +194,7 @@ service cloud.firestore {
         // GSO issues or cancels documents: issued quantities and the resulting status
         || (issuer() && resource.data.status in ['approved', 'issued']
           && request.resource.data.status in ['approved', 'issued']
-          && onlyChanged(['lines', 'status', 'history', 'updatedAt']))
+          && onlyChanged(['lines', 'status', 'history', 'updatedAt', 'total', 'airDate']))
         // GSO renumbers an AIR dated 2026
         || (issuer() && in2026(resource.data) && resource.data.airNo != '' && request.resource.data.airNo is string
           && request.resource.data.airNo.size() > 0 && onlyChanged(['airNo', 'history', 'updatedAt']))
@@ -199,7 +202,7 @@ service cloud.firestore {
         || (poster() && resource.data.status in ['approved', 'issued']
           && onlyChanged(['posting', 'history', 'updatedAt']))
         // the GSO moves an approved AIR Accounting has not posted to another fund, its AIR No. claimed there in the same write
-        || (issuer() && resource.data.status == 'approved' && resource.data.get('posting', {}).get('posted', false) == false
+        || (issuer() && resource.data.status in ['approved', 'issued'] && resource.data.get('posting', {}).get('posted', false) == false
           && onlyChanged(['fund', 'history', 'updatedAt']) && validFund(request.resource.data.fund)
           && getAfter(/databases/$(database)/documents/docNumbers/$(request.resource.data.fund + '_air_' + resource.data.airNo)).data.path == 'airs/' + id)
         // the GSO cancels an approved AIR Accounting has not posted (the app checks nothing issued from it is still live)
@@ -256,6 +259,10 @@ service cloud.firestore {
             || (getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.get('posting', {}).get('posted', false) == true
               && resource.data.get('rsmiId', '') != ''
               && getAfter(/databases/$(database)/documents/rsmis/$(resource.data.rsmiId)).data.status == 'posted')))
+        // the GSO moved its AIR to another fund: the unposted document follows, its number claimed there in the same write
+        || (issuer() && resource.data.posting.posted == false && onlyChanged(['fund', 'updatedAt']) && validFund(request.resource.data.fund)
+          && getAfter(/databases/$(database)/documents/airs/$(resource.data.airId)).data.fund == request.resource.data.fund
+          && getAfter(/databases/$(database)/documents/docNumbers/$(request.resource.data.fund + '_' + resource.data.docType + '_' + resource.data.number)).data.path == 'issuances/' + id)
         // the GSO puts an unposted RIS on an RSMI, or takes it off when the RSMI is cancelled
         || (issuer() && resource.data.docType == 'ris' && resource.data.status == 'issued' && resource.data.posting.posted == false
           && onlyChanged(['rsmiId', 'rsmiNo', 'updatedAt']))
@@ -305,6 +312,10 @@ service cloud.firestore {
         // the PAR / ICS (or its AIR) was renumbered: the item's copy of the number follows
         || (issuer() && onlyChanged(['source', 'history', 'updatedAt']) && request.resource.data.source.kind == resource.data.source.kind
           && request.resource.data.source.docId == resource.data.source.docId)
+        // its PAR / ICS (not yet posted) moved to another fund with its AIR: the item follows
+        || (issuer() && resource.data.source.kind in ['par', 'ics'] && onlyChanged(['fund', 'history', 'updatedAt'])
+          && getAfter(/databases/$(database)/documents/issuances/$(resource.data.source.docId)).data.fund == request.resource.data.fund
+          && getAfter(/databases/$(database)/documents/issuances/$(resource.data.source.docId)).data.posting.posted == false)
         // Accounting posts a PAR / ICS whose line is already in the registry: the line's new record is set aside, matched to it
         // (and comes back when the PAR / ICS is unposted)…
         || (poster() && resource.data.source.kind in ['par', 'ics'] && onlyChanged(['status', 'matchedTo', 'history', 'updatedAt'])
@@ -336,7 +347,10 @@ service cloud.firestore {
         (issuer() && resource.data.needsPosting == true && resource.data.status == 'done' && resource.data.posting.posted == false
           && request.resource.data.status == 'cancelled' && onlyChanged(['status', 'cancel', 'updatedAt']))
         // printed details only (signatories, reason, reference) — the items are untouched
-        || (issuer() && resource.data.status == 'done' && onlyChanged(['reason', 'ref', 'typeOther', 'approvedBy', 'issuedBy', 'edited', 'updatedAt']))
+        || (issuer() && resource.data.status == 'done' && onlyChanged(['reason', 'ref', 'typeOther', 'approvedBy', 'issuedBy', 'edited', 'updatedAt', 'date']))
+        // the GSO renumbers a document dated 2026
+        || (issuer() && in2026(resource.data) && resource.data.status == 'done' && request.resource.data.number is string && request.resource.data.number.size() > 0
+          && onlyChanged(['number', 'renumbered', 'updatedAt']))
         || (poster() && resource.data.needsPosting == true && resource.data.status == 'done' && onlyChanged(['posting', 'updatedAt']));
       allow delete: if false;
     }

@@ -733,3 +733,34 @@ test("the card reference of an item: administrators set it, not the GSO or Accou
   await assertFails(updateDoc(doc(ctx("gso"), "assets/REF1"), { cardRef: "x" }));
   await assertFails(updateDoc(doc(ctx("acc"), "assets/REF1"), { cardRef: "x" }));
 });
+
+
+test("feedback 11-7: numbers of cancelled documents, fund moves with documents, AIR correction, transfer numbers and dates", async () => {
+  const { writeBatch } = await import("firebase/firestore");
+  await env.withSecurityRulesDisabled(async c => { const d = c.firestore();
+    await setDoc(doc(d, "issuances/RC1"), baseDoc({ docType: "ris", number: "2026-11-0500", status: "cancelled" }));
+    await setDoc(doc(d, "docNumbers/GF_ris_2026-11-0500"), { number: "2026-11-0500", type: "ris", path: "issuances/RC1", by: "gso" });
+    await setDoc(doc(d, "airs/A_MV"), baseAir({ status: "approved", airNo: "2026-11-0601" }));
+    await setDoc(doc(d, "issuances/PMV"), baseDoc({ airId: "A_MV", number: "2026-11-0602" }));
+    await setDoc(doc(d, "assets/AMV"), asset({ source: { kind: "par", docId: "PMV" } }));
+    await setDoc(doc(d, "docNumbers/GF_air_2026-11-0601"), { number: "2026-11-0601", type: "air", path: "airs/A_MV", by: "gso" });
+    await setDoc(doc(d, "docNumbers/GF_par_2026-11-0602"), { number: "2026-11-0602", type: "par", path: "issuances/PMV", by: "gso" });
+    await setDoc(doc(d, "movements/ITR1"), { docType: "itr", number: "2026-11-0700", fund: "GF", date: "2026-11-05", status: "done", needsPosting: false, posting: { posted: false }, lines: [] }); });
+  const g = ctx("gso");
+  // a cancelled RIS gives its number back
+  await assertSucceeds(deleteDoc(doc(g, "docNumbers/GF_ris_2026-11-0500")));
+  // an AIR moves to another fund with its unposted PAR and the PAR's item, every number claimed there
+  const b = writeBatch(g);
+  b.set(doc(g, "docNumbers/TF_air_2026-11-0601"), { number: "2026-11-0601", type: "air", path: "airs/A_MV", by: "gso" });
+  b.set(doc(g, "docNumbers/TF_par_2026-11-0602"), { number: "2026-11-0602", type: "par", path: "issuances/PMV", by: "gso" });
+  b.delete(doc(g, "docNumbers/GF_air_2026-11-0601")); b.delete(doc(g, "docNumbers/GF_par_2026-11-0602"));
+  b.update(doc(g, "airs/A_MV"), { fund: "TF" }); b.update(doc(g, "issuances/PMV"), { fund: "TF" }); b.update(doc(g, "assets/AMV"), { fund: "TF" });
+  await assertSucceeds(b.commit());
+  await assertFails(updateDoc(doc(g, "issuances/PMV"), { fund: "SEF" }), "a document follows its AIR's fund only");
+  // the GSO corrects an approved AIR's date and items
+  await assertSucceeds(updateDoc(doc(g, "airs/A_MV"), { airDate: "2026-10-30", total: 1, lines: [] }));
+  // a transfer's date and (2026) number
+  await assertSucceeds(updateDoc(doc(g, "movements/ITR1"), { date: "2026-11-04" }));
+  await assertSucceeds(updateDoc(doc(g, "movements/ITR1"), { number: "2026-11-0701", renumbered: [] }));
+  await assertFails(updateDoc(doc(ctx("acc"), "movements/ITR1"), { number: "X" }), "only the GSO");
+});

@@ -9,6 +9,7 @@ import { saveMovement, cancelMovement, editMovementDetails, setCardReference } f
 import { printForm, movementHtml, tableReportHtml } from "../print.js";
 import { assetFormModal, revalueModal, ledgerEntryModal, reclassModal, reactivateModal, printCards, activityLog } from "./assetforms.js";
 import { specialGroup, SPECIAL_FIELDS, COMPONENTS, ACQUISITION_TYPES, acquisitionRef } from "../core/cards.js";
+import { canRenumber, renumberDialog } from "./common.js";
 import { repairsOf, printHistory } from "./repairs.js";
 import { attachmentsCard, attachmentsOf } from "./attachments.js";
 
@@ -23,7 +24,11 @@ const accum = (a, runs) => a.itemType === "ppe" ? accumAsOf(a, nowPeriod(), runs
 /* ---------------- registries ---------------- */
 function registry(main, itemType) {
   const ppe = itemType === "ppe", runs = S.d.depr;
-  const rows = fundAssets().filter(a => a.itemType === itemType && a.status !== "cancelled");
+  // items issued on a PAR / ICS that Accounting has not posted are listed too ("Recorded by GSO, not yet posted"),
+  // so their ID tags can be printed and attached on issuance
+  const rows = [...fundAssets(), ...awaitingPosting()].filter(a => a.itemType === itemType && a.status !== "cancelled");
+  const docNo = a => a.parIcs?.number || (["par", "ics"].includes(a.source?.kind) ? a.source.number : "") || "";
+  const pending = a => !inRegistry(a);
   const title = ppe ? "Property, Plant & Equipment" : "Semi-Expendable Property";
   const canMove = can("issue");
   main.innerHTML = `<div class="page-head"><div><h1>${title}</h1><p>Every ${ppe ? "PPE" : "semi-expendable"} record in the ${esc(fundName(S.fund))}: issued on a ${ppe ? "PAR" : "ICS"} and posted by Accounting, or brought in through Data Import.${canMove ? " Tick items held by one person to transfer, return or dispose of them." : ""}</p></div>
@@ -38,7 +43,11 @@ function registry(main, itemType) {
     searchText: a => `${a.propertyNo} ${a.description} ${a.specs} ${a.holder?.name} ${a.holder?.office} ${a.location} ${a.source?.number}`,
     searchPlaceholder: "Property no., item, officer, office, PAR/ICS",
     filters: [
-      { key: "s", label: "Status", options: [["onhand", "On hand"], ["active", "In use"], ["returned", "Returned to GSO"], ["disposed", "Disposed"]], value: "onhand", test: (a, v) => v === "onhand" ? ["active", "returned"].includes(a.status) : a.status === v },
+      { key: "s", label: "Status", options: [["onhand", "On hand"], ["active", "In use"], ["returned", "Returned to GSO"], ["disposed", "Disposed"], ["pending", "Recorded by GSO, not yet posted"]], value: "onhand",
+        test: (a, v) => v === "pending" ? pending(a) : !pending(a) && (v === "onhand" ? ["active", "returned"].includes(a.status) : a.status === v) },
+      // 6. by PAR / ICS No. and by article / item
+      { key: "dn", label: ppe ? "PAR No." : "ICS No.", options: [...new Set(rows.map(docNo).filter(Boolean))].sort().map(x => [x, x]), test: (a, v) => docNo(a) === v },
+      { key: "ar", label: ppe ? "Item" : "Article / item", options: [...new Set(rows.map(a => String(a.description || "").trim()).filter(Boolean))].sort().map(x => [x, x]), test: (a, v) => String(a.description || "").trim() === v },
       { key: "a", label: "Account", options: [...new Set(rows.map(a => a.accountCode))].sort().map(c => [c, `${c} ${accountName(c)}`]), test: (a, v) => a.accountCode === v },
       { key: "o", label: "Office", options: [...[...new Set(rows.map(a => a.holder?.office).filter(Boolean))].sort().map(x => [x, x]), ["__none", "No office"]],
         test: (a, v) => v === "__none" ? !String(a.holder?.office || "").trim() : a.holder?.office === v },
@@ -46,18 +55,20 @@ function registry(main, itemType) {
         test: (a, v) => v === "__none" ? !String(a.holder?.name || "").trim() : String(a.holder?.name || "").trim() === v }
     ],
     columns: [
-      ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),
+      ...(canMove ? [{ label: "", render: a => ["active", "returned"].includes(a.status) && !pending(a) ? `<input type="checkbox" data-nodirty data-sel="${esc(a.id)}" ${sel.has(a.id) ? "checked" : ""}>` : "" }] : []),
       { label: ppe ? "Property No." : "Item No.", render: a => `<b>${esc(a.propertyNo || "—")}</b>${hasFiles(a) ? ` <span class="badge b-ok" title="Signed PAR / ICS or other attachments on file">Attached</span>` : ""}<div class="xs muted">${esc(sourceText(a))}</div>`, sort: a => a.propertyNo || "" },
+      { label: ppe ? "PAR No." : "ICS No.", render: a => esc(docNo(a) || "—"), sort: a => docNo(a) },
       { label: "Description", render: a => `${esc(a.description)}<div class="xs muted">${esc(a.accountCode)} ${esc(accountName(a.accountCode))}</div>`, sort: a => a.description },
+      { label: "Specification", render: a => `<span class="small">${esc(a.specs || "")}</span>`, sort: a => a.specs || "" },
       { label: "Acquired", render: a => fmtDate(a.dateAcquired), sort: a => a.dateAcquired || "" },
       { label: "Qty", render: a => `${qty(a.qty)} ${esc(a.unit)}`, cls: "right" },
       { label: "Cost", render: a => money(a.cost), sort: a => a.cost, cls: "right", headCls: "right" },
       ...(ppe ? [{ label: "Carrying amount", render: a => money(a.cost - accum(a, runs)), sort: a => a.cost - accum(a, runs), cls: "right", headCls: "right" }] : []),
       { label: "Accountable officer", render: a => `${esc(a.holder?.name || "—")}<div class="xs muted">${esc(a.holder?.office || a.location || "")}</div>`, sort: a => a.holder?.name || "" },
-      { label: "Status", render: a => statusBadge(a.status), sort: a => a.status }
+      { label: "Status", render: a => pending(a) ? `<span class="badge b-warn">Recorded by GSO, not yet posted</span>` : statusBadge(a.status), sort: a => pending(a) ? "pending" : a.status }
     ],
     empty: `No ${ppe ? "PPE" : "semi-expendable"} records in this fund yet.`,
-    footer: list => `<tr><td colspan="${canMove ? 5 : 4}" class="right">Total</td><td class="right">${money(list.reduce((s, a) => s + a.cost, 0))}</td>${ppe ? `<td class="right">${money(list.reduce((s, a) => s + a.cost - accum(a, runs), 0))}</td>` : ""}<td colspan="2"></td></tr>`,
+    footer: list => `<tr><td colspan="${canMove ? 7 : 6}" class="right">Total</td><td class="right">${money(list.reduce((s, a) => s + a.cost, 0))}</td>${ppe ? `<td class="right">${money(list.reduce((s, a) => s + a.cost - accum(a, runs), 0))}</td>` : ""}<td colspan="2"></td></tr>`,
     onRow: a => { location.hash = `#/assets/${a.id}`; }
   });
   const sync = () => $$("[data-mv]", main).forEach(b => { b.disabled = !sel.size; });
@@ -66,12 +77,12 @@ function registry(main, itemType) {
   $("#lc", main).onclick = () => printCards(t.rows(), "ledger");
   $("#pc", main).onclick = () => printCards(t.rows(), "property");
   $("#tg", main).onclick = () => printCards(t.rows(), "tags");
-  const headers = ["Fund", ppe ? "Property No." : "Item No.", "Description", "Account", "Date Acquired", "Qty", "Unit", "Cost", ...(ppe ? ["Residual", "Useful Life", "Accum. Depr.", "Carrying Amount"] : []), "Accountable Officer", "Office", "Status", "Source"];
-  $("#csv", main).onclick = () => downloadCSV(`${ppe ? "PPE" : "SemiExpendable"}-${S.fund}-${today()}`, headers, t.rows().map(a => [a.fund, a.propertyNo, a.description, a.accountCode, a.dateAcquired, a.qty, a.unit, a.cost,
+  const headers = ["Fund", ppe ? "Property No." : "Item No.", ppe ? "PAR No." : "ICS No.", "Description", "Specification", "Account", "Date Acquired", "Qty", "Unit", "Cost", ...(ppe ? ["Residual", "Useful Life", "Accum. Depr.", "Carrying Amount"] : []), "Accountable Officer", "Office", "Status", "Source"];
+  $("#csv", main).onclick = () => downloadCSV(`${ppe ? "PPE" : "SemiExpendable"}-${S.fund}-${today()}`, headers, t.rows().map(a => [a.fund, a.propertyNo, docNo(a), a.description, a.specs || "", a.accountCode, a.dateAcquired, a.qty, a.unit, a.cost,
     ...(ppe ? [a.residualValue, a.usefulLifeYears, accum(a, runs), round2(a.cost - accum(a, runs))] : []), a.holder?.name, a.holder?.office, STATUS[a.status]?.[0], sourceText(a)]));
   $("#pr", main).onclick = () => printForm(tableReportHtml(ppe ? "REGISTER OF PROPERTY, PLANT AND EQUIPMENT" : "REGISTRY OF SEMI-EXPENDABLE PROPERTY ISSUED", `${fundName(S.fund)} · as of ${fmtDate(today())}`,
-    [ppe ? "Property No." : "Item No.", "Description", "Account", "Acquired", "Qty", "Cost", ...(ppe ? ["Accum. Depr.", "Carrying"] : []), "Accountable Officer"],
-    t.rows().map(a => [a.propertyNo, a.description, a.accountCode, fmtDate(a.dateAcquired), `${qty(a.qty)} ${a.unit}`, num(a.cost), ...(ppe ? [num(accum(a, runs)), num(a.cost - accum(a, runs))] : []), a.holder?.name || ""])), "landscape");
+    [ppe ? "Property No." : "Item No.", ppe ? "PAR No." : "ICS No.", "Description", "Specification", "Account", "Acquired", "Qty", "Cost", ...(ppe ? ["Accum. Depr.", "Carrying"] : []), "Accountable Officer"],
+    t.rows().map(a => [a.propertyNo, docNo(a), a.description, a.specs || "", a.accountCode, fmtDate(a.dateAcquired), `${qty(a.qty)} ${a.unit}`, num(a.cost), ...(ppe ? [num(accum(a, runs)), num(a.cost - accum(a, runs))] : []), a.holder?.name || ""])), "landscape");
 }
 export function ppe(main) { registry(main, "ppe"); }
 ppe.deps = ["r:assets", "r:docs", "r:depr", "r:attachments", "fund"];
@@ -191,7 +202,13 @@ export function detail(main, [id]) {
   });
   $("#lc", main).onclick = () => printCards([a], "ledger");
   $("#pc", main).onclick = () => printCards([a], "property");
-  $("#tag", main).onclick = () => printCards([a], "tags");
+  $("#tag", main).onclick = async () => {
+    const v = await confirmBox({ title: "Print ID tags", body: "Ten tags fit on one A4 page. For several pieces under one record (e.g. 30 chairs), print one tag for each.",
+      fields: [{ name: "copies", label: "Number of tags", type: "number", value: Math.max(1, Math.min(200, Math.round(Number(a.qty) || 1))), required: true }], confirmText: "Print" });
+    if (!v) return;
+    const n = Math.max(1, Math.min(200, Math.round(Number(v.copies) || 1)));
+    printCards(Array.from({ length: n }, () => a), "tags");
+  };
   $("#hor", main).onclick = () => printHistory(a);
   $$("[data-mv]", main).forEach(b => b.onclick = () => movementModal(b.dataset.mv, [a]));
   const on = (sel, fn) => { const b = $(sel, main); if (b) b.onclick = fn; };
@@ -241,6 +258,7 @@ function movementModal(kind, assets) {
         <div class="spanall"><label>Reference (IIRUP no., sales invoice, police report…)</label><input name="ref"></div>` : ""}
       <div class="spanall"><label>${kind === "transfer" ? "Reason for transfer" : kind === "return" ? "Reason for return" : "Remarks"}</label><input name="reason"></div>
       ${kind !== "return" ? `<div><label>Approved by</label><input name="aName" value="${esc(s.signatories.approver)}"></div><div><label>Position</label><input name="aPos" value="${esc(s.signatories.approverPosition)}"></div>` : ""}
+      ${kind === "transfer" ? `<div><label>Released / issued by (Property Officer)</label><input name="iName" value="${esc(s.signatories.propertyCustodian || S.account?.displayName || "")}"></div><div><label>Position</label><input name="iPos" value="${esc(s.signatories.propertyCustodianPosition || "Supply and/or Property Custodian")}"></div>` : ""}
       <div class="spanall form-msg err" id="mm"></div>
       <div class="spanall modal-actions"><button type="button" class="btn" data-x>Cancel</button><button class="btn ${kind === "dispose" ? "danger solid" : "primary"}" type="submit">Save ${esc(DOC_NAMES[dt])}</button></div></form>`, { size: "wide" });
   $("[data-x]", m).onclick = () => m.close();
@@ -254,7 +272,7 @@ function movementModal(kind, assets) {
     const u = users.find(x => x.displayName === v.toName);
     const h = { date: v.date, number: v.number || "", reason: v.reason || "", lines, transferType: v.transferType, typeOther: v.typeOther || "", mode: v.mode || "", ref: v.ref || "",
       to: kind === "transfer" ? { name: v.toName || "", position: v.toPos || "", office: v.toOffice || "", uid: u?.id || "" } : null,
-      approvedBy: { name: v.aName || "", position: v.aPos || "" }, issuedBy: { name: s.signatories.propertyCustodian, position: s.signatories.propertyCustodianPosition } };
+      approvedBy: { name: v.aName || "", position: v.aPos || "" }, issuedBy: { name: v.iName ?? s.signatories.propertyCustodian, position: v.iPos ?? s.signatories.propertyCustodianPosition } };
     $("#mm", m).textContent = "";
     busy(e.submitter, async () => {
       try { const out = await saveMovement(kind, assets.map(a => a.id), h); m.close(); clean(); toast(`${DOC_NAMES[out.docType]} ${out.number} saved.`, "ok"); location.hash = `#/movements/${out.id}`; }
@@ -289,7 +307,7 @@ export function movement(main, [id]) {
   const x = S.d.movements.find(m => m.id === id);
   if (!x) { main.innerHTML = `<div class="notice warn">Document not found.</div>`; return; }
   main.innerHTML = `<div class="page-head"><div><h1>${esc(DOC_NAMES[x.docType])} ${esc(x.number)}</h1><p>${fmtDate(x.date)} · ${esc(fundName(x.fund))}</p></div>
-      <div class="btn-row"><button class="btn primary" id="print">Print</button>${can("issue") && x.status !== "cancelled" ? `<button class="btn" id="ed">Edit printed details</button>` : ""}${can("issue") && x.needsPosting && x.status !== "cancelled" && !x.posting?.posted ? `<button class="btn danger" id="cancel">Cancel</button>` : ""}</div></div>
+      <div class="btn-row"><button class="btn primary" id="print">Print</button>${can("issue") && x.status !== "cancelled" ? `<button class="btn" id="ed">Edit printed details</button>` : ""}${canRenumber(x) ? `<button class="btn" id="renum">Change ${esc(DOC_NAMES[x.docType])} No.</button>` : ""}${can("issue") && x.needsPosting && x.status !== "cancelled" && !x.posting?.posted ? `<button class="btn danger" id="cancel">Cancel</button>` : ""}</div></div>
     ${x.status === "cancelled" ? `<div class="notice bad">Cancelled — ${esc(x.cancel?.reason)}</div>` : ""}
     <div class="card"><dl class="kv"><dt>From</dt><dd>${esc(x.from?.name || "—")} ${esc(x.from?.office ? "· " + x.from.office : "")}</dd>
       ${x.to ? `<dt>To</dt><dd>${esc(x.to.name)} ${esc(x.to.office ? "· " + x.to.office : "")}</dd>` : ""}
@@ -306,6 +324,7 @@ export function movement(main, [id]) {
   $("#ed", main) && ($("#ed", main).onclick = () => {
     const m = openModal(`<h2>Edit printed details</h2><p class="muted small">Signatories, reason and reference as they print on the ${esc(DOC_NAMES[x.docType])}. The items and their custody don't change.</p>
       <form class="grid g2" id="ef">
+        <div><label class="req">Date</label><input type="date" name="date" value="${esc(x.date || "")}"></div><div></div>
         <div class="spanall"><label>${x.docType === "dsp" ? "Remarks" : "Reason"}</label><input name="reason" value="${esc(x.reason || "")}"></div>
         ${x.transferType === "others" ? `<div class="spanall"><label>Transfer type — specify</label><input name="typeOther" value="${esc(x.typeOther || "")}"></div>` : ""}
         ${x.docType === "dsp" ? `<div class="spanall"><label>Reference</label><input name="ref" value="${esc(x.ref || "")}"></div>` : ""}
@@ -316,9 +335,10 @@ export function movement(main, [id]) {
     $("#ef", m).onsubmit = e => {
       e.preventDefault();
       const v = Object.fromEntries(new FormData(e.target).entries());
-      busy(e.submitter, async () => { await editMovementDetails(x.id, { reason: v.reason, ref: v.ref ?? x.ref, typeOther: v.typeOther ?? x.typeOther, approvedBy: { name: v.aName, position: v.aPos }, issuedBy: { name: v.iName, position: v.iPos } }); m.close(); clean(); }, "Saved.").catch(() => {});
+      busy(e.submitter, async () => { await editMovementDetails(x.id, { date: v.date, reason: v.reason, ref: v.ref ?? x.ref, typeOther: v.typeOther ?? x.typeOther, approvedBy: { name: v.aName, position: v.aPos }, issuedBy: { name: v.iName, position: v.iPos } }); m.close(); clean(); }, "Saved.").catch(() => {});
     };
   });
+  $("#renum", main) && ($("#renum", main).onclick = e => renumberDialog("movement", x, DOC_NAMES[x.docType], x.number, e.target));
   $("#cancel", main) && ($("#cancel", main).onclick = async e => {
     const v = await confirmBox({ title: `Cancel ${DOC_NAMES[x.docType]} ${x.number}?`, body: "The items return to how they were before.", fields: [{ name: "reason", label: "Reason", type: "textarea", required: true }], confirmText: "Cancel it", danger: true });
     if (v) busy(e.target, () => cancelMovement(x.id, v.reason), "Cancelled.").catch(() => {});

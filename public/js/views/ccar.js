@@ -51,7 +51,7 @@ export function form(main, [id]) {
   if (!c) { main.innerHTML = `<div class="notice warn">CAR not found.</div>`; return; }
   if (c && (c.status !== "accepted" || c.posting?.posted)) { location.hash = `#/car/${id}`; return; }
   const src = c;
-  let lines = (c.lines || []).map(l => ({ id: l.id || uid(), component: l.component || "goods", description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost }));
+  let lines = (c.lines || []).map(l => ({ id: l.id || uid(), component: l.component || "goods", use: l.use || "", description: l.description, specs: l.specs || "", unit: l.unit, qty: l.qty, unitCost: l.unitCost }));
   if (!lines.length) lines = [{ id: uid(), component: "goods", unit: "", qty: 1 }];
   const v = c.verification || {}, a = c.acceptance || {}, r = c.receipt || {}, today = manilaToday();
   main.innerHTML = `<div class="page-head"><div><h1>Edit CAR ${esc(c.number)}</h1>
@@ -68,7 +68,7 @@ export function form(main, [id]) {
         <div class="span2"><label>Invoice / DR No.</label><input name="invNo" value="${esc(src.invNo || "")}"></div>
         <div><label>Invoice date</label><input type="date" name="invDate" value="${esc(src.invDate || "")}"></div>
         <div></div>
-        <div class="spanall"><label>Purpose / remarks</label><input name="purpose" value="${esc(src.purpose || "")}" placeholder="e.g. Repair of the Session Hall ceiling — materials and labor"></div>
+        <div class="spanall"><label>Purpose of procurement</label><input name="purpose" value="${esc(src.purpose || "")}" placeholder="e.g. Repair of the Session Hall ceiling — materials and labor"></div>
       </div>
       <h3 style="margin-top:1.4rem">Goods and labor</h3>
       <p class="xs muted" style="margin-top:-.3rem">Choose <b>Goods</b> for materials and other non-inventoriable items, or <b>Labor / Services</b> for the work done. The totals of each are shown on the CAR.</p>
@@ -98,7 +98,8 @@ export function form(main, [id]) {
   const totals = () => { const t = ccarTotals(ccarLines(lines)); $("#ltot", main).innerHTML = `${num(t.goodsTotal)} / ${num(t.laborTotal)} / <b>${money(t.total)}</b>`; };
   const draw = () => {
     lb.innerHTML = lines.map((l, i) => `<tr data-i="${i}">
-      <td><select data-k="component" class="w-sm">${opts(Object.entries(CCAR_COMPONENTS), l.component)}</select></td>
+      <td><select data-k="component" class="w-sm">${opts(Object.entries(CCAR_COMPONENTS), l.component)}</select>
+        ${l.component === "labor" ? "" : `<select data-k="use" class="w-sm" style="margin-top:.25rem" title="Consumption or distribution, as in IMS">${opts([["", "Use…"], ["consumption", "Consumption"], ["distribution", "Distribution"]], l.use || "")}</select>`}</td>
       <td><input data-k="description" class="w-lg" value="${esc(l.description || "")}" placeholder="${l.component === "labor" ? "e.g. Labor — installation of ceiling boards" : "e.g. Ceiling boards, 4×8"}"></td>
       <td><textarea data-k="specs" class="w-md">${esc(l.specs || "")}</textarea></td>
       <td><input data-k="unit" class="w-xs" value="${esc(l.unit || "")}" placeholder="${l.component === "labor" ? "lot" : "pc"}"></td>
@@ -112,6 +113,7 @@ export function form(main, [id]) {
   lb.addEventListener("input", e => {
     const tr = e.target.closest("tr"), k = e.target.dataset.k; if (!tr || !k) return;
     const l = lines[+tr.dataset.i]; l[k] = e.target.value;
+    if (k === "component") { if (l.component === "labor") l.use = ""; draw(); return; }
     $("[data-amt]", tr).textContent = num((Number(l.qty) || 0) * (Number(l.unitCost) || 0)); totals();
   });
   lb.addEventListener("click", e => { if (!e.target.closest("[data-rm]")) return; lines.splice(+e.target.closest("tr").dataset.i, 1); if (!lines.length) lines.push({ id: uid(), component: "goods", qty: 1 }); draw(); });
@@ -161,7 +163,7 @@ export function detail(main, [id]) {
           <dt>CAR date</dt><dd>${fmtDate(c.date)}</dd><dt>Supplier</dt><dd>${esc(c.supplier)}</dd>
           <dt>PO No./Date</dt><dd>${esc(c.poNo || "—")}${c.poDate ? " · " + fmtDate(c.poDate) : ""}</dd>
           <dt>Invoice No./Date</dt><dd>${esc(c.invNo || "—")}${c.invDate ? " · " + fmtDate(c.invDate) : ""}</dd>
-          ${c.purpose ? `<dt>Purpose</dt><dd>${esc(c.purpose)}</dd>` : ""}
+          ${c.purpose ? `<dt>Purpose of procurement</dt><dd>${esc(c.purpose)}</dd>` : ""}
           ${c.fromAirId ? `<dt>From</dt><dd>${air ? `<a href="#/airs/${esc(c.fromAirId)}">${c.fromAirNo ? `Delivery Report with AIR ${esc(c.fromAirNo)}` : "the Delivery Report"}</a>` : "a Delivery Report"}${c.endUserName ? ` · ${esc(c.endUserName)}` : ""}</dd>` : ""}
           <dt>Accounting</dt><dd>${c.posting?.posted ? `Posted ${fmtDate(c.posting.date)} · ${esc(c.posting.ref)}` : c.status === "cancelled" ? "—" : "Not yet posted"}</dd>
           <dt>Prepared by</dt><dd>${esc(c.encodedBy?.name || "")}</dd></dl>

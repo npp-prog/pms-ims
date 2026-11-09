@@ -115,6 +115,7 @@ export const CCAR_COMPONENTS = { goods: "Goods", labor: "Labor / Services" };
 /** Lines as saved: component (goods / labor), description, unit, quantity, unit cost and amount. */
 export const ccarLines = lines => (lines || []).map(l => ({
   id: l.id || Math.random().toString(36).slice(2, 10), component: l.component === "labor" ? "labor" : "goods",
+  use: l.component === "labor" ? "" : ["consumption", "distribution"].includes(l.use) ? l.use : "",
   description: String(l.description || "").trim(), specs: String(l.specs || "").trim(), unit: String(l.unit || "").trim(),
   qty: round2(Number(l.qty) || 0), unitCost: round2(Number(l.unitCost) || 0), amount: round2((Number(l.qty) || 0) * (Number(l.unitCost) || 0))
 })).filter(l => l.description || l.amount);

@@ -14,7 +14,7 @@ const monthName = p => new Date(`${p}-01T00:00:00`).toLocaleDateString("en-PH", 
 
 export function reports(main) {
   main.innerHTML = `<div class="page-head"><div><h1>Reports</h1><p>${esc(fundName(S.fund))}. The GSO puts the RIS not yet posted on an RSMI, and Accounting posts the RSMI; for the other reports choose the period. Then print or download.</p></div></div>
-    <div class="tabs">${[["rsmi", "RSMI"], ["accounts", "Summary by Account"], ["monitor", "AIR Monitoring"], ["accountability", "Accountability"], ["disposed", "Disposed / Retired"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
+    <div class="tabs">${[["rsmi", "RSMI"], ["accounts", "Summary by Account"], ["monitor", "AIR Monitoring"], ["parmon", "PAR Monitoring"], ["icsmon", "ICS Monitoring"], ["carmon", "CAR Monitoring"], ["accountability", "Accountability"], ["disposed", "Disposed / Retired"]].map(([k, l]) => `<button data-t="${k}" class="${st.tab === k ? "active" : ""}">${l}</button>`).join("")}</div>
     <div class="card"><div class="table-tools" data-nodirty ${["accountability", "disposed"].includes(st.tab) ? "hidden" : ""}>
       <div ${st.tab === "rsmi" ? "hidden" : ""}><label>From</label><input type="date" id="from" value="${st.from}"></div><div ${st.tab === "rsmi" ? "hidden" : ""}><label>To</label><input type="date" id="to" value="${st.to}"></div>
       <div class="grow"></div><div class="btn-row" style="align-self:flex-end"><button class="btn" id="csv">Download CSV</button><button class="btn primary" id="pr">Print</button></div></div>
@@ -24,7 +24,7 @@ export function reports(main) {
   $("#to", main).onchange = e => { st.to = e.target.value; draw(main); };
   draw(main);
 }
-reports.deps = ["r:airs", "r:docs", "r:assets", "r:depr", "r:movements", "r:repairs", "r:rsmis", "fund"];
+reports.deps = ["r:airs", "r:docs", "r:assets", "r:depr", "r:movements", "r:repairs", "r:rsmis", "r:ccars", "fund"];
 
 const inRange = d => (!st.from || d >= st.from) && (!st.to || d <= st.to);
 
@@ -33,6 +33,7 @@ function draw(main) {
   if (st.tab === "accountability") return accountability(out);
   if (st.tab === "disposed") return disposed(out);
   if (st.tab === "rsmi") return rsmiTab(main, out);
+  if (["parmon", "icsmon", "carmon"].includes(st.tab)) return docMonitor(main, out, st.tab);
   if (st.tab === "accounts") {
     const acc = new Map();
     const get = (code, cat) => { if (!acc.has(code)) acc.set(code, { code, cat, received: 0, issued: 0, posted: 0 }); return acc.get(code); };
@@ -52,16 +53,33 @@ function draw(main) {
     $("#pr", main).onclick = () => printForm(tableReportHtml("SUMMARY BY ACCOUNT", `${fundName(S.fund)} · ${fmtDate(st.from)} to ${fmtDate(st.to)}`, headers,
       data.map(r => [r[0], r[1], r[2], num(r[3]), num(r[4]), num(r[5])]), ["", "TOTAL", "", num(tot("received")), num(tot("issued")), num(tot("posted"))]), "landscape");
   } else {
-    const rows = fundAirs().filter(a => a.status !== "draft" && inRange(a.date)).sort((a, b) => a.date.localeCompare(b.date) || a.airNo.localeCompare(b.airNo))
+    // every column sorts (A–Z / Z–A, first to last); search and status / posting filters
+    const airDate = a => a.airDate || a.date;
+    const all = fundAirs().filter(a => a.airNo && inRange(airDate(a)))
       .map(a => { const docs = docsOfAir(a.id).filter(d => d.status !== "cancelled"); return { a, docs, ps: postingSummary(a, docs) }; });
-    out.innerHTML = `<p class="small muted">Every AIR dated in the period, its stage, the documents issued from it and its Accounting posting status.</p>
-      <div class="table-wrap"><table><thead><tr><th>AIR No.</th><th>Date</th><th>Office</th><th>Supplier</th><th class="right">Amount</th><th>Status</th><th>PAR / ICS / RIS</th><th>Posting</th></tr></thead>
-      <tbody>${rows.map(({ a, docs, ps }) => `<tr><td><a href="#/airs/${a.id}">${esc(a.airNo)}</a></td><td>${fmtDate(a.date)}</td><td>${esc(a.office)}</td><td>${esc(a.supplier)}</td><td class="right">${num(a.total)}</td>
-        <td>${esc(AIR_STATUS[a.status])}</td><td class="small">${docs.map(d => `${d.docType.toUpperCase()} ${esc(d.number)}`).join(", ") || "—"}</td><td>${esc(POSTING_STATE[ps.state])} (${ps.posted}/${ps.total})</td></tr>`).join("") || `<tr><td colspan="8" class="empty">No AIRs in this period.</td></tr>`}</tbody></table></div>`;
+    out.innerHTML = `<p class="small muted">Every AIR dated in the period, its stage, the documents issued from it and its Accounting posting status. Click a column heading to sort it; click again to reverse.</p><div id="mt"></div>`;
+    const t = renderTable($("#mt", out), {
+      id: "air-monitor", rows: all, pageSize: 100, defaultSort: 1, defaultDir: 1,
+      searchText: ({ a, docs }) => `${a.airNo} ${a.office} ${a.supplier} ${docs.map(d => d.number).join(" ")}`, searchPlaceholder: "AIR no., office, supplier, PAR / ICS / RIS no.",
+      filters: [{ key: "s", label: "Status", options: Object.entries(AIR_STATUS).filter(([k]) => !["draft", "submitted", "returned", "ccar"].includes(k)), test: ({ a }, v) => a.status === v },
+        { key: "p", label: "Posting", options: Object.entries(POSTING_STATE), test: ({ ps }, v) => ps.state === v }],
+      columns: [
+        { label: "AIR No.", render: ({ a }) => `<a href="#/airs/${a.id}">${esc(a.airNo)}</a>`, sort: ({ a }) => a.airNo },
+        { label: "Date", render: ({ a }) => fmtDate(airDate(a)), sort: ({ a }) => `${airDate(a)} ${a.airNo}` },
+        { label: "Office", render: ({ a }) => esc(a.office), sort: ({ a }) => a.office || "" },
+        { label: "Supplier", render: ({ a }) => esc(a.supplier), sort: ({ a }) => a.supplier || "" },
+        { label: "Amount", render: ({ a }) => num(a.total), sort: ({ a }) => a.total || 0, cls: "right", headCls: "right" },
+        { label: "Status", render: ({ a }) => esc(AIR_STATUS[a.status] || a.status), sort: ({ a }) => a.status },
+        { label: "PAR / ICS / RIS", render: ({ docs }) => `<span class="small">${docs.map(d => `${d.docType.toUpperCase()} ${esc(d.number)}`).join(", ") || "—"}</span>`, sort: ({ docs }) => docs.map(d => d.number).join(" ") },
+        { label: "Posting", render: ({ ps }) => `${esc(POSTING_STATE[ps.state])} (${ps.posted}/${ps.total})`, sort: ({ ps }) => ps.state }
+      ],
+      empty: "No AIRs in this period."
+    });
+    const rows = () => t.rows();
     const headers = ["AIR No.", "Date", "Office", "Supplier", "Amount", "Status", "Documents", "Posting"];
-    const data = rows.map(({ a, docs, ps }) => [a.airNo, a.date, a.office, a.supplier, a.total, AIR_STATUS[a.status], docs.map(d => `${d.docType.toUpperCase()} ${d.number}`).join("; "), `${POSTING_STATE[ps.state]} (${ps.posted}/${ps.total})`]);
-    $("#csv", main).onclick = () => downloadCSV(`AIR-Monitoring-${S.fund}-${st.from}-${st.to}`, headers, data);
-    $("#pr", main).onclick = () => printForm(tableReportHtml("AIR MONITORING REPORT", `${fundName(S.fund)} · ${fmtDate(st.from)} to ${fmtDate(st.to)}`, headers, data.map(r => [r[0], fmtDate(r[1]), r[2], r[3], num(r[4]), r[5], r[6], r[7]])), "landscape");
+    const data = () => rows().map(({ a, docs, ps }) => [a.airNo, airDate(a), a.office, a.supplier, a.total, AIR_STATUS[a.status], docs.map(d => `${d.docType.toUpperCase()} ${d.number}`).join("; "), `${POSTING_STATE[ps.state]} (${ps.posted}/${ps.total})`]);
+    $("#csv", main).onclick = () => downloadCSV(`AIR-Monitoring-${S.fund}-${st.from}-${st.to}`, headers, data());
+    $("#pr", main).onclick = () => printForm(tableReportHtml("AIR MONITORING REPORT", `${fundName(S.fund)} · ${fmtDate(st.from)} to ${fmtDate(st.to)}`, headers, data().map(r => [r[0], fmtDate(r[1]), r[2], r[3], num(r[4]), r[5], r[6], r[7]])), "landscape");
   }
 }
 
@@ -225,4 +243,40 @@ function savedRsmi(main, pane, x) {
   });
   $("#pr", main).onclick = () => printForm(rsmiHtml(r, S.fund, x.from, x.to, { month: x.month, serial: x.number, entry: je }), "portrait");
   $("#csv", main).onclick = () => csvOf(`RSMI-${S.fund}-${x.number}`, r);
+}
+
+
+/* ---------------- PAR / ICS / CAR monitoring ---------------- */
+/** Every PAR, ICS or CAR dated in the period: sortable by any column, searchable by its number, with CSV and print. */
+function docMonitor(main, out, tab) {
+  const kind = { parmon: "par", icsmon: "ics", carmon: "car" }[tab], label = kind.toUpperCase();
+  const status = d => d.status === "cancelled" ? "Cancelled" : d.posting?.posted ? "Posted" : "For posting";
+  const rows = kind === "car"
+    ? (S.d.ccars || []).filter(c => c.fund === S.fund && inRange(c.date)).map(c => ({ id: c.id, href: `#/car/${c.id}`, date: c.date, number: c.number, who: c.receipt?.name || c.endUserName || "",
+        office: c.office, items: (c.lines || []).length, amount: c.total, status: status(c), ref: c.posting?.ref || "", detail: c.supplier }))
+    : fundDocs().filter(d => d.docType === kind && inRange(d.date)).map(d => ({ id: d.id, href: `#/issuances/${d.id}`, date: d.date, number: d.number, who: d.recipient?.name || "",
+        office: d.recipient?.office || d.office || "", items: (d.lines || []).length, amount: d.total, status: status(d), ref: d.posting?.ref || "", detail: d.airNo ? `AIR ${d.airNo}` : "" }));
+  out.innerHTML = `<p class="small muted">Every ${label} dated in the period. Click a column heading to sort it (again to reverse); search by ${label} No., name or office.</p><div id="mt"></div>`;
+  const t = renderTable($("#mt", out), {
+    id: `${kind}-monitor`, rows, pageSize: 100, defaultSort: 0, defaultDir: 1,
+    searchText: r => `${r.number} ${r.who} ${r.office} ${r.detail}`, searchPlaceholder: `${label} No., name, office`,
+    filters: [{ key: "s", label: "Status", options: [["For posting", "For posting"], ["Posted", "Posted"], ["Cancelled", "Cancelled"]], test: (r, v) => r.status === v }],
+    columns: [
+      { label: kind === "car" ? "CAR date" : "Date issued", render: r => fmtDate(r.date), sort: r => `${r.date} ${r.number}` },
+      { label: `${label} No.`, render: r => `<a href="${r.href}"><b>${esc(r.number)}</b></a>`, sort: r => r.number },
+      { label: kind === "car" ? "Received by" : "Received by", render: r => esc(r.who), sort: r => r.who },
+      { label: "Office", render: r => esc(r.office), sort: r => r.office },
+      { label: kind === "car" ? "Supplier" : "AIR", render: r => esc(r.detail), sort: r => r.detail },
+      { label: "Items", render: r => r.items, sort: r => r.items, cls: "right", headCls: "right" },
+      { label: "Amount", render: r => num(r.amount), sort: r => r.amount || 0, cls: "right", headCls: "right" },
+      { label: "Status", render: r => `${esc(r.status)}${r.ref ? `<div class="xs muted">${esc(r.ref)}</div>` : ""}`, sort: r => r.status }
+    ],
+    empty: `No ${label} in this period.`,
+    footer: list => `<tr><td colspan="6" class="right">Total</td><td class="right">${money(list.reduce((x, r) => x + (r.amount || 0), 0))}</td><td></td></tr>`
+  });
+  const headers = [kind === "car" ? "CAR Date" : "Date Issued", `${label} No.`, "Received by", "Office", kind === "car" ? "Supplier" : "AIR", "Items", "Amount", "Status", "JEV / Ref"];
+  const data = () => t.rows().map(r => [r.date, r.number, r.who, r.office, r.detail, r.items, r.amount, r.status, r.ref]);
+  $("#csv", main).onclick = () => downloadCSV(`${label}-Monitoring-${S.fund}-${st.from}-${st.to}`, headers, data());
+  $("#pr", main).onclick = () => printForm(tableReportHtml(`${label} MONITORING REPORT`, `${fundName(S.fund)} · ${fmtDate(st.from)} to ${fmtDate(st.to)}`, headers,
+    data().map(r => [fmtDate(r[0]), r[1], r[2], r[3], r[4], r[5], num(r[6]), r[7], r[8]])), "landscape");
 }
